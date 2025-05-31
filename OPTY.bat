@@ -6,9 +6,9 @@
 
 @echo off
 REM set variables
-set current_version=2.0
-set GitHubRawLink=https://raw.githubusercontent.com/YDeltagon/OPTY/master/resources/
-set GitHubLatestLink=https://github.com/YDeltagon/OPTY/releases/latest/download/
+set current_version=02.0
+set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
+set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 REM Set variables for logs
 cd /d "%~dp0"
 set current_time="%time:~0,5%"
@@ -95,7 +95,7 @@ cls
 echo.
 echo  Check Update for this script...
 echo.
-for /f "tokens=2 delims=V" %%a in ('curl -s https://api.github.com/repos/YDeltagon/OPTY/releases/latest -L -H "Accept: application/json"^|findstr "tag_name"') do set latest_version=%%a
+for /f "tokens=2 delims=V" %%a in ('curl -s https://api.github.com/repos/YannD-Deltagon/OPTY/releases/latest -L -H "Accept: application/json"^|findstr "tag_name"') do set latest_version=%%a
 set latest_version=%latest_version:~0,-2%
 if "%current_version%"=="%latest_version%" goto update_not_available
 echo %date% %time% : Update found >> %logs%
@@ -158,7 +158,7 @@ echo %date% %time% : Menu.bat >> %logs%
 color F1
 cls
 echo.
-echo  WELCOME to OPTY by @YannD_Deltagon
+echo  WELCOME to OPTY by @YannD-Deltagon
 echo.
 echo.
 echo.
@@ -206,7 +206,7 @@ if /i "%AutoOpti_Shutdown%"=="1" echo %date% %time% : AutoOpti_Shutdown >> %logs
 color F5
 cls
 echo.
-echo  WELCOME to OPTY by @YannD_Deltagon
+echo  WELCOME to OPTY by @YannD-Deltagon
 echo  Choose a option for Optimization cycle:
 echo.
 echo   1. Manual
@@ -250,7 +250,7 @@ goto mopti
 color F4
 cls
 echo.
-echo  WELCOME to OPTY by @YannD_Deltagon
+echo  WELCOME to OPTY by @YannD-Deltagon
 echo  Choose a option to Disable/Enable :
 echo.
 echo  Add "+" or "-" in front of an action + activate or - deactivate it (example "-ani" to deactivate animations)
@@ -615,7 +615,7 @@ goto menu
 color F2
 cls
 echo.
-echo  WELCOME to OPTY by @YannD_Deltagon
+echo  WELCOME to OPTY by @YannD-Deltagon
 echo    Choose the option to re-enable:
 echo.
 echo   1. Start office update
@@ -916,7 +916,7 @@ echo.
 echo.
 echo.
 echo  Thanks for using my script
-echo     @YDeltagon (YannD)
+echo     @YannD-Deltagon
 echo.
 echo.
 echo.
