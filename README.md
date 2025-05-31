@@ -1,29 +1,35 @@
-## ABOUT <!-- omit in toc -->
+## ⚡ QUICK START
 
-This is a simple menu for use commands to fix some bugs and optimize your computer
+1. Download [`OPTY.bat`](https://github.com/YannD-Deltagon/OPTY/blob/master/OPTY.bat)
+2. **Right-click > Run as administrator**
+3. Follow the on-screen instructions  
+✅ *Requires an active Internet connection*
+4. Use your numpad to navigate the menu — for a fast cleanup:  
+   👉 Press `1` + `Enter`, then `2r` + `Enter`  
+   *(Executes a Fast AutoClean + Reboot)*
 
-**Based on 3 year of experience in IT, and 2 years of laziness typing the same commands**
 
-This is a script for optimize your computer
-With a lot of options :
+## 📌 ABOUT <!-- omit in toc -->
 
-- cleaning,
-- defragmenting,
-- optimizing,
-- fix,
-- and more...
+A lightweight command menu to fix common Windows issues and optimize your system.
 
-This script is made for **Windows 10/11**
+> 🧠 **Based on 7 years of IT experience and 2 years of laziness typing the same commands**
 
-ONLY work WITH a **valid** internet connection
+### 🎯 Features:
+- Clean temporary and junk files  
+- Smart defragmentation  
+- Performance tweaks and service optimizations  
+- Quick fixes for common bugs  
+- Built-in tools: DISM, SFC, netsh, and more...
 
----
+### 🖥️ Compatibility:
+- Windows **10** / **11**
+- Requires a **working Internet connection**
 
-**RESTART THE COMPUTER BEFORE RUNNING THE SCRIPT** - This allows any pending updates to complete.
 
-- Download `OPTY.bat` (no need to download the other files)
-- Right click on and select "**Run as administrator**"
-  - If you need to execute FixUserShellFolderPermissions in a entreprise environnement
-    - Execute with the user account
-- Use the menu to run the desired script
-- **Reboot** the system before doing *anything else*.
+## 🛠️ HOW TO USE
+
+```bash
+1. Download OPTY.bat (no need for other files)
+2. Right-click > "Run as administrator"
+3. Use the menu to select desired actions
