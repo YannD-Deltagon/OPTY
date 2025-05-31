@@ -4,6 +4,9 @@
 
 
 
+
+
+
 @echo off
 REM set variables
 set current_version=02.0
@@ -23,8 +26,8 @@ if %errorlevel% == 0 (
 ) else (
     echo %date% %time% : User >> %logs%
     echo.
-    echo Not running as administrator
-    echo please lanch with admin right
+    echo   Not running as administrator
+    echo   lanch with admin right
     echo.
     timeout /t 15
     exit
@@ -59,7 +62,6 @@ if %errorlevel%==0 (
     echo.
     echo  Ping check successful.
     echo.
-    timeout /t 0
     goto update_opty
 ) else (
     echo %date% %time% : Ping GitHub ko for %loop_pinggh% time >> %logs%
@@ -162,6 +164,7 @@ echo  WELCOME to OPTY by @YannD-Deltagon
 echo.
 echo.
 echo.
+echo.
 echo   1. MENU - Clean + Optimization
 echo   2. MENU - Re-enable option
 echo   3. MENU - Register profil option
@@ -181,6 +184,10 @@ echo.
 echo.
 echo.
 echo   0. Exit
+echo.
+echo.
+echo.
+echo.
 echo.
 set /p choice= Enter action:
 echo %date% %time% : Menu.bat-menuadmin %choice% >> %logs%
@@ -209,9 +216,12 @@ echo.
 echo  WELCOME to OPTY by @YannD-Deltagon
 echo  Choose a option for Optimization cycle:
 echo.
+echo.
+echo.
 echo   1. Manual
 echo   2. Auto (lite)
 echo   3. Auto (Full)
+echo.
 echo.
 echo.
 echo.
@@ -226,9 +236,11 @@ echo.
 echo.
 echo.
 echo.
-echo.
-echo.
 echo   0. Menu
+echo.
+echo.
+echo.
+echo.
 echo.
 set /p choice= Enter action:
 echo %date% %time% : Opti-mopti %choice% >> %logs%
@@ -253,7 +265,7 @@ echo.
 echo  WELCOME to OPTY by @YannD-Deltagon
 echo  Choose a option to Disable/Enable :
 echo.
-echo  Add "+" or "-" in front of an action + activate or - deactivate it (example "-ani" to deactivate animations)
+echo.
 echo.
 echo   ani. Animation
 echo   mov. Window content while moving
@@ -262,6 +274,8 @@ echo   hbn. Hibernation mods
 echo.
 echo.
 echo.
+echo.
+echo  Add "+" or "-" in front of an action + activate or - deactivate it (example "-ani" to deactivate animations)
 echo.
 echo.
 echo.
@@ -272,6 +286,9 @@ echo.
 echo.
 echo   2. Next
 echo   0. Menu
+echo.
+echo.
+echo.
 echo.
 echo.
 set /p choice= Enter action:
@@ -618,6 +635,8 @@ echo.
 echo  WELCOME to OPTY by @YannD-Deltagon
 echo    Choose the option to re-enable:
 echo.
+echo.
+echo.
 echo   1. Start office update
 echo   2. Enable chrome update (if you compagny use GPO [Register])
 echo   3. Enable windows update (if you compagny use GPO [Register])
@@ -637,6 +656,9 @@ echo.
 echo.
 echo.
 echo   0. Menu
+echo.
+echo.
+echo.
 echo.
 echo.
 set /p choice= Enter action:
@@ -698,6 +720,8 @@ echo.
 echo  Optimize your Register, mouse and power
 echo    Choose your desired profil:
 echo.
+echo.
+echo.
 echo   1. Mouse and power only
 echo   10. Mouse and power only-
 echo.
@@ -718,6 +742,9 @@ echo.
 echo.
 echo.
 echo   0. Menu
+echo.
+echo.
+echo.
 echo.
 echo.
 set /p choice= Enter action:
@@ -800,6 +827,8 @@ echo.
 echo.
 echo Do you want create the "ULTIMATE POWER" ?
 echo.
+echo.
+echo.
 echo   1. Yes
 echo   2. No
 echo.
@@ -819,6 +848,9 @@ echo.
 echo.
 echo.
 echo   0. Menu
+echo.
+echo.
+echo.
 echo.
 echo.
 set /p choice= Enter action:
@@ -846,6 +878,8 @@ echo.
 echo.
 echo Do you want create to optimize your mouse ?
 echo.
+echo.
+echo.
 echo   1. Yes
 echo   2. No
 echo.
@@ -865,6 +899,9 @@ echo.
 echo.
 echo.
 echo   0. Menu
+echo.
+echo.
+echo.
 echo.
 echo.
 set /p choice= Enter action:
