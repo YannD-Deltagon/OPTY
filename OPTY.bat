@@ -1,13 +1,7 @@
-:::: CHANGELOGS ::::
-:: 2025-05-31  :                      Re-Master all
-
-
-
-
-
+:::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=02.0
+set current_version=02.1
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -620,6 +614,235 @@ del /S /F /Q "%LOCALAPPDATA%\Intel\ShaderCache\*"
 echo %date% %time% : Deleting DirectX Shader Cache                       >> %logs%
 del /S /F /Q "%LOCALAPPDATA%\D3DSCache\*"
 
+:: Discord (subcaches)
+echo %date% %time% : Deleting Discord Code Cache and GPUCache         >> %logs%
+del /S /F /Q "%APPDATA%\discord\Code Cache\*"
+del /S /F /Q "%APPDATA%\discord\GPUCache\*"
+del /S /F /Q "%APPDATA%\discord\logs\*"
+
+:: Teams (subcaches)
+echo %date% %time% : Deleting Teams Code Cache, GPUCache, Service Worker CacheStorage, logs >> %logs%
+del /S /F /Q "%APPDATA%\Microsoft\Teams\Code Cache\*"
+del /S /F /Q "%APPDATA%\Microsoft\Teams\GPUCache\*"
+del /S /F /Q "%APPDATA%\Microsoft\Teams\Service Worker\CacheStorage\*"
+del /S /F /Q "%APPDATA%\Microsoft\Teams\logs\*"
+
+:: Slack (subcaches)
+echo %date% %time% : Deleting Slack Code Cache and GPUCache, logs     >> %logs%
+del /S /F /Q "%APPDATA%\Slack\Code Cache\*"
+del /S /F /Q "%APPDATA%\Slack\GPUCache\*"
+del /S /F /Q "%APPDATA%\Slack\logs\*"
+
+:: Skype
+echo %date% %time% : Deleting Skype media and thumbnail cache         >> %logs%
+del /S /F /Q "%APPDATA%\Skype\*\media_messaging\media_cache\*"
+del /S /F /Q "%APPDATA%\Skype\*\thumbnails\*"
+
+:: Zoom
+echo %date% %time% : Deleting Zoom cache and logs                    >> %logs%
+del /S /F /Q "%APPDATA%\Zoom\bin\*"
+del /S /F /Q "%APPDATA%\Zoom\data\*"
+del /S /F /Q "%APPDATA%\Zoom\logs\*"
+
+:: Adobe (Premiere, After Effects, etc.)
+echo %date% %time% : Deleting Adobe Media Cache                      >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\Common\Media Cache Files\*"
+del /S /F /Q "%APPDATA%\Adobe\Common\Media Cache\*"
+echo %date% %time% : Deleting Adobe Acrobat cache                    >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\Acrobat\DC\Cache\*"
+echo %date% %time% : Deleting Adobe Photoshop temp                   >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\Adobe Photoshop*\Temp\*"
+echo %date% %time% : Deleting Adobe Illustrator temp                 >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\Adobe Illustrator*\Temp\*"
+echo %date% %time% : Deleting Adobe After Effects cache              >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\After Effects\*\Cache\*"
+echo %date% %time% : Deleting Adobe Premiere Pro cache               >> %logs%
+del /S /F /Q "%APPDATA%\Adobe\Premiere Pro\*\Profile-*\Cache\*"
+
+:: Spotify
+echo %date% %time% : Deleting Spotify cache and logs                 >> %logs%
+del /S /F /Q "%APPDATA%\Spotify\Storage\*"
+del /S /F /Q "%LOCALAPPDATA%\Spotify\Data\*"
+del /S /F /Q "%APPDATA%\Spotify\Logs\*"
+
+:: Epic Games Launcher
+echo %date% %time% : Deleting Epic Games Launcher webcache and logs  >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\EpicGamesLauncher\Saved\webcache\*"
+del /S /F /Q "%LOCALAPPDATA%\EpicGamesLauncher\Saved\Logs\*"
+
+:: Battle.net
+echo %date% %time% : Deleting Battle.net cache and logs              >> %logs%
+del /S /F /Q "%PROGRAMDATA%\Battle.net\Cache\*"
+del /S /F /Q "%PROGRAMDATA%\Battle.net\Logs\*"
+
+:: Steam
+echo %date% %time% : Deleting Steam appcache, logs, and htmlcache    >> %logs%
+del /S /F /Q "%PROGRAMFILES(x86)%\Steam\appcache\*"
+del /S /F /Q "%PROGRAMFILES(x86)%\Steam\logs\*"
+del /S /F /Q "%PROGRAMFILES(x86)%\Steam\htmlcache\*"
+
+:: Origin / EA App
+echo %date% %time% : Deleting Origin cache                           >> %logs%
+del /S /F /Q "%PROGRAMDATA%\Origin\Cache\*"
+echo %date% %time% : Deleting EA App cache and logs                  >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Electronic Arts\EA Desktop\Cache\*"
+del /S /F /Q "%LOCALAPPDATA%\Electronic Arts\EA Desktop\Logs\*"
+
+:: Riot Games (League of Legends, Valorant, etc.)
+echo %date% %time% : Deleting Riot Games Client cache and logs       >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Riot Games\Riot Client\Cache\*"
+del /S /F /Q "%LOCALAPPDATA%\Riot Games\Riot Client\Logs\*"
+
+:: GOG Galaxy
+echo %date% %time% : Deleting GOG Galaxy cache and logs              >> %logs%
+del /S /F /Q "%PROGRAMDATA%\GOG.com\Galaxy\logs\*"
+del /S /F /Q "%LOCALAPPDATA%\GOG.com\Galaxy\logs\*"
+del /S /F /Q "%LOCALAPPDATA%\GOG.com\Galaxy\Cache\*"
+
+:: Rockstar Games Launcher
+echo %date% %time% : Deleting Rockstar Games Launcher cache and logs >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Rockstar Games\Launcher\Cache\*"
+del /S /F /Q "%LOCALAPPDATA%\Rockstar Games\Launcher\Logs\*"
+
+:: Ubisoft Connect (Uplay)
+echo %date% %time% : Deleting Ubisoft Connect cache and logs         >> %logs%
+del /S /F /Q "%PROGRAMFILES(x86)%\Ubisoft\Ubisoft Game Launcher\cache\*"
+del /S /F /Q "%PROGRAMFILES(x86)%\Ubisoft\Ubisoft Game Launcher\logs\*"
+
+:: Xbox App (Microsoft Store version)
+echo %date% %time% : Deleting Xbox App cache/logs                    >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Packages\Microsoft.XboxApp*\LocalCache\*"
+del /S /F /Q "%LOCALAPPDATA%\Packages\Microsoft.XboxApp*\TempState\*"
+
+:: WhatsApp Desktop
+echo %date% %time% : Deleting WhatsApp Desktop cache and logs        >> %logs%
+del /S /F /Q "%APPDATA%\WhatsApp\Cache\*"
+del /S /F /Q "%APPDATA%\WhatsApp\logs\*"
+
+:: Telegram Desktop
+echo %date% %time% : Deleting Telegram Desktop cache and logs        >> %logs%
+del /S /F /Q "%APPDATA%\Telegram Desktop\tdata\user_data\*"
+del /S /F /Q "%APPDATA%\Telegram Desktop\log\*"
+
+:: Microsoft Office (Word, Excel, PowerPoint, OneNote, Outlook)
+echo %date% %time% : Deleting Office recent/temp files               >> %logs%
+del /S /F /Q "%APPDATA%\Microsoft\Office\Recent\*"
+del /S /F /Q "%APPDATA%\Microsoft\Word\STARTUP\*"
+del /S /F /Q "%APPDATA%\Microsoft\Excel\XLSTART\*"
+del /S /F /Q "%APPDATA%\Microsoft\PowerPoint\STARTUP\*"
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\OneNote\*\cache\*"
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\Outlook\*.tmp"
+
+:: Google Drive
+echo %date% %time% : Deleting Google Drive cache                     >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Google\DriveFS\*"
+
+:: Dropbox
+echo %date% %time% : Deleting Dropbox cache                          >> %logs%
+del /S /F /Q "%APPDATA%\Dropbox\cache\*"
+
+:: OneDrive
+echo %date% %time% : Deleting OneDrive logs                          >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\OneDrive\logs\*"
+
+:: Foxit Reader
+echo %date% %time% : Deleting Foxit Reader cache                     >> %logs%
+del /S /F /Q "%APPDATA%\Foxit Software\Foxit Reader\cache\*"
+
+:: LibreOffice
+echo %date% %time% : Deleting LibreOffice cache                      >> %logs%
+del /S /F /Q "%APPDATA%\LibreOffice\4\cache\*"
+
+:: WPS Office
+echo %date% %time% : Deleting WPS Office cache                       >> %logs%
+del /S /F /Q "%APPDATA%\Kingsoft\Office6\office6\temp\*"
+
+:: OnlyOffice
+echo %date% %time% : Deleting OnlyOffice cache                       >> %logs%
+del /S /F /Q "%APPDATA%\ONLYOFFICE\*"
+
+:: OpenOffice
+echo %date% %time% : Deleting OpenOffice cache                       >> %logs%
+del /S /F /Q "%APPDATA%\OpenOffice\4\user\temp\*"
+
+:: Thunderbird
+echo %date% %time% : Deleting Thunderbird cache                      >> %logs%
+del /S /F /Q "%APPDATA%\Thunderbird\Profiles\*\cache2\*"
+
+:: VLC
+echo %date% %time% : Deleting VLC cache                              >> %logs%
+del /S /F /Q "%APPDATA%\vlc\*"
+
+:: WinRAR
+echo %date% %time% : Deleting WinRAR temp                            >> %logs%
+del /S /F /Q "%APPDATA%\WinRAR\Temp\*"
+
+:: 7-Zip
+echo %date% %time% : Deleting 7-Zip temp                             >> %logs%
+del /S /F /Q "%APPDATA%\7-Zip\Temp\*"
+
+:: Paint.NET
+echo %date% %time% : Deleting Paint.NET temp                         >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\paint.net\SessionData\*"
+
+:: GIMP
+echo %date% %time% : Deleting GIMP temp                              >> %logs%
+del /S /F /Q "%APPDATA%\GIMP\2.10\tmp\*"
+
+:: Visual Studio
+echo %date% %time% : Deleting Visual Studio cache                    >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\VisualStudio\*\ComponentModelCache\*"
+
+:: JetBrains Toolbox (Rider, PyCharm, IntelliJ, etc.)
+echo %date% %time% : Deleting JetBrains IDEs cache                   >> %logs%
+del /S /F /Q "%USERPROFILE%\.Rider*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.PyCharm*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.IntelliJIdea*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.WebStorm*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.PhpStorm*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.CLion*\system\caches\*"
+del /S /F /Q "%USERPROFILE%\.DataGrip*\system\caches\*"
+
+:: Eclipse
+echo %date% %time% : Deleting Eclipse cache                          >> %logs%
+del /S /F /Q "%USERPROFILE%\.eclipse\*"
+
+:: NetBeans
+echo %date% %time% : Deleting NetBeans cache                         >> %logs%
+del /S /F /Q "%USERPROFILE%\AppData\Local\NetBeans\Cache\*"
+
+:: Android Studio
+echo %date% %time% : Deleting Android Studio cache                    >> %logs%
+del /S /F /Q "%USERPROFILE%\.AndroidStudio*\system\caches\*"
+
+:: Brave Browser
+echo %date% %time% : Deleting Brave cache                             >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data\Default\Cache\*"
+
+:: Opera
+echo %date% %time% : Deleting Opera cache                             >> %logs%
+del /S /F /Q "%APPDATA%\Opera Software\Opera Stable\Cache\*"
+
+:: Vivaldi
+echo %date% %time% : Deleting Vivaldi cache                           >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Vivaldi\User Data\Default\Cache\*"
+
+:: Yandex Browser
+echo %date% %time% : Deleting Yandex cache                            >> %logs%
+del /S /F /Q "%LOCALAPPDATA%\Yandex\YandexBrowser\User Data\Default\Cache\*"
+
+:: SumatraPDF
+echo %date% %time% : Deleting SumatraPDF cache                        >> %logs%
+del /S /F /Q "%APPDATA%\SumatraPDF\cache\*"
+
+:: Audacity
+echo %date% %time% : Deleting Audacity temp                           >> %logs%
+del /S /F /Q "%APPDATA%\Audacity\SessionData\*"
+
+:: MPC-HC
+echo %date% %time% : Deleting MPC-HC cache                            >> %logs%
+del /S /F /Q "%APPDATA%\MPC-HC\*"
+
 echo %date% %time% : Deleting Windows Defender Scan History              >> %logs%
 del /S /F /Q "%ProgramData%\Microsoft\Windows Defender\Scans\History\Store\*"
 
@@ -634,6 +857,77 @@ del /S /F /Q "%LOCALAPPDATA%\FontCache\*"
 
 echo %date% %time% : Deleting DirectX Shader Cache (Nuanceur)            >> %logs%
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\DirectX Shader Cache\*"
+
+echo %date% %time% : Clearing Windows Store cache                        >> %logs%
+wsreset.exe
+
+echo %date% %time% : Clearing all Event Viewer logs                      >> %logs%
+for /F "tokens=*" %%G in ('wevtutil.exe el') DO wevtutil.exe cl "%%G"
+
+echo %date% %time% : Deleting Recent Files list                          >> %logs%
+del /F /Q "%APPDATA%\Microsoft\Windows\Recent\*"
+
+echo %date% %time% : Clearing Windows Search index                       >> %logs%
+net stop WSearch
+del /F /S /Q "%ProgramData%\Microsoft\Search\Data\Applications\Windows\*.*"
+net start WSearch
+
+echo %date% %time% : Clearing Windows Clipboard                          >> %logs%
+echo off | clip
+
+echo %date% %time% : Clearing IE/Edge legacy temp files                  >> %logs%
+RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 8
+
+echo %date% %time% : Clearing Print Spooler cache                        >> %logs%
+net stop spooler
+del /Q /F "%systemroot%\System32\spool\PRINTERS\*.*"
+net start spooler
+
+echo %date% %time% : Deleting Delivery Optimization files                >> %logs%
+del /F /S /Q "%SystemDrive%\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache\*"
+
+echo %date% %time% : Deleting downloaded ESD files                       >> %logs%
+del /F /S /Q "%SystemDrive%\$WINDOWS.~BT\*.esd"
+
+echo %date% %time% : Deleting MiniDump files                             >> %logs%
+del /F /S /Q "%SystemRoot%\Minidump\*"
+
+echo %date% %time% : Deleting Memory Dump file                           >> %logs%
+del /F /S /Q "%SystemRoot%\MEMORY.DMP"
+
+echo %date% %time% : Deleting old System Restore points                  >> %logs%
+vssadmin delete shadows /for=%SystemDrive% /oldest
+
+echo %date% %time% : Emptying Recycle Bin                             >> %logs%
+PowerShell.exe -NoProfile -Command "Clear-RecycleBin -Force"
+
+echo %date% %time% : Removing Windows Defender definitions            >> %logs%
+"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -RemoveDefinitions -All
+
+echo %date% %time% : Deleting CBS logs                               >> %logs%
+del /f /q "%windir%\Logs\CBS\*.log"
+
+echo %date% %time% : Deleting Windows Update logs                    >> %logs%
+del /f /q "%windir%\WindowsUpdate.log"
+
+echo %date% %time% : Deleting DISM logs                             >> %logs%
+del /f /q "%windir%\Logs\DISM\*.log"
+
+echo %date% %time% : Deleting Setup logs                            >> %logs%
+del /f /q "%SystemDrive%\$WINDOWS.~BT\Sources\Panther\*.log"
+
+echo %date% %time% : Deleting global WER logs                       >> %logs%
+del /f /q "%ProgramData%\Microsoft\Windows\WER\ReportQueue\*"
+del /f /q "%ProgramData%\Microsoft\Windows\WER\ReportArchive\*"
+
+echo %date% %time% : Deleting Windows Installer temp files           >> %logs%
+del /f /q "%windir%\Installer\*.tmp"
+echo %date% %time% : Deleting Windows Installer cache                 >> %logs%
+del /f /q "%windir%\Installer\*.cab"
+echo %date% %time% : Deleting Windows Installer patch cache           >> %logs%
+del /f /q "%windir%\Installer\$PatchCache$\*"
+echo %date% %time% : Deleting Windows Installer unused files          >> %logs%
+del /f /q "%windir%\Installer\*.msp"
 
 if /i %autoclean% == 1 goto mshutdownreboot
 if /i %autoclean% == 2 goto defrag
