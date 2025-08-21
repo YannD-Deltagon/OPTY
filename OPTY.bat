@@ -102,11 +102,7 @@ timeout /t 5
 goto update_not_available
 
 :update_opty
-echo.                                                           >> %logs%
-echo ====================== :UPDATE_OPTY ======================      >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :update_opty label                   >> %logs%
-color 0A
+color 0E
 cls
 echo.                                                  
 echo  Check Update for this script...                           
@@ -734,8 +730,8 @@ del /S /F /Q "%LOCALAPPDATA%\Microsoft\OneNote\*\cache\*"
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\Outlook\*.tmp"
 
 :: Google Drive
-echo %date% %time% : Deleting Google Drive cache                     >> %logs%
-del /S /F /Q "%LOCALAPPDATA%\Google\DriveFS\*"
+:: echo %date% %time% : Deleting Google Drive cache                     >> %logs%
+:: del /S /F /Q "%LOCALAPPDATA%\Google\DriveFS\*"
 
 :: Dropbox
 echo %date% %time% : Deleting Dropbox cache                          >> %logs%
