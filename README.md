@@ -33,3 +33,5 @@ A lightweight command menu to fix common Windows issues and optimize your system
 1. Download OPTY.bat (no need for other files)
 2. Right-click > "Run as administrator"
 3. Use the menu to select desired actions
+4. Open the current log file with option `4`
+```
