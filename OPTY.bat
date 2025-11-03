@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=02.2
+set current_version=02.3
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
