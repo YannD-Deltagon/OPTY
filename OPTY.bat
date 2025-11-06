@@ -185,10 +185,11 @@ echo.
 echo.                                                  
 echo.                                                  
 echo   1. MENU - Clean + Optimization                                  
-echo   2. MENU - Re-enable option                                      
-echo   3. MENU - Register profil option                                
-echo.                                                  
-echo   9. Clean OPTY and delete all files                              
+echo   2. MENU - Re-enable option
+echo   3. MENU - Register profil option
+echo   4. Open current log file
+echo.
+echo   9. Clean OPTY and delete all files
 echo.                                                  
 echo.                                                  
 echo.                                                  
@@ -210,6 +211,7 @@ echo %date% %time% : Menu.bat-menuadmin "%choice%"                    >> %logs%
 if "%choice%"=="1" goto mopti
 if "%choice%"=="2" goto mreenable
 if "%choice%"=="3" goto mregprofil
+if "%choice%"=="4" goto open_logs
 if "%choice%"=="9" goto Clean_Opty_Curl
 if "%choice%"=="0" goto end
 if "%choice%"=="." goto update_opty
@@ -1126,6 +1128,15 @@ echo.
 echo The computer will not restart.                                  
 echo.                                                  
 timeout /t 10
+goto menu
+
+
+:open_logs
+echo.                                                           >> %logs%
+echo ====================== :OPEN_LOGS =======================     >> %logs%
+echo.                                                           >> %logs%
+echo %date% %time% : Entered :open_logs label                     >> %logs%
+start "" %logs%
 goto menu
 
 
