@@ -25,7 +25,7 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 
 ### 🎯 Highlights (v04.1)
 - 🛟 **Automatic System Restore Point** before any change (the 2026 safety standard — System Protection is enabled on `C:` if needed)
-- 🧹 Deep cleanup: temp, caches (GPU/shader, browsers, apps), Windows Update cache, Delivery Optimization, dumps, logs, INetCache, thumbnails, `Windows.old`, Recycle Bin…
+- 🧹 Deep cleanup: temp, caches (GPU/shader, browsers + service-worker, apps), **game launchers** (Steam shadercache, Ubisoft, EA/Origin, Epic), **Adobe media cache**, DaVinci, Windows Update cache, Delivery Optimization, dumps, logs, INetCache, thumbnails, `Windows.old`, Recycle Bin…
 - 🐳 **WSL / Docker disk compaction** — cleanly stops Docker Desktop & WSL, then shrinks the virtual disks (`docker_data.vhdx` + every distro `ext4.vhdx`) to reclaim space
 - 🛠️ Repair tools: `DISM` (with `AnalyzeComponentStore`), `SFC`, `CHKDSK` (online `/scan` by default, full `/f /r` on demand)
 - 🧰 Enables **Storage Sense** for ongoing automatic maintenance (the native 2026 complement to manual cleanup)
