@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=04.0
+set current_version=04.1
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -789,6 +789,8 @@ del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\GPUCache
 del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Cache\*"         2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Code Cache\*"    2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\GPUCache\*"      2>nul
+del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\Service Worker\CacheStorage\*"  2>nul
+del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Service Worker\CacheStorage\*"   2>nul
 
 :: --- Microsoft Store download cache (wsreset) ---
 echo %date% %time% : Resetting Microsoft Store cache               >> %logs%
@@ -817,6 +819,30 @@ del /F /S /Q "%USERHOME%\AppData\Roaming\discord\GPUCache\*"          2>nul
 del /F /S /Q "%USERHOME%\AppData\Roaming\Microsoft\Teams\Cache\*"     2>nul
 del /F /S /Q "%USERHOME%\AppData\Roaming\Microsoft\Teams\GPUCache\*"  2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\*" 2>nul
+
+call :L "%cInfo%" "Cleaning game launcher caches (Steam / Ubisoft / EA / Origin / Epic)"
+:: Steam: install path from registry; shadercache + http cache + logs/dumps (rebuilt on launch)
+set "STEAMPATH="
+for /f "tokens=2,*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Valve\Steam" /v "InstallPath" 2^>nul ^| findstr /i "InstallPath"') do set "STEAMPATH=%%b"
+if not defined STEAMPATH goto delete_skip_steam
+rd /S /Q "%STEAMPATH%\steamapps\shadercache"    2>nul
+del /F /S /Q "%STEAMPATH%\appcache\httpcache\*"  2>nul
+del /F /S /Q "%STEAMPATH%\logs\*"                2>nul
+del /F /S /Q "%STEAMPATH%\dumps\*"               2>nul
+:delete_skip_steam
+set "STEAMPATH="
+del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        2>nul
+del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  2>nul
+del /F /S /Q "%USERHOME%\AppData\Local\Electronic Arts\EA Desktop\cache\*"   2>nul
+del /F /S /Q "%ProgramData%\EA Core\cache\*"                                 2>nul
+del /F /S /Q "%USERHOME%\AppData\Local\Origin\*"                             2>nul
+del /F /S /Q "%ProgramData%\Origin\*"                                        2>nul
+for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" 2>nul
+del /F /S /Q "%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\Logs\*"       2>nul
+
+call :L "%cInfo%" "Cleaning Adobe media cache (Premiere / After Effects / Media Encoder)"
+del /F /S /Q "%USERHOME%\AppData\Roaming\Adobe\Common\Media Cache Files\*"   2>nul
+del /F /S /Q "%USERHOME%\AppData\Roaming\Adobe\Common\Media Cache\*"         2>nul
 
 call :L "%cInfo%" "Clearing font cache (Prefetch left intact - it speeds up app launches)"
 net stop FontCache >nul 2>&1
@@ -1339,6 +1365,18 @@ reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\GameDVR" /v "AllowGameDVR" 
 reg delete "HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR" /v "value" /f >nul 2>&1
 powercfg /h on >nul
 
+call :L "%cInfo%" "Restoring ads / suggestions / Spotlight to Windows defaults"
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d 1 /f >nul
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-338393Enabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-353694Enabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-353696Enabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SystemPaneSuggestionsEnabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-338389Enabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SilentInstalledAppsEnabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "PreInstalledAppsEnabled" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "RotatingLockScreenOverlayEnabled" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableWindowsSpotlightFeatures" /f >nul 2>&1
+
 call :L "%cOK%" "All profile defaults restored (gaming + debloat + services). Game Mode/HAGS left as-is."
 pause
 goto menu
@@ -1370,6 +1408,18 @@ call :L "%cInfo%" "Disabling Widgets and Task View button"
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Dsh" /v "AllowNewsAndInterests" /t REG_DWORD /d 0 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "TaskbarDa" /t REG_DWORD /d 0 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "ShowTaskViewButton" /t REG_DWORD /d 0 /f >nul
+
+call :L "%cInfo%" "Disabling advertising ID + suggested content / Spotlight tips / auto-installed apps"
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v "Enabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-338393Enabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-353694Enabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-353696Enabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SystemPaneSuggestionsEnabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SubscribedContent-338389Enabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "SilentInstalledAppsEnabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "PreInstalledAppsEnabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "RotatingLockScreenOverlayEnabled" /t REG_DWORD /d 0 /f >nul
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableWindowsSpotlightFeatures" /t REG_DWORD /d 1 /f >nul
 
 call :L "%cOK%" "Debloat 2026 applied. Sign out or reboot for all changes to take effect."
 pause
