@@ -1144,6 +1144,7 @@ echo   10. Mouse and power only-
 echo   2. Gaming / Performance tweaks
 echo   3. Debloat 2026 (Recall / Copilot / sponsored apps / Widgets)
 echo   4. Re-assert good Windows defaults (Firewall / Defender / UAC / system)
+echo   5. Display tweaks (MPO / HAGS) - test on/off, can flicker multi-monitor
 echo   20. Restore ALL profile defaults (gaming + debloat + services)                                        
 echo.                                                  
 echo.                                                  
@@ -1172,6 +1173,7 @@ if "%choice%"=="10" goto map_only-
 if "%choice%"=="2" goto gaming_perf
 if "%choice%"=="3" goto debloat2026
 if "%choice%"=="4" goto reassert_defaults
+if "%choice%"=="5" goto display_tweaks
 if "%choice%"=="20" goto gaming_restore
 if "%choice%"=="0" goto menu
 color 0C
@@ -1198,10 +1200,9 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProf
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "SFIO Priority" /t REG_SZ /d "High" /f >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 38 /f >nul
 
-call :L "%cInfo%" "Game Mode ON + Hardware GPU scheduling (HAGS - reboot needed)"
+call :L "%cInfo%" "Game Mode ON (HAGS and MPO moved to menu 3 -> 5: Display tweaks)"
 reg add "HKCU\Software\Microsoft\GameBar" /v "AutoGameModeEnabled" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\Software\Microsoft\GameBar" /v "AllowAutoGameMode" /t REG_DWORD /d 1 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
 
 call :L "%cInfo%" "Disabling CPU power throttling"
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" /v "PowerThrottlingOff" /t REG_DWORD /d 1 /f >nul
@@ -1232,11 +1233,6 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsRunInBa
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0 /f >nul
 
-call :L "%cInfo%" "Disabling MPO (Multi-Plane Overlay) - fixes flicker/stutter, incl. 24H2+ keys"
-reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayTestMode" /t REG_DWORD /d 5 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayMinFPS" /t REG_DWORD /d 0 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "DisableOverlays" /t REG_DWORD /d 1 /f >nul
-
 call :L "%cInfo%" "Disabling telemetry scheduled tasks (Appraiser / CEIP / DmClient)"
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" /Disable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\ProgramDataUpdater" /Disable >nul 2>&1
@@ -1251,7 +1247,7 @@ call :L "%cInfo%" "Disabling VBS / Memory Integrity HVCI for gaming - security t
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v "Enabled" /t REG_DWORD /d 0 /f >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v "EnableVirtualizationBasedSecurity" /t REG_DWORD /d 0 /f >nul
 
-call :L "%cOK%" "Gaming / Performance tweaks applied - a reboot is recommended (HAGS + Memory Integrity)."
+call :L "%cOK%" "Gaming / Performance tweaks applied - a reboot is recommended (Memory Integrity)."
 pause
 goto menu
 
@@ -1413,6 +1409,74 @@ sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
 call :L "%cOK%" "Good defaults re-asserted. Reboot recommended if UAC was previously off."
 pause
 goto menu
+
+
+:display_tweaks
+echo.                                                           >> %logs%
+echo ====================== :DISPLAY_TWEAKS ================== >> %logs%
+echo %date% %time% : Entered :display_tweaks label              >> %logs%
+color FC
+cls
+echo.
+echo  WELCOME to OPTY by @YannD-Deltagon
+echo    Display tweaks - test individually, REBOOT after each.
+echo.
+echo    WARNING: these can FIX or CAUSE flicker/stutter, especially on
+echo    multi-monitor setups with mixed refresh rates or VRR (FreeSync/G-Sync).
+echo.
+echo   1. Disable MPO (Multi-Plane Overlay)
+echo   2. Re-enable MPO  (Windows default)
+echo.
+echo   3. Enable HAGS  (Hardware-accelerated GPU Scheduling)
+echo   4. Disable HAGS (Windows default)
+echo.
+echo   0. Back to menu
+echo.
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : display_tweaks "%choice%"                    >> %logs%
+if "%choice%"=="1" goto dt_mpo_off
+if "%choice%"=="2" goto dt_mpo_on
+if "%choice%"=="3" goto dt_hags_on
+if "%choice%"=="4" goto dt_hags_off
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+echo %date% %time% : Invalid option in :display_tweaks            >> %logs%
+timeout /t 5
+goto display_tweaks
+
+:dt_mpo_off
+call :L "%cWarn%" "Disabling MPO - can FIX or CAUSE multi-monitor flicker. Reboot after."
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayTestMode" /t REG_DWORD /d 5 /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayMinFPS" /t REG_DWORD /d 0 /f >nul
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "DisableOverlays" /t REG_DWORD /d 1 /f >nul
+call :L "%cOK%" "MPO disabled. REBOOT required."
+pause
+goto display_tweaks
+
+:dt_mpo_on
+call :L "%cOK%" "Re-enabling MPO (Windows default) - fixes most multi-monitor flicker"
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayTestMode" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayMinFPS" /f >nul 2>&1
+reg delete "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "DisableOverlays" /f >nul 2>&1
+call :L "%cOK%" "MPO re-enabled. REBOOT required."
+pause
+goto display_tweaks
+
+:dt_hags_on
+call :L "%cWarn%" "Enabling HAGS (HwSchMode=2). Reboot after."
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
+call :L "%cOK%" "HAGS enabled. REBOOT required."
+pause
+goto display_tweaks
+
+:dt_hags_off
+call :L "%cWarn%" "Disabling HAGS (HwSchMode=1, Windows default). Reboot after."
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 1 /f >nul
+call :L "%cOK%" "HAGS disabled. REBOOT required."
+pause
+goto display_tweaks
 
 
 :map_only
@@ -1703,16 +1767,14 @@ echo(      %cVal%%~1:%cR%  free = %cOK%%FREE_MB%%cR% MB
 goto :eof
 
 :get_free_mb
-:: %1 = drive like C:  ->  sets FREE_MB (decimal MB, overflow-safe)
+:: %1 = drive like C:  ->  sets FREE_MB (MB, locale- and overflow-safe via .NET)
+:: fsutil's number is locale-formatted (FR thousands separators 0xA0/0xFF break
+:: a pure-CMD parse and produce garbage like 499ÿ303ÿ9), so we read the raw byte
+:: count through .NET DriveInfo and convert to MB.
 set "FREE_MB=0"
-set "FREE_RAW="
-for /f "tokens=2 delims=:" %%a in ('fsutil volume diskfree %~1 2^>nul') do if not defined FREE_RAW set "FREE_RAW=%%a"
-if not defined FREE_RAW goto :eof
-for /f "tokens=1" %%b in ("%FREE_RAW%") do set "FREE_BYTES=%%b"
-if not defined FREE_BYTES goto :eof
-set "FREE_BYTES=%FREE_BYTES:,=%"
-set "FREE_BYTES=%FREE_BYTES: =%"
-set "FREE_MB=%FREE_BYTES:~0,-6%"
+powershell -NoProfile -Command "try{[math]::Floor([System.IO.DriveInfo]::new('%~1').AvailableFreeSpace/1MB)}catch{0}" > "%TEMP%\opty_free.txt" 2>nul
+set /p FREE_MB=<"%TEMP%\opty_free.txt"
+del /f /q "%TEMP%\opty_free.txt" >nul 2>&1
 if not defined FREE_MB set "FREE_MB=0"
 if "%FREE_MB%"=="" set "FREE_MB=0"
 goto :eof

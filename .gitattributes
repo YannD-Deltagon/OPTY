@@ -1,0 +1,8 @@
+# Force Windows line endings for batch files so `curl`-downloaded copies stay
+# valid. CMD's call/goto :eof return uses byte offsets assuming 2-byte CRLF;
+# LF endings shift the return address and corrupt execution deep in the script.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Keep the rest as-is / let Git decide
+*.md    text
