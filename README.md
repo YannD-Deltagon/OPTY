@@ -82,20 +82,6 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 
 ---
 
-## ⚙️ Configuration (edit before first run if needed)
-
-A few paths are defined as variables at the **top of the script** — change them to match your machine:
-
-```bat
-set "USERHOME=C:\Users\compt"
-set "WSL_DOCKER_VHDX=%USERHOME%\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
-set "DOCKER_EXE=C:\Program Files\Docker\Docker\Docker Desktop.exe"
-```
-
-`USERHOME` is hard-coded (instead of `%USERPROFILE%`) so the right profile is used even when the script runs elevated under another admin account.
-
----
-
 ## ⚠️ Good to know (this is an aggressive optimizer)
 
 Some steps are intentionally thorough. In particular:
