@@ -23,7 +23,7 @@
 
 OPTY groups dozens of maintenance commands behind a readable menu, with **three levels of automation** so you stay in control.
 
-### 🎯 Highlights (v04.0)
+### 🎯 Highlights (v04.1)
 - 🛟 **Automatic System Restore Point** before any change (the 2026 safety standard — System Protection is enabled on `C:` if needed)
 - 🧹 Deep cleanup: temp, caches (GPU/shader, browsers, apps), Windows Update cache, Delivery Optimization, dumps, logs, INetCache, thumbnails, `Windows.old`, Recycle Bin…
 - 🐳 **WSL / Docker disk compaction** — cleanly stops Docker Desktop & WSL, then shrinks the virtual disks (`docker_data.vhdx` + every distro `ext4.vhdx`) to reclaim space
@@ -34,7 +34,7 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 - ⚙️ Service & registry tweaks, **Ultimate Performance** power plan, mouse anti-lag
 - 🎮 Optional **Gaming / Performance profile**: game priority (MMCSS), Game Mode, VBS/Memory Integrity off, power-throttling off, network latency (Nagle/throttling), SSD TRIM, USB-suspend off, background apps + telemetry off, telemetry scheduled-tasks off
 - 🖥️ Separate **Display tweaks** menu (opt-in) to toggle **MPO** and **HAGS** on/off individually — these can *fix or cause* flicker/stutter, so they're kept out of the auto profile (⚠️ MPO-off is a known cause of **multi-monitor black flicker** on mixed-refresh / VRR setups)
-- 🛡️ Optional **2026 debloat**: disable Windows **Recall** & **Copilot**, block sponsored apps (Consumer Features), disable **Widgets** & Task View — all reversible via **Restore ALL profile defaults**
+- 🛡️ Optional **2026 debloat**: disable Windows **Recall** & **Copilot**, block sponsored apps (Consumer Features), disable **Widgets** & Task View, and turn off **advertising ID / suggested content / Spotlight tips / silent app installs** — all reversible via **Restore ALL profile defaults**
 - 🔐 **Re-assert good Windows defaults** (safety net): turns **Firewall**, **Defender real-time** and **UAC** back ON, plus SSD TRIM / SysMain / Prefetch / system-managed pagefile — undoes damage left by shady "optimizers"
 - ♻️ Re-enable helpers (Office / Chrome / Windows Update behind corporate GPO)
 - 📊 **Disk-space-freed report** (before / after) at the end of every run
