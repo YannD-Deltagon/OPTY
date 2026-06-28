@@ -32,7 +32,8 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 - 🌐 Network: DNS flush, Winsock/IP reset (manual mode only) + **TCP good-default tuning** (autotuning normal / RSS on / heuristics off)
 - 💾 Storage: drive **optimization** (`defrag` / SSD TRIM)
 - ⚙️ Service & registry tweaks, **Ultimate Performance** power plan, mouse anti-lag
-- 🎮 Optional **Gaming / Performance profile**: game priority (MMCSS), Game Mode + HAGS, VBS/Memory Integrity off, power-throttling off, network latency (Nagle/throttling), SSD TRIM, USB-suspend off, background apps + telemetry off, **MPO off** (fixes game flicker/stutter, incl. 24H2+ keys), telemetry scheduled-tasks off
+- 🎮 Optional **Gaming / Performance profile**: game priority (MMCSS), Game Mode, VBS/Memory Integrity off, power-throttling off, network latency (Nagle/throttling), SSD TRIM, USB-suspend off, background apps + telemetry off, telemetry scheduled-tasks off
+- 🖥️ Separate **Display tweaks** menu (opt-in) to toggle **MPO** and **HAGS** on/off individually — these can *fix or cause* flicker/stutter, so they're kept out of the auto profile (⚠️ MPO-off is a known cause of **multi-monitor black flicker** on mixed-refresh / VRR setups)
 - 🛡️ Optional **2026 debloat**: disable Windows **Recall** & **Copilot**, block sponsored apps (Consumer Features), disable **Widgets** & Task View — all reversible via **Restore ALL profile defaults**
 - 🔐 **Re-assert good Windows defaults** (safety net): turns **Firewall**, **Defender real-time** and **UAC** back ON, plus SSD TRIM / SysMain / Prefetch / system-managed pagefile — undoes damage left by shady "optimizers"
 - ♻️ Re-enable helpers (Office / Chrome / Windows Update behind corporate GPO)
@@ -51,7 +52,7 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 |-----|--------|
 | `1` | **Clean + Optimization** (opens the mode selector below) |
 | `2` | **Re-enable options** (Office / Chrome / Windows Update) |
-| `3` | **Register profile**: services, registry, power plan, mouse, **Gaming/Performance**, **Debloat 2026**, **Re-assert good defaults**, **Restore ALL defaults** |
+| `3` | **Register profile**: services, registry, power plan, mouse, **Gaming/Performance**, **Debloat 2026**, **Re-assert good defaults**, **Display tweaks (MPO/HAGS)**, **Restore ALL defaults** |
 | `9` | Clean OPTY's own working files |
 | `0` | Exit |
 
