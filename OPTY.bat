@@ -1222,12 +1222,11 @@ color FC
 cls
 call :L "%cStep%" "Applying Gaming / Performance tweaks (registry, power, network)..."
 
-call :L "%cInfo%" "Game priority (MMCSS) + foreground boost"
+call :L "%cInfo%" "Foreground boost (MMCSS SystemProfile)"
+:: MMCSS Tasks\Games GPU Priority / Priority / SFIO Priority are NOT written:
+:: they are documented as unused or overridden when Scheduling Category=High,
+:: and the values every guide tells you to write are already the defaults.
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Priority" /t REG_DWORD /d 6 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Scheduling Category" /t REG_SZ /d "High" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "SFIO Priority" /t REG_SZ /d "High" /f >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 38 /f >nul
 
 call :L "%cInfo%" "Game Mode ON (HAGS and MPO moved to menu 3 -> 5: Display tweaks)"
@@ -1293,10 +1292,6 @@ call :L "%cStep%" "Restoring Windows defaults for the Gaming / Performance tweak
 
 call :L "%cInfo%" "Resetting game priority (MMCSS) + foreground boost to defaults"
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Priority" /t REG_DWORD /d 2 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Scheduling Category" /t REG_SZ /d "High" /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "SFIO Priority" /t REG_SZ /d "High" /f >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 2 /f >nul
 
 call :L "%cInfo%" "Re-enabling CPU power throttling (default)"
@@ -1455,6 +1450,20 @@ call :L "%cInfo%" "UAC ON (EnableLUA=1, secure prompt) - reboot needed if it was
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA" /t REG_DWORD /d 1 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "ConsentPromptBehaviorAdmin" /t REG_DWORD /d 5 /f >nul
 
+call :L "%cInfo%" "Display: clearing leftover overlay/MPO overrides (their default is ABSENT)"
+:: Writing 0 does NOT restore these - the Windows default is the value not existing.
+:: A stale OverlayTestMode is a classic leftover from older tuning scripts: it
+:: disables Multi-Plane Overlay, which costs AutoHDR, Optimized Windowed Mode and
+:: VRR in borderless, while rarely fixing the flicker it is supposed to fix.
+call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "OverlayTestMode"
+call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "OverlayMinFPS"
+call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "DisableIndependentFlip"
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DisableOverlays"
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "UnsupportedMonitorModesAllowed"
+:: HAGS is driver-assumed on RDNA3 since Adrenalin 23.12.1 and Anti-Lag 2 needs it.
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
+call :L "%cInfo%" "Re-asserted hardware GPU scheduling (HwSchMode=2)"
+
 call :L "%cInfo%" "System perf defaults: TRIM on, SysMain/Prefetch on, system-managed pagefile"
 fsutil behavior set disabledeletenotify 0 >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnablePrefetcher" /t REG_DWORD /d 00000003 /f >nul
@@ -1475,16 +1484,26 @@ color FC
 cls
 echo.
 echo  WELCOME to OPTY by @YannD-Deltagon
-echo    Display tweaks - test individually, REBOOT after each.
+echo    Display tweaks - change ONE thing, REBOOT, retest.
 echo.
-echo    WARNING: these can FIX or CAUSE flicker/stutter, especially on
-echo    multi-monitor setups with mixed refresh rates or VRR (FreeSync/G-Sync).
+echo    READ THIS FIRST - fullscreen black flicker on a second monitor:
+echo    the usual cause is NOT MPO. If both monitors are on HDMI, VRR
+echo    toggling on a fullscreen transition makes HDMI sinks blank.
+echo    DisplayPort enforces seamless VRR transitions, HDMI does not.
+echo    FIX IN THIS ORDER:
+echo      1. Move both monitors to DisplayPort - no registry change
+echo      2. If DP is impossible, turn FreeSync off on the SECOND
+echo         monitor only, from the AMD Adrenalin GUI
+echo      3. Only then try the toggles below
 echo.
-echo   1. Disable MPO (Multi-Plane Overlay)
-echo   2. Re-enable MPO  (Windows default)
+echo    Disabling MPO is NOT a free win: it costs AutoHDR, Optimized
+echo    Windowed Mode and VRR in borderless, and often does not fix flicker.
 echo.
-echo   3. Enable HAGS  (Hardware-accelerated GPU Scheduling)
-echo   4. Disable HAGS (Windows default)
+echo   1. Disable MPO (Multi-Plane Overlay)  - last resort, see above
+echo   2. Re-enable MPO  (Windows default)   - recommended
+echo.
+echo   3. Enable HAGS  (Windows/RDNA3 default, Anti-Lag 2 needs it)
+echo   4. Disable HAGS (A/B test only - not implicated in flicker)
 echo.
 echo   0. Back to menu
 echo.
@@ -1503,7 +1522,8 @@ timeout /t 5
 goto display_tweaks
 
 :dt_mpo_off
-call :L "%cWarn%" "Disabling MPO - can FIX or CAUSE multi-monitor flicker. Reboot after."
+call :L "%cWarn%" "Disabling MPO - LAST RESORT. Try DisplayPort / FreeSync-off first."
+call :L "%cWarn%" "This costs AutoHDR, Optimized Windowed Mode and VRR in borderless."
 reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayTestMode" /t REG_DWORD /d 5 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayMinFPS" /t REG_DWORD /d 0 /f >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "DisableOverlays" /t REG_DWORD /d 1 /f >nul
@@ -1946,6 +1966,16 @@ goto :eof
 :: %~1 = ANSI color, %~2 = message  ->  colored console line + timestamped log
 echo(%~1%~2%cR%
 >>%logs% echo %date% %time% : %~2
+goto :eof
+
+:killkey
+:: %~1 = registry key, %~2 = value name
+:: Deletes the value ONLY if it exists, and reports it. Used for settings whose
+:: Windows default is "value absent" - writing 0 would NOT restore them.
+reg query "%~1" /v "%~2" >nul 2>&1 || goto :eof
+call :L "%cWarn%" "  leftover found: %~2  -> removing (default is ABSENT)"
+>>%logs% echo %date% %time% : Removed leftover %~1\%~2
+reg delete "%~1" /v "%~2" /f >nul 2>&1
 goto :eof
 
 :NH
