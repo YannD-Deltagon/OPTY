@@ -1223,7 +1223,7 @@ cls
 call :L "%cStep%" "Applying Gaming / Performance tweaks (registry, power, network)..."
 
 call :L "%cInfo%" "Game priority (MMCSS) + foreground boost"
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 10 /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "GPU Priority" /t REG_DWORD /d 8 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Priority" /t REG_DWORD /d 6 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games" /v "Scheduling Category" /t REG_SZ /d "High" /f >nul
@@ -1237,11 +1237,13 @@ reg add "HKCU\Software\Microsoft\GameBar" /v "AllowAutoGameMode" /t REG_DWORD /d
 call :L "%cInfo%" "Disabling CPU power throttling"
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" /v "PowerThrottlingOff" /t REG_DWORD /d 1 /f >nul
 
-call :L "%cInfo%" "Network latency: throttling off + Nagle off on all interfaces"
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "NetworkThrottlingIndex" /t REG_DWORD /d 4294967295 /f >nul
+call :L "%cInfo%" "Re-asserting network defaults (throttling index 10, Nagle left alone)"
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "NetworkThrottlingIndex" /t REG_DWORD /d 10 /f >nul
+:: TcpAckFrequency/TCPNoDelay removed: they do not affect UDP game traffic, they
+:: double ACK count and reduce max download. Absence IS the Windows default.
 for /f "delims=" %%K in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces" 2^>nul ^| findstr /b /i "HKEY"') do (
-    reg add "%%K" /v "TcpAckFrequency" /t REG_DWORD /d 1 /f >nul 2>&1
-    reg add "%%K" /v "TCPNoDelay" /t REG_DWORD /d 1 /f >nul 2>&1
+    reg delete "%%K" /v "TcpAckFrequency" /f >nul 2>&1
+    reg delete "%%K" /v "TCPNoDelay" /f >nul 2>&1
 )
 
 call :L "%cInfo%" "Re-asserting good defaults: SSD TRIM on + system-managed pagefile (8.3 names off)"
