@@ -25,9 +25,10 @@ set "cStep=%ESC%[1;95m"
 set "cVal=%ESC%[1;97m"
 
 cd /d "%~dp0"
-for /f "skip=15 delims=" %%F in ('dir /b /a-d /o:-d "%~dp0logs_*.txt"') do (
-    del "%~dp0%%F"
-)
+:: keep only the 5 most recent of each artifact family (newest first, skip 5, delete rest)
+for /f "skip=5 delims=" %%F in ('dir /b /a-d /o:-d "%~dp0logs_*.txt" 2^>nul') do del "%~dp0%%F" >nul 2>&1
+for /f "skip=5 delims=" %%F in ('dir /b /a-d /o:-d "%~dp0netinfo_*.txt" 2^>nul') do del "%~dp0%%F" >nul 2>&1
+for /f "skip=5 delims=" %%F in ('dir /b /a-d /o:-d "%~dp0netprops_*.json" 2^>nul') do del "%~dp0%%F" >nul 2>&1
 
 set "current_date=%date:/=-%"
 set "current_date=%current_date: =_%"
