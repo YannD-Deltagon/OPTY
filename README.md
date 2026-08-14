@@ -38,6 +38,7 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 - 🔐 **Re-assert good Windows defaults** (safety net): turns **Firewall**, **Defender real-time** and **UAC** back ON, plus SSD TRIM / SysMain / Prefetch / system-managed pagefile — undoes damage left by shady "optimizers"
 - ♻️ Re-enable helpers (Office / Chrome / Windows Update behind corporate GPO)
 - 📊 **Disk-space-freed report** (before / after) at the end of every run
+- 🌐 **Network adapters report** (menu `4`): every adapter's tunable settings with **current value / factory default / accepted values / min-max-step**, power-saving & wake keywords (EEE, Green Ethernet, ULP, `ReduceSpeedOnPowerDown`…), offloads, bindings, TCP globals and a raw registry dump — written to `C:\OPTY_by-YannD\netinfo_<date>.txt`, plus a `netprops_<date>.json` holding each driver's own limits (so a future tuning module reads them instead of hardcoding values that differ per chipset)
 - 🎨 **Live colored output** (ANSI/VT) + **complete timestamped logs** for every action
 
 ### 🖥️ Compatibility
@@ -53,6 +54,7 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 | `1` | **Clean + Optimization** (opens the mode selector below) |
 | `2` | **Re-enable options** (Office / Chrome / Windows Update) |
 | `3` | **Register profile**: services, registry, power plan, mouse, **Gaming/Performance**, **Debloat 2026**, **Re-assert good defaults**, **Display tweaks (MPO/HAGS)**, **Restore ALL defaults** |
+| `4` | **Network adapters report** — dumps every NIC setting to `C:\OPTY_by-YannD\netinfo_*.txt` (+ a `netprops_*.json`) |
 | `9` | Clean OPTY's own working files |
 | `0` | Exit |
 

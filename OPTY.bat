@@ -213,7 +213,9 @@ echo   1. MENU - Clean + Optimization
 echo   2. MENU - Re-enable option                                      
 echo   3. MENU - Register profil option                                
 echo.                                                  
-echo   9. Clean OPTY and delete all files                              
+echo   4. REPORT - Network adapters info (.txt + .json)
+echo.
+echo   9. Clean OPTY and delete all files
 echo.                                                  
 echo.                                                  
 echo.                                                  
@@ -236,6 +238,7 @@ echo %date% %time% : Menu.bat-menuadmin "%choice%"                    >> %logs%
 if "%choice%"=="1" (call :restore_point & goto mopti)
 if "%choice%"=="2" (call :restore_point & goto mreenable)
 if "%choice%"=="3" (call :restore_point & goto mregprofil)
+if "%choice%"=="4" goto netinfo_report
 if "%choice%"=="9" goto Clean_Opty_Curl
 if "%choice%"=="0" goto end
 if "%choice%"=="." goto update_opty
@@ -1745,6 +1748,113 @@ goto menu
 
 
 
+:netinfo_report
+echo.                                                           >> %logs%
+echo ====================== :NETINFO_REPORT =================== >> %logs%
+echo %date% %time% : Entered :netinfo_report label              >> %logs%
+color 0B
+cls
+set "OPTY_HOME=C:\OPTY_by-YannD"
+if not exist "%OPTY_HOME%" md "%OPTY_HOME%" >nul 2>&1
+set "NICTXT=%OPTY_HOME%\netinfo_%current_date%_%current_time%.txt"
+set "NICJSON=%OPTY_HOME%\netprops_%current_date%_%current_time%.json"
+call :L "%cStep%" "NETWORK REPORT - dumping every adapter setting (power saving, buffers, offloads)..."
+echo(
+echo(   Output folder : %cVal%%OPTY_HOME%%cR%
+echo(
+
+>"%NICTXT%" echo OPTY v%current_version% - NETWORK ADAPTER REPORT
+>>"%NICTXT%" echo Generated : %date% %time%
+>>"%NICTXT%" echo Machine   : %COMPUTERNAME%    User: %USERNAME%
+>>"%NICTXT%" echo OS        : %OSVER%
+>>"%NICTXT%" echo(
+>>"%NICTXT%" echo NOTE: section 3 lists, for every driver keyword:
+>>"%NICTXT%" echo       current value / factory default / accepted values / min-max-step.
+>>"%NICTXT%" echo       Power-saving keywords are vendor-specific - EEE, Green Ethernet,
+>>"%NICTXT%" echo       Power Saving Mode, ULPMode... - so ALL keywords are dumped.
+
+call :NH "1. ADAPTER OVERVIEW (physical + hidden/virtual)"
+powershell -NoProfile -Command "Get-NetAdapter -IncludeHidden -ErrorAction SilentlyContinue | Sort-Object Name | Format-Table -AutoSize Name,InterfaceDescription,ifIndex,Status,LinkSpeed,FullDuplex,MtuSize,MacAddress,DriverVersion,DriverDate | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "2. FULL DETAIL PER ADAPTER"
+powershell -NoProfile -Command "Get-NetAdapter -IncludeHidden -ErrorAction SilentlyContinue | Sort-Object Name | Format-List * | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "3. TUNABLE SETTINGS (value / factory default / accepted values / min-max-step)"
+>>"%NICTXT%" echo This is the actionable view: only keywords the driver exposes as settings.
+>>"%NICTXT%" echo Min/Max/Step are the driver's OWN limits - a tuning module must read them
+>>"%NICTXT%" echo instead of hardcoding a value - buffer max differs per chipset.
+>>"%NICTXT%" echo(
+powershell -NoProfile -Command "Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Sort-Object Name,RegistryKeyword | Format-Table -AutoSize -Wrap Name,RegistryKeyword,DisplayName,DisplayValue,@{n='Value';e={$_.RegistryValue -join ','}},@{n='Default';e={$_.DefaultRegistryValue -join ','}},@{n='Valid';e={$_.ValidRegistryValues -join ','}},@{n='Min';e={$_.NumericParameterMinValue}},@{n='Max';e={$_.NumericParameterMaxValue}},@{n='Step';e={$_.NumericParameterStepValue}} | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "3b. ALL REGISTRY KEYWORDS (exhaustive, incl. driver metadata)"
+powershell -NoProfile -Command "Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction SilentlyContinue | Sort-Object Name,RegistryKeyword | Format-Table -AutoSize -Wrap Name,RegistryKeyword,DisplayName,@{n='Value';e={$_.RegistryValue -join ','}},@{n='Default';e={$_.DefaultRegistryValue -join ','}},@{n='Valid';e={$_.ValidRegistryValues -join ','}} | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "4. POWER SAVING / WAKE KEYWORDS (filtered view of section 3)"
+powershell -NoProfile -Command "Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction SilentlyContinue | Where-Object { $_.RegistryKeyword -match 'EEE|Power|Green|ULP|Wake|Idle|Sleep|Energy|Saving|Standby|Moderation|AutoDisable|Selective' -or $_.DisplayName -match 'Energy|Power|Green|Wake|Idle|Sleep|Saving|Moderation' } | Sort-Object Name,RegistryKeyword | Format-Table -AutoSize -Wrap Name,RegistryKeyword,DisplayName,DisplayValue,@{n='Value';e={$_.RegistryValue -join ','}},@{n='Default';e={$_.DefaultRegistryValue -join ','}},@{n='Valid';e={$_.ValidRegistryValues -join ','}} | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "5. POWER MANAGEMENT (Wake-on-LAN / device power-down)"
+>>"%NICTXT%" echo Get-NetAdapterPowerManagement fails on some drivers - error: device
+>>"%NICTXT%" echo attached to the system is not functioning. Registry fallback below always works.
+>>"%NICTXT%" echo PnPCapabilities bit 24 = value 16777216 = Allow the computer to turn off
+>>"%NICTXT%" echo this device to save power is UNCHECKED. Value 16 = wake features disabled.
+>>"%NICTXT%" echo(
+powershell -NoProfile -Command "try { Get-NetAdapterPowerManagement -Name '*' -ErrorAction Stop | Format-List * | Out-String -Width 500 } catch { 'Get-NetAdapterPowerManagement unavailable on this system: ' + $_.Exception.Message }" >>"%NICTXT%" 2>&1
+>>"%NICTXT%" echo(
+>>"%NICTXT%" echo -- Registry fallback: PnPCapabilities per adapter --
+powershell -NoProfile -Command "$b='HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'; Get-ChildItem $b -ErrorAction SilentlyContinue | ForEach-Object { $p=Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue; if($p.DriverDesc){ [pscustomobject]@{Key=$_.PSChildName;Driver=$p.DriverDesc;PnPCapabilities=$p.PnPCapabilities} } } | Format-Table -AutoSize | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "6. OFFLOADS - RSS / LSO / Checksum / RSC / QoS"
+powershell -NoProfile -Command "Get-NetAdapterRss -Name '*' -ErrorAction SilentlyContinue | Format-List Name,Enabled,NumberOfReceiveQueues,MaxProcessorNumber,Profile | Out-String -Width 500" >>"%NICTXT%" 2>&1
+powershell -NoProfile -Command "Get-NetAdapterLso -Name '*' -ErrorAction SilentlyContinue | Format-Table -AutoSize Name,V1IPv4Enabled,IPv4Enabled,IPv6Enabled | Out-String -Width 500" >>"%NICTXT%" 2>&1
+powershell -NoProfile -Command "Get-NetAdapterChecksumOffload -Name '*' -ErrorAction SilentlyContinue | Format-Table -AutoSize Name,IpIPv4Enabled,TcpIPv4Enabled,TcpIPv6Enabled,UdpIPv4Enabled,UdpIPv6Enabled | Out-String -Width 500" >>"%NICTXT%" 2>&1
+powershell -NoProfile -Command "Get-NetAdapterRsc -Name '*' -ErrorAction SilentlyContinue | Format-Table -AutoSize Name,IPv4Enabled,IPv6Enabled | Out-String -Width 500" >>"%NICTXT%" 2>&1
+powershell -NoProfile -Command "Get-NetAdapterQos -Name '*' -ErrorAction SilentlyContinue | Format-List Name,Enabled | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "7. PROTOCOL BINDINGS"
+powershell -NoProfile -Command "Get-NetAdapterBinding -Name '*' -ErrorAction SilentlyContinue | Sort-Object Name,ComponentID | Format-Table -AutoSize Name,DisplayName,ComponentID,Enabled | Out-String -Width 500" >>"%NICTXT%" 2>&1
+
+call :NH "8. IP INTERFACES / METRICS / MTU"
+powershell -NoProfile -Command "Get-NetIPInterface -ErrorAction SilentlyContinue | Sort-Object InterfaceMetric | Format-Table -AutoSize ifIndex,InterfaceAlias,AddressFamily,NlMtu,InterfaceMetric,AutomaticMetric,Dhcp,ConnectionState | Out-String -Width 500" >>"%NICTXT%" 2>&1
+netsh int ip show interfaces      >>"%NICTXT%" 2>&1
+netsh int ipv4 show subinterfaces >>"%NICTXT%" 2>&1
+
+call :NH "9. IPCONFIG /ALL"
+ipconfig /all >>"%NICTXT%" 2>&1
+
+call :NH "10. GLOBAL TCP SETTINGS"
+netsh int tcp show global      >>"%NICTXT%" 2>&1
+netsh int tcp show heuristics  >>"%NICTXT%" 2>&1
+netsh int tcp show supplemental >>"%NICTXT%" 2>&1
+
+call :NH "11. WI-FI DRIVER CAPABILITIES (if any)"
+netsh wlan show drivers    >>"%NICTXT%" 2>&1
+netsh wlan show interfaces >>"%NICTXT%" 2>&1
+
+call :NH "12. MAC / TRANSPORT LIST"
+getmac /v /fo list >>"%NICTXT%" 2>&1
+
+call :NH "13. RAW REGISTRY - NIC CLASS KEY (pure-CMD backup, includes Ndi\Params)"
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}" /s >>"%NICTXT%" 2>&1
+
+:: --- machine-readable export for the future universal NIC tuning module ---
+call :L "%cInfo%" "Exporting machine-readable JSON (driver limits for auto-tuning)"
+powershell -NoProfile -Command "Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction SilentlyContinue | Select-Object Name,InterfaceDescription,RegistryKeyword,DisplayName,DisplayValue,RegistryValue,DefaultRegistryValue,ValidRegistryValues,ValidDisplayValues,NumericParameterMinValue,NumericParameterMaxValue,NumericParameterStepValue | ConvertTo-Json -Depth 4" >"%NICJSON%" 2>nul
+
+echo %date% %time% : Network report written to %NICTXT%        >> %logs%
+call :L "%cOK%" "Network report done."
+echo(
+echo(   %cVal%%NICTXT%%cR%
+echo(   %cVal%%NICJSON%%cR%
+echo(
+echo(   %cInfo%The JSON lists each driver's accepted values / limits - it is what a%cR%
+echo(   %cInfo%future universal NIC tuning module will read instead of hardcoding.%cR%
+echo(
+set "choice="
+set /p choice= Open the report now? 1 (Yes) - 0 (No):
+if "%choice%"=="1" start "" notepad "%NICTXT%"
+goto menu
+
+
 :Clean_Opty_Curl
 echo.                                                           >> %logs%
 echo ====================== :CLEAN_OPTY_CURL ================= >> %logs%
@@ -1833,6 +1943,15 @@ goto :eof
 :: %~1 = ANSI color, %~2 = message  ->  colored console line + timestamped log
 echo(%~1%~2%cR%
 >>%logs% echo %date% %time% : %~2
+goto :eof
+
+:NH
+:: %~1 = section title -> banner inside the NIC report + live progress line
+echo(  %cInfo%- %~1%cR%
+>>"%NICTXT%" echo(
+>>"%NICTXT%" echo ============================================================
+>>"%NICTXT%" echo == %~1
+>>"%NICTXT%" echo ============================================================
 goto :eof
 
 :restore_point
