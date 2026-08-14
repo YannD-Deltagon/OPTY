@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.0
+set current_version=05.1
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -722,12 +722,27 @@ endlocal
 :: Rebuild cost is seconds to a couple of minutes of first-run compilation, so
 :: it is well worth doing periodically.
 call :L "%cInfo%" "Clearing GPU shader caches (rebuild in seconds, prevents corruption bugs)"
+:: Contents only - never rd these folders. If DxCache/OglCache/VkCache are
+:: absent, some AMD driver builds fail to recreate them and you get permanent
+:: stutter instead of a one-off recompile.
+:: AMD's OpenGL cache is OglCache; GLCache is the NVIDIA name and does not
+:: exist on an AMD install - the old GLCache-only line was a silent no-op.
 del /S /F /Q "%LOCALAPPDATA%\AMD\DxCache\*"                        >nul 2>&1
-del /S /F /Q "%LOCALAPPDATA%\AMD\GLCache\*"                        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\DxcCache\*"                       >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\DX9Cache\*"                       >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\OglCache\*"                       >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\AMD\VkCache\*"                        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\cl.cache\*"                       >nul 2>&1
+del /S /F /Q "%USERPROFILE%\AppData\LocalLow\AMD\DxCache\*"        >nul 2>&1
+:: Adrenalin's Qt UI cache - version-stamped, accumulates, and a stale one is
+:: why the panel comes up blank after a driver update.
+del /S /F /Q "%LOCALAPPDATA%\AMD\Radeonsoftware\cache\*"           >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\AMDRSSrcExt\cache\*"              >nul 2>&1
+:: NVIDIA / Intel - dead branches on this machine, kept for portability
 del /S /F /Q "%LOCALAPPDATA%\NVIDIA\GLCache\*"                     >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\NVIDIA\DXCache\*"                     >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\NVIDIA\ComputeCache\*"                >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\NVIDIA\OptixCache\*"                  >nul 2>&1
 del /S /F /Q "%ProgramData%\NVIDIA Corporation\NV_Cache\*"         >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\Intel\ShaderCache\*"                  >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\D3DSCache\*"                          >nul 2>&1
@@ -828,10 +843,10 @@ del /F /S /Q "C:\Intel\Logs\*"            >nul 2>&1
 :: Never touched: Cookies, Login Data, Web Data, History, Bookmarks,
 :: Local Storage, IndexedDB - those are user data, not cache.
 call :L "%cInfo%" "Clearing browser caches - all profiles, browser stays open"
-call :chromecache "%LOCALAPPDATA%\Google\Chrome\User Data"
-call :chromecache "%LOCALAPPDATA%\Microsoft\Edge\User Data"
-call :chromecache "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data"
-call :chromecache "%LOCALAPPDATA%\Vivaldi\User Data"
+call :chromecache "%LOCALAPPDATA%\Google\Chrome\User Data" "chrome.exe"
+call :chromecache "%LOCALAPPDATA%\Microsoft\Edge\User Data" "msedge.exe"
+call :chromecache "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data" "brave.exe"
+call :chromecache "%LOCALAPPDATA%\Vivaldi\User Data" "vivaldi.exe"
 :: WebView2 shares the Chromium cache layout and rots the same way
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\Cache\*"        >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Cache\*"      >nul 2>&1
@@ -873,6 +888,11 @@ if not defined STEAMPATH goto delete_skip_steam
 del /F /S /Q "%STEAMPATH%\logs\*"                >nul 2>&1
 del /F /S /Q "%STEAMPATH%\dumps\*"               >nul 2>&1
 :delete_skip_steam
+:: Steam's web cache moved out of SteamRoot - it is now under LOCALAPPDATA
+:: (141 MB here). Stale guides still point at SteamRoot\htmlcache, which no
+:: longer exists. Only touched when Steam is closed.
+call :isrunning "steam.exe"
+if not defined RUNNING del /F /S /Q "%LOCALAPPDATA%\Steam\htmlcache\*" >nul 2>&1
 set "STEAMPATH="
 del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        2>nul
 del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  2>nul
@@ -2245,18 +2265,43 @@ goto :eof
 :: Storage, IndexedDB - that is user data, not cache. In particular there is no
 :: *.log glob here: under User Data those are LevelDB write-ahead logs holding
 :: live extension and IndexedDB state.
+:: %~2 = the browser's process name. A running Chromium holds LevelDB and cache
+:: files half-written; deleting underneath it CREATES the corruption this is
+:: meant to prevent. So the browser is never killed AND never cleaned while up.
 if not exist "%~1" goto :eof
-for /d %%P in ("%~1\Default" "%~1\Profile *") do (
+call :isrunning "%~2"
+if defined RUNNING (
+    call :L "%cWarn%" "  %~2 is running - skipped, close it and re-run"
+    echo %date% %time% : Skipped "%~1" - %~2 running                >> %logs%
+    goto :eof
+)
+:: per-profile
+for /d %%P in ("%~1\Default" "%~1\Profile *" "%~1\Guest Profile") do (
     del /F /S /Q "%%~P\Cache\*"                       >nul 2>&1
     del /F /S /Q "%%~P\Code Cache\*"                  >nul 2>&1
     del /F /S /Q "%%~P\GPUCache\*"                    >nul 2>&1
+    del /F /S /Q "%%~P\DawnWebGPUCache\*"             >nul 2>&1
+    del /F /S /Q "%%~P\DawnGraphiteCache\*"           >nul 2>&1
     del /F /S /Q "%%~P\Service Worker\CacheStorage\*" >nul 2>&1
-    del /F /Q    "%%~P\Crashpad\reports\*"            >nul 2>&1
+    del /F /S /Q "%%~P\Service Worker\ScriptCache\*"  >nul 2>&1
 )
-del /F /S /Q "%~1\ShaderCache\*"        >nul 2>&1
-del /F /S /Q "%~1\GrShaderCache\*"      >nul 2>&1
-del /F /Q    "%~1\BrowserMetrics\*.pma" >nul 2>&1
+:: browser-level - these sit BESIDE the profiles, so a per-profile-only sweep
+:: misses them entirely (28 MB of component_crx_cache here)
+del /F /S /Q "%~1\GrShaderCache\*"        >nul 2>&1
+del /F /S /Q "%~1\ShaderCache\*"          >nul 2>&1
+del /F /S /Q "%~1\GraphiteDawnCache\*"    >nul 2>&1
+del /F /S /Q "%~1\GPUPersistentCache\*"   >nul 2>&1
+del /F /S /Q "%~1\component_crx_cache\*"  >nul 2>&1
+del /F /S /Q "%~1\extensions_crx_cache\*" >nul 2>&1
+del /F /S /Q "%~1\Crashpad\reports\*"     >nul 2>&1
+del /F /Q    "%~1\BrowserMetrics\*.pma"   >nul 2>&1
 echo %date% %time% : Cleared Chromium caches under "%~1"            >> %logs%
+goto :eof
+
+:isrunning
+:: %~1 = image name -> RUNNING=1 when that process exists
+set "RUNNING="
+tasklist /fi "imagename eq %~1" /nh 2>nul | findstr /i /b /c:"%~1" >nul 2>&1 && set "RUNNING=1"
 goto :eof
 
 :banner
