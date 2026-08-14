@@ -23,7 +23,7 @@
 
 OPTY groups dozens of maintenance commands behind a readable menu, with **three levels of automation** so you stay in control.
 
-### 🎯 Highlights (v04.1)
+### 🎯 Highlights (v05.0)
 - 🛟 **Automatic System Restore Point** before any change (the 2026 safety standard — System Protection is enabled on `C:` if needed)
 - 🧹 Deep cleanup: temp, caches (GPU/shader, browsers + service-worker, apps), **game launchers** (Steam shadercache, Ubisoft, EA/Origin, Epic), **Adobe media cache**, DaVinci, Windows Update cache, Delivery Optimization, dumps, logs, INetCache, thumbnails, `Windows.old`, Recycle Bin…
 - 🐳 **WSL / Docker disk compaction** — cleanly stops Docker Desktop & WSL, then shrinks the virtual disks (`docker_data.vhdx` + every distro `ext4.vhdx`) to reclaim space
@@ -49,14 +49,30 @@ OPTY groups dozens of maintenance commands behind a readable menu, with **three 
 
 ## 🧭 Main menu
 
-| Key | Action |
-|-----|--------|
-| `1` | **Clean + Optimization** (opens the mode selector below) |
-| `2` | **Re-enable options** (Office / Chrome / Windows Update) |
-| `3` | **Register profile**: services, registry, power plan, mouse, **Gaming/Performance**, **Debloat 2026**, **Re-assert good defaults**, **Display tweaks (MPO/HAGS)**, **Restore ALL defaults** |
-| `4` | **Network adapters report** — dumps every NIC setting to `C:\OPTY_by-YannD\netinfo_*.txt` (+ a `netprops_*.json`) |
-| `9` | Clean OPTY's own working files |
-| `0` | Exit |
+Organised by category, so nothing destructive hides two levels down.
+
+| Key | Category | What it does |
+|-----|----------|--------------|
+| `1` | **Clean & Optimize** | Manual / Auto Lite / Auto Full (mode selector below) |
+| `2` | **Repair Windows** | Guided DISM → SFC → Windows Update → disk |
+| `3` | **Network** | Diagnose / Full report / Apply profile / Restore |
+| `4` | **System & Gaming** | Registry profile, services + power plan, mouse |
+| `5` | **Display & GPU** | MPO / HAGS — opt-in, with the real flicker guidance |
+| `6` | **Debloat 2026** | Recall, Copilot, ads, widgets, telemetry |
+| `7` | **Restore defaults** | Re-assert good defaults / undo every profile |
+| `8` | **Re-enable updates** | Office / Chrome / Windows Update behind GPO |
+| `9` | **Clean OPTY files** | Logs and reports in `C:\OPTY_by-YannD` |
+| `0` | Exit | |
+
+### 🌐 Network (menu `3`)
+
+One profile — **no Gaming/Streaming/Torrent split**. Game traffic is small UDP that never touches LSO, RSC or jumbo frames, and streaming and torrenting want the same offloads on and the same buffers raised; a profile switcher would be theatre.
+
+- Every keyword is written as **`REG_SZ`**. NDIS keywords are strings — a `REG_DWORD` write is *silently ignored* by the driver, which is how most `.bat` "network tweaks" do nothing at all.
+- Values are **clamped to your driver's own max** and rounded to its step, both read from `Ndi\Params` at runtime; keywords your driver doesn't expose are skipped. Nothing is hardcoded per chipset.
+- **Restore** writes back each keyword's own `Ndi\Params\<kw>\default`.
+- `pnputil /restart-device` applies changes without a reboot (link drops 2–4 s).
+- **Diagnose** lists only what differs from the driver defaults.
 
 ### 🔁 The 3 optimization modes (menu `1`)
 
