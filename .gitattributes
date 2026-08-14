@@ -1,8 +1,25 @@
-# Force Windows line endings for batch files so `curl`-downloaded copies stay
-# valid. CMD's call/goto :eof return uses byte offsets assuming 2-byte CRLF;
-# LF endings shift the return address and corrupt execution deep in the script.
-*.bat   text eol=crlf
-*.cmd   text eol=crlf
+# OPTY.bat must be stored AND served with CRLF line endings.
+#
+# Why: cmd.exe resolves the return address of `call :label` (and `goto :eof`)
+# as a byte offset into the file. That bookkeeping assumes 2-byte CRLF line
+# endings. With LF-only endings the offset drifts, and execution can resume in
+# the middle of an unrelated section instead of after the call. It is not
+# deterministic - it depends where each label lands - which makes it worse:
+# the script mostly works, then derails deep in a long run.
+#
+# `text eol=crlf` was NOT enough: it normalises the blob to LF *in the repo*
+# and only converts on checkout, so raw.githubusercontent.com and the
+# "Download raw file" button still hand out LF.
+# `-text` disables normalisation entirely, so the CRLF bytes are stored as-is
+# and every download path (raw, blob, archive, release asset) is byte-identical.
+#
+# After changing this file:  git add --renormalize .   (then commit)
+# Verify:  git show HEAD:OPTY.bat | (byte-count CR)  -> must be non-zero
+*.bat   -text
+*.cmd   -text
 
-# Keep the rest as-is / let Git decide
+# Same reasoning for the PowerShell release tooling (run on Windows only).
+*.ps1   -text
+
+# Plain text, let Git handle it normally.
 *.md    text
