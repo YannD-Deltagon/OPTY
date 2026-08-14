@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=04.1
+set current_version=05.0
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -11,6 +11,8 @@ set "WSL_DOCKER_VHDX=%USERHOME%\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
 set "WSL_SEARCH1=%USERHOME%\AppData\Local\Packages"
 set "WSL_SEARCH2=%USERHOME%\AppData\Local\wsl"
 set "DOCKER_EXE=C:\Program Files\Docker\Docker\Docker Desktop.exe"
+set "OPTY_HOME=C:\OPTY_by-YannD"
+set "OPTY_HOME_D=%OPTY_HOME%"
 
 :: ---- ANSI / VT colors for live colored console output (CMD on Windows 10/11) ----
 reg add "HKCU\Console" /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
@@ -202,44 +204,42 @@ echo.                                                           >> %logs%
 echo ====================== :MENU ======================            >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :menu label                          >> %logs%
-color F1
+color 0F
 cls
-echo.                                                  
-echo  WELCOME to OPTY by @YannD-Deltagon                         
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo   1. MENU - Clean + Optimization                                  
-echo   2. MENU - Re-enable option                                      
-echo   3. MENU - Register profil option                                
-echo.                                                  
-echo   4. REPORT - Network adapters info (.txt + .json)
-echo.
-echo   9. Clean OPTY and delete all files
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo   0. Exit                                                         
-echo.                                                  
-echo.                                                  
+call :banner "OPTY v%current_version%   -   Windows 11 optimizer   -   @YannD-Deltagon"
+echo(
+echo(   %cT%MAINTENANCE%cR%
+echo(     %cVal%1.%cR%  Clean ^& Optimize        %cInfo%Manual / Auto Lite / Auto Full%cR%
+echo(     %cVal%2.%cR%  Repair Windows          %cInfo%DISM, SFC, CHKDSK - one at a time%cR%
+echo(
+echo(   %cT%TUNING%cR%
+echo(     %cVal%3.%cR%  Network                 %cInfo%diagnose, full report, apply, restore%cR%
+echo(     %cVal%4.%cR%  System ^& Gaming         %cInfo%registry profile, power plan, mouse%cR%
+echo(     %cVal%5.%cR%  Display ^& GPU           %cInfo%MPO / HAGS - opt-in, read the notes%cR%
+echo(
+echo(   %cT%PRIVACY%cR%
+echo(     %cVal%6.%cR%  Debloat 2026            %cInfo%Recall, Copilot, ads, widgets, telemetry%cR%
+echo(
+echo(   %cT%SAFETY NET%cR%
+echo(     %cVal%7.%cR%  Restore defaults        %cInfo%re-assert good defaults / undo profiles%cR%
+echo(     %cVal%8.%cR%  Re-enable updates       %cInfo%Office / Chrome / Windows Update via GPO%cR%
+echo(
+echo(   %cT%OPTY%cR%
+echo(     %cVal%9.%cR%  Clean OPTY files        %cInfo%logs and reports in %OPTY_HOME_D%%cR%
+echo(     %cVal%0.%cR%  Exit
+echo(
+call :rule
 set "choice="
 set /p choice= Enter action:
-echo %date% %time% : Menu.bat-menuadmin "%choice%"                    >> %logs%
+echo %date% %time% : Menu choice "%choice%"                           >> %logs%
 if "%choice%"=="1" (call :restore_point & goto mopti)
-if "%choice%"=="2" (call :restore_point & goto mreenable)
-if "%choice%"=="3" (call :restore_point & goto mregprofil)
-if "%choice%"=="4" goto netinfo_report
+if "%choice%"=="2" goto mrepair
+if "%choice%"=="3" goto mnetwork
+if "%choice%"=="4" (call :restore_point & goto mregprofil)
+if "%choice%"=="5" goto display_tweaks
+if "%choice%"=="6" (call :restore_point & goto debloat2026)
+if "%choice%"=="7" (call :restore_point & goto mrestore)
+if "%choice%"=="8" (call :restore_point & goto mreenable)
 if "%choice%"=="9" goto Clean_Opty_Curl
 if "%choice%"=="0" goto end
 if "%choice%"=="." goto update_opty
@@ -1159,59 +1159,32 @@ goto mreenable
 :mregprofil
 echo.                                                           >> %logs%
 echo ====================== :MREGPROFIL ======================     >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :mregprofil label                       >> %logs%
-color FC
+echo %date% %time% : Entered :mregprofil label                     >> %logs%
+color 0D
 cls
-echo.                                                  
-echo  WELCOME to OPTY by @YannD-Deltagon                         
-echo    Optimize your Registry, mouse, and power settings              
-echo      Choose your desired profile:                                  
-echo.                                                  
-echo.                                                  
-echo   1. Mouse and power only                                          
-echo   10. Mouse and power only-
-echo   2. Gaming / Performance tweaks
-echo   3. Debloat 2026 (Recall / Copilot / sponsored apps / Widgets)
-echo   4. Re-assert good Windows defaults (Firewall / Defender / UAC / system)
-echo   5. Display tweaks (MPO / HAGS) - test on/off, can flicker multi-monitor
-echo   20. Restore ALL profile defaults (gaming + debloat + services)                                        
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo.                                                  
-echo   0. Menu                                                         
-echo.                                                  
-echo.                                                  
+call :banner "SYSTEM & GAMING"
+echo(
+echo(     %cVal%1.%cR%  Gaming / Performance    %cInfo%MMCSS, Game Mode, power throttling, VBS%cR%
+echo(     %cVal%2.%cR%  Services + power plan   %cInfo%trim services, GameDVR off, hibernation%cR%
+echo(     %cVal%3.%cR%  Mouse                   %cInfo%true 1:1 - acceleration fully off%cR%
+echo(
+echo(     %cInfo%Debloat is menu 6, Display/GPU is menu 5, undo is menu 7.%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
 set "choice="
 set /p choice= Enter action:
-echo %date% %time% : RegProfil.bat-mregprofil "%choice%"              >> %logs%
-if "%choice%"=="1" goto map_only
-if "%choice%"=="10" goto map_only-
-if "%choice%"=="2" goto gaming_perf
-if "%choice%"=="3" goto debloat2026
-if "%choice%"=="4" goto reassert_defaults
-if "%choice%"=="5" goto display_tweaks
-if "%choice%"=="20" goto gaming_restore
+echo %date% %time% : mregprofil "%choice%"                         >> %logs%
+if "%choice%"=="1" goto gaming_perf
+if "%choice%"=="2" goto map_only
+if "%choice%"=="3" goto mouseantilag
 if "%choice%"=="0" goto menu
 color 0C
-echo This is not a valid action                                      
-echo %date% %time% : Invalid option in :mregprofil                     >> %logs%
-timeout /t 5
+echo This is not a valid action
+echo %date% %time% : Invalid option in :mregprofil                 >> %logs%
+timeout /t 3 >nul
 goto mregprofil
-
 
 :gaming_perf
 echo.                                                           >> %logs%
@@ -1611,40 +1584,6 @@ pause
 echo %date% %time% : Exiting :regsc_map_only, going to :mregpowercfg       >> %logs%
 goto mregpowercfg
 
-:map_only-
-echo.                                                           >> %logs%
-echo ====================== :MAP_ONLY- ======================      >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :map_only- label                         >> %logs%
-cls
-echo %date% %time% : (map_only-) Re-asserting SysMain/Prefetch good defaults    >> %logs%
-reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnablePrefetcher" /t REG_DWORD /d 00000003 /f
-reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnableSuperfetch" /t REG_DWORD /d 00000003 /f
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" /v "SearchOrderConfig" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : (map_only-) Set SearchOrderConfig=0              >> %logs%
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR" /v "value" /t REG_SZ /d "00000000" /f
-echo %date% %time% : (map_only-) Set AllowGameDVR value=00000000       >> %logs%
-reg add "HKEY_CURRENT_USER\System\GameConfigStore" /v "GameDVR_Enabled" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : (map_only-) Set GameDVR_Enabled=0                 >> %logs%
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\GameDVR" /v "AllowGameDVR" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : (map_only-) Set AllowGameDVR=0                    >> %logs%
-reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : (map_only-) Set AppCaptureEnabled=0               >> %logs%
-powercfg /h off
-echo %date% %time% : (map_only-) Disabled hibernation                  >> %logs%
-timeout /t 5
-goto regsc_map_only-
-
-:regsc_map_only-
-echo.                                                           >> %logs%
-echo ====================== :REGSC_MAP_ONLY- ==================  >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :regsc_map_only- label                  >> %logs%
-pause
-echo %date% %time% : Exiting :regsc_map_only-, going to :mregpowercfg  >> %logs%
-goto mregpowercfg
-
-
 :mregpowercfg
 echo.                                                           >> %logs%
 echo ====================== :MREGPOWERCFG ======================    >> %logs%
@@ -1878,6 +1817,292 @@ if "%choice%"=="1" start "" notepad "%NICTXT%"
 goto menu
 
 
+:mnetwork
+echo.                                                           >> %logs%
+echo ====================== :MNETWORK ========================= >> %logs%
+echo %date% %time% : Entered :mnetwork label                     >> %logs%
+color 0B
+cls
+call :banner "NETWORK"
+echo(
+echo(     %cVal%1.%cR%  Diagnose        %cInfo%what differs from your driver's defaults%cR%
+echo(     %cVal%2.%cR%  Full report     %cInfo%every setting + limits -^> %OPTY_HOME_D%%cR%
+echo(     %cVal%3.%cR%  Apply profile   %cInfo%one sane profile, clamped to YOUR driver limits%cR%
+echo(     %cVal%4.%cR%  Restore         %cInfo%back to the driver's own factory defaults%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mnetwork "%choice%"                          >> %logs%
+if "%choice%"=="1" goto net_diag
+if "%choice%"=="2" goto netinfo_report
+if "%choice%"=="3" (call :restore_point & goto net_apply)
+if "%choice%"=="4" (call :restore_point & goto net_restore)
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+echo %date% %time% : Invalid option in :mnetwork                  >> %logs%
+timeout /t 3 >nul
+goto mnetwork
+
+
+:net_diag
+echo.                                                           >> %logs%
+echo ====================== :NET_DIAG ========================= >> %logs%
+echo %date% %time% : Entered :net_diag label                      >> %logs%
+color 0B
+cls
+call :banner "NETWORK - DIAGNOSE"
+echo(
+call :L "%cInfo%" "Physical adapters"
+powershell -NoProfile -Command "Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Format-Table -AutoSize Name,InterfaceDescription,Status,LinkSpeed,MtuSize | Out-String -Width 200"
+call :L "%cInfo%" "Settings that DIFFER from the driver's factory default"
+call :L "%cInfo%" "(empty list = your adapters are all at factory settings)"
+powershell -NoProfile -Command "Get-NetAdapterAdvancedProperty -Name '*' -AllProperties -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -and (($_.RegistryValue -join ',') -ne ($_.DefaultRegistryValue -join ',')) } | Format-Table -AutoSize -Wrap Name,RegistryKeyword,DisplayName,@{n='Now';e={$_.RegistryValue -join ','}},@{n='Default';e={$_.DefaultRegistryValue -join ','}} | Out-String -Width 200"
+call :L "%cInfo%" "TCP globals"
+netsh int tcp show global | findstr /i "Receive Window Auto-Tuning RSS Heuristic"
+echo(
+call :rule
+echo(  %cInfo%Interpretation: differences are not automatically bad - they are just%cR%
+echo(  %cInfo%what someone (or OPTY) changed. Menu 4 restores the driver defaults.%cR%
+echo(
+pause
+goto mnetwork
+
+
+:mrepair
+echo.                                                           >> %logs%
+echo ====================== :MREPAIR ========================== >> %logs%
+echo %date% %time% : Entered :mrepair label                       >> %logs%
+color 0E
+cls
+call :banner "REPAIR WINDOWS"
+echo(
+echo(  %cInfo%Guided repair. Each step asks before it runs, so you can skip any of them.%cR%
+echo(  %cInfo%Order matters: DISM repairs the component store that SFC restores from.%cR%
+echo(
+echo(     %cVal%1.%cR%  Start guided repair     %cInfo%DISM -^> SFC -^> Windows Update -^> disk%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mrepair "%choice%"                            >> %logs%
+if "%choice%"=="0" goto menu
+if not "%choice%"=="1" (
+    color 0C
+    echo This is not a valid action
+    timeout /t 3 >nul
+    goto mrepair
+)
+call :restore_point
+set autoclean=0
+set autoshutdownreboot=5
+goto mdism
+
+
+:mrestore
+echo.                                                           >> %logs%
+echo ====================== :MRESTORE ========================= >> %logs%
+echo %date% %time% : Entered :mrestore label                       >> %logs%
+color 0A
+cls
+call :banner "RESTORE DEFAULTS - safety net"
+echo(
+echo(     %cVal%1.%cR%  Re-assert good defaults
+echo(         %cInfo%Firewall ON, Defender ON, UAC ON, SSD TRIM, SysMain/Prefetch,%cR%
+echo(         %cInfo%system-managed pagefile, and removes leftover display overrides%cR%
+echo(         %cInfo%whose Windows default is "value absent" (OverlayTestMode etc).%cR%
+echo(
+echo(     %cVal%2.%cR%  Undo ALL OPTY profiles
+echo(         %cInfo%gaming + debloat + services back to Windows defaults%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mrestore "%choice%"                           >> %logs%
+if "%choice%"=="1" goto reassert_defaults
+if "%choice%"=="2" goto gaming_restore
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto mrestore
+
+
+:net_apply
+echo.                                                           >> %logs%
+echo ====================== :NET_APPLY ======================== >> %logs%
+echo %date% %time% : Entered :net_apply label                    >> %logs%
+color 0B
+cls
+call :L "%cStep%" "NETWORK - apply sane adapter defaults"
+echo(
+echo(  %cInfo%There is no Gaming / Streaming / Torrent split: game traffic is small%cR%
+echo(  %cInfo%UDP that never touches LSO, RSC or jumbo frames, and streaming and%cR%
+echo(  %cInfo%torrenting want the same offloads on and the same buffers raised.%cR%
+echo(  %cInfo%One profile, values read from YOUR driver's own limits.%cR%
+echo(
+
+:: --- enumerate adapters that actually expose tunable parameters ---
+set "NICCLS=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
+del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
+for /f "delims=" %%K in ('reg query "%NICCLS%" 2^>nul') do (
+    reg query "%%K\Ndi\Params\*ReceiveBuffers" >nul 2>&1 && (
+        for /f "tokens=2,*" %%A in ('reg query "%%K" /v DriverDesc 2^>nul ^| findstr /i "DriverDesc"') do >>"%TEMP%\opty_nic_list.txt" echo %%K %%B
+    )
+)
+if not exist "%TEMP%\opty_nic_list.txt" (
+    call :L "%cWarn%" "No adapter exposes tunable parameters - nothing to do."
+    pause
+    goto mnetwork
+)
+set /a NCOUNT=0
+for /f "usebackq tokens=1,*" %%A in ("%TEMP%\opty_nic_list.txt") do (
+    set /a NCOUNT+=1
+    call :nicecho "%%A" "%%B"
+)
+echo(
+echo(   0. Back
+echo(
+set "choice="
+set /p choice= Adapter number to tune:
+echo %date% %time% : net_apply choice "%choice%"                  >> %logs%
+if "%choice%"=="0" goto mnetwork
+set "NICKEY="
+set "NICDESC="
+set /a NSEL=0
+for /f "usebackq tokens=1,*" %%A in ("%TEMP%\opty_nic_list.txt") do (
+    set /a NSEL+=1
+    call :nicpick "%choice%" "%%A" "%%B"
+)
+if not defined NICKEY (
+    call :L "%cErr%" "Invalid selection."
+    timeout /t 3 >nul
+    goto net_apply
+)
+
+cls
+call :L "%cStep%" "Applying to: %NICDESC%"
+echo(
+call :L "%cInfo%" "All NDIS keywords are written as REG_SZ - a REG_DWORD write is"
+call :L "%cInfo%" "silently ignored by the driver, which is how most .bat 'tweaks' do nothing."
+echo(
+call :L "%cInfo%" "Re-asserting adaptive interrupt moderation (lowest CPU for the same latency)"
+call :nicset "%NICKEY%" "*InterruptModeration" "1"
+call :nicset "%NICKEY%" "ITR" "65535"
+
+call :L "%cInfo%" "Re-asserting offloads ON (they never touch small UDP game packets)"
+call :nicset "%NICKEY%" "*LsoV2IPv4" "1"
+call :nicset "%NICKEY%" "*LsoV2IPv6" "1"
+call :nicset "%NICKEY%" "*TCPChecksumOffloadIPv4" "3"
+call :nicset "%NICKEY%" "*TCPChecksumOffloadIPv6" "3"
+call :nicset "%NICKEY%" "*UDPChecksumOffloadIPv4" "3"
+call :nicset "%NICKEY%" "*UDPChecksumOffloadIPv6" "3"
+call :nicset "%NICKEY%" "*IPChecksumOffloadIPv4" "3"
+
+call :L "%cInfo%" "Receive Side Scaling on, queues capped to what the driver enumerates"
+call :nicset "%NICKEY%" "*RSS" "1"
+call :nicenummax "%NICKEY%" "*NumRssQueues"
+if defined NENUMMAX call :nicset "%NICKEY%" "*NumRssQueues" "%NENUMMAX%"
+
+call :L "%cInfo%" "Jumbo frames off (they fragment on any 1500-MTU internet path)"
+call :nicset "%NICKEY%" "*JumboPacket" "1514"
+
+call :L "%cInfo%" "Buffer headroom - requested 1024, clamped to the driver max and step"
+call :nicset "%NICKEY%" "*ReceiveBuffers" "1024"
+call :nicset "%NICKEY%" "*TransmitBuffers" "1024"
+
+echo(
+call :L "%cInfo%" "Re-asserting good TCP globals"
+netsh int tcp set global autotuninglevel=normal >nul
+netsh int tcp set heuristics disabled >nul
+netsh int tcp set global rss=enabled >nul
+
+echo(
+call :L "%cWarn%" "The adapter must restart for these to take effect (link drops 2-4 s)."
+set "choice="
+set /p choice= Restart the adapter now? 1 (Yes) - 0 (No, on next reboot):
+if not "%choice%"=="1" goto net_apply_done
+call :nicrestart "%NICKEY%"
+:net_apply_done
+echo(
+call :L "%cOK%" "Network profile applied."
+call :L "%cInfo%" "Torrent + gaming lag is upstream queue saturation, not a NIC setting."
+call :L "%cInfo%" "Real fix: SQM/fq_codel on the router at ~90%% of link rate, or cap"
+call :L "%cInfo%" "qBittorrent upload to ~85-90%% of your measured upstream."
+del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
+pause
+goto mnetwork
+
+
+:net_restore
+echo.                                                           >> %logs%
+echo ====================== :NET_RESTORE ====================== >> %logs%
+echo %date% %time% : Entered :net_restore label                  >> %logs%
+color 0B
+cls
+call :L "%cStep%" "NETWORK - restore the driver's own factory defaults"
+set "NICCLS=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
+del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
+for /f "delims=" %%K in ('reg query "%NICCLS%" 2^>nul') do (
+    reg query "%%K\Ndi\Params\*ReceiveBuffers" >nul 2>&1 && (
+        for /f "tokens=2,*" %%A in ('reg query "%%K" /v DriverDesc 2^>nul ^| findstr /i "DriverDesc"') do >>"%TEMP%\opty_nic_list.txt" echo %%K %%B
+    )
+)
+if not exist "%TEMP%\opty_nic_list.txt" (
+    call :L "%cWarn%" "No tunable adapter found."
+    pause
+    goto mnetwork
+)
+set /a NCOUNT=0
+for /f "usebackq tokens=1,*" %%A in ("%TEMP%\opty_nic_list.txt") do (
+    set /a NCOUNT+=1
+    call :nicecho "%%A" "%%B"
+)
+echo(
+echo(   0. Back
+echo(
+set "choice="
+set /p choice= Adapter number to restore:
+if "%choice%"=="0" goto mnetwork
+set "NICKEY="
+set "NICDESC="
+set /a NSEL=0
+for /f "usebackq tokens=1,*" %%A in ("%TEMP%\opty_nic_list.txt") do (
+    set /a NSEL+=1
+    call :nicpick "%choice%" "%%A" "%%B"
+)
+if not defined NICKEY (
+    call :L "%cErr%" "Invalid selection."
+    timeout /t 3 >nul
+    goto net_restore
+)
+cls
+call :L "%cStep%" "Restoring factory defaults on: %NICDESC%"
+echo(
+:: every tunable keyword carries its own factory value in Ndi\Params\<kw>\default
+for /f "delims=" %%P in ('reg query "%NICKEY%\Ndi\Params" 2^>nul') do call :nicdefault "%NICKEY%" "%%P"
+echo(
+call :L "%cInfo%" "Restoring TCP globals"
+netsh int tcp set global autotuninglevel=normal >nul
+netsh int tcp set heuristics default >nul
+netsh int tcp set global rss=default >nul
+echo(
+set "choice="
+set /p choice= Restart the adapter now? 1 (Yes) - 0 (No, on next reboot):
+if "%choice%"=="1" call :nicrestart "%NICKEY%"
+call :L "%cOK%" "Adapter restored to the driver's own defaults."
+del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
+pause
+goto mnetwork
+
+
 :Clean_Opty_Curl
 echo.                                                           >> %logs%
 echo ====================== :CLEAN_OPTY_CURL ================= >> %logs%
@@ -1966,6 +2191,101 @@ goto :eof
 :: %~1 = ANSI color, %~2 = message  ->  colored console line + timestamped log
 echo(%~1%~2%cR%
 >>%logs% echo %date% %time% : %~2
+goto :eof
+
+:banner
+:: %~1 = title. ASCII only on purpose: Unicode box-drawing characters render as
+:: garbage as soon as the console code page is not the one the file was saved in.
+:: Colour comes from ANSI, which is code-page independent.
+echo(%cT%===============================================================================%cR%
+:: %~1 is echoed through delayed expansion: %~1 strips the quotes, so a title
+:: containing & or ^ would otherwise be re-parsed as a command separator.
+setlocal enabledelayedexpansion
+set "BTITLE=%~1"
+echo(%cT%   !BTITLE!%cR%
+endlocal
+echo(%cT%===============================================================================%cR%
+goto :eof
+
+:rule
+echo(%cInfo%-------------------------------------------------------------------------------%cR%
+goto :eof
+
+:nicecho
+:: %~1 = class key, %~2 = adapter description. %NCOUNT% is re-expanded on CALL,
+:: which is how we read a counter incremented inside a FOR block without
+:: enabling delayed expansion.
+echo(   %cVal%%NCOUNT%.%cR% %~2
+goto :eof
+
+:nicpick
+:: %~1 = user choice, %~2 = class key, %~3 = description
+if not "%~1"=="%NSEL%" goto :eof
+set "NICKEY=%~2"
+set "NICDESC=%~3"
+goto :eof
+
+:nicset
+:: %~1 = class key, %~2 = NDIS keyword, %~3 = desired value
+:: NDIS keywords are REG_SZ - writing REG_DWORD is silently ignored by the driver.
+:: The value is clamped to the driver's own max and rounded down to its step,
+:: both read from Ndi\Params, so nothing is ever hardcoded per chipset.
+:: Keywords this driver does not expose are skipped.
+reg query "%~1\Ndi\Params\%~2" >nul 2>&1 || goto :eof
+set "NV=%~3"
+set "NMAX="
+set "NSTEP="
+for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v max 2^>nul ^| findstr /i "REG_SZ"') do set "NMAX=%%M"
+for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v step 2^>nul ^| findstr /i "REG_SZ"') do set "NSTEP=%%M"
+if defined NMAX call :nicclamp
+if defined NSTEP call :nicround
+reg add "%~1" /v "%~2" /t REG_SZ /d "%NV%" /f >nul 2>&1
+call :L "%cInfo%" "  %~2 = %NV%"
+goto :eof
+
+:nicclamp
+:: bail out if NMAX is not purely numeric (the FOR finds a token only then)
+for /f "delims=0123456789" %%X in ("%NMAX%") do goto :eof
+if %NV% GTR %NMAX% set "NV=%NMAX%"
+goto :eof
+
+:nicround
+for /f "delims=0123456789" %%X in ("%NSTEP%") do goto :eof
+if %NSTEP% LEQ 0 goto :eof
+set /a NV=(NV/NSTEP)*NSTEP
+goto :eof
+
+:nicenummax
+:: %~1 = class key, %~2 = keyword -> NENUMMAX = highest value the driver enumerates
+:: (the I211 only enumerates 1 and 2 RSS queues - asking for 4 or 8 is a myth)
+set "NENUMMAX="
+for /f "tokens=1" %%E in ('reg query "%~1\Ndi\Params\%~2\Enum" 2^>nul ^| findstr /i "REG_SZ"') do set "NENUMMAX=%%E"
+goto :eof
+
+:nicdefault
+:: %~1 = class key, %~2 = full Ndi\Params\<keyword> key
+:: Restores that keyword to the factory value the driver itself ships.
+set "NKW=%~2"
+set "NKW=%NKW:*\Ndi\Params\=%"
+if not defined NKW goto :eof
+set "NDEF="
+for /f "tokens=3" %%D in ('reg query "%~2" /v default 2^>nul ^| findstr /i "REG_SZ"') do set "NDEF=%%D"
+if not defined NDEF goto :eof
+reg add "%~1" /v "%NKW%" /t REG_SZ /d "%NDEF%" /f >nul 2>&1
+call :L "%cInfo%" "  %NKW% = %NDEF%  (driver default)"
+goto :eof
+
+:nicrestart
+:: %~1 = class key -> restart the device so NDIS re-reads the keywords, no reboot
+set "NGUID="
+set "NPNP="
+for /f "tokens=3" %%G in ('reg query "%~1" /v NetCfgInstanceId 2^>nul ^| findstr /i "REG_SZ"') do set "NGUID=%%G"
+if not defined NGUID goto :eof
+for /f "tokens=2,*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\%NGUID%\Connection" /v PnPInstanceId 2^>nul ^| findstr /i "PnPInstanceId"') do set "NPNP=%%B"
+if not defined NPNP goto :eof
+call :L "%cWarn%" "Restarting adapter - the link will drop for a few seconds..."
+pnputil /restart-device "%NPNP%" >nul 2>&1
+call :L "%cOK%" "Adapter restarted - settings are live."
 goto :eof
 
 :killkey
