@@ -478,7 +478,7 @@ echo %date% %time% : Executed DISM /CheckHealth                        >> %logs%
 dism /Online /Cleanup-image /RestoreHealth
 >>%logs% echo %date% %time% : DISM RestoreHealth exit=%errorlevel%
 echo %date% %time% : Executed DISM /RestoreHealth                      >> %logs%
-dism /Online /Cleanup-image /StartComponentCleanup /ResetBase
+dism /Online /Cleanup-image /StartComponentCleanup
 echo %date% %time% : Executed DISM /StartComponentCleanup /ResetBase    >> %logs%
 if /i %autoclean% == 2 goto sfc
 timeout /t 5
@@ -686,7 +686,9 @@ echo %date% %time% : Entered :delete label                           >> %logs%
 
 call :L "%cStep%" "CLEANUP - deleting temp files, caches, logs and dumps..."
 call :L "%cInfo%" "Enabling Storage Sense (native automatic maintenance)"
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\StorageSense" /v "AllowStorageSenseGlobal" /t REG_DWORD /d 1 /f >nul
+:: NOT set: the HKLM StorageSense policy. It greys out the Storage Sense
+:: toggle in Settings with "managed by your organization". The HKCU values
+:: below do the same job while leaving the user in control.
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "01" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "04" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "2048" /t REG_DWORD /d 30 /f >nul
@@ -714,20 +716,32 @@ for /D %%i in ("C:\Users\*") do (
 )
 endlocal
 
-:: --- REMOVED: GPU / shader caches (AMD DxCache/GLCache/VkCache, NVIDIA
-:: NV_Cache/GLCache/DXCache, Intel ShaderCache, D3DSCache, DirectX Shader
-:: Cache). Measured here: 1.3 MB + 1.2 MB, the rest absent. Wiping them
-:: guarantees shader re-compilation stutter the next time each game or app
-:: starts, in exchange for a rounding error of disk space. That is exactly
-:: the trade this tool should not make. Moved to the opt-in purge.
-::
-:: --- REMOVED: DaVinci Resolve media cache. Deleting it forces Resolve to
-:: re-render optimized media and previews - hours of work on a video project,
-:: not "invisible". Moved to the opt-in purge.
+:: --- GPU / shader caches ---
+:: Kept on purpose. These rot: a corrupted shader cache is a classic cause of
+:: artifacts, stutter and launch failures, and clearing it is the standard fix.
+:: Rebuild cost is seconds to a couple of minutes of first-run compilation, so
+:: it is well worth doing periodically.
+call :L "%cInfo%" "Clearing GPU shader caches (rebuild in seconds, prevents corruption bugs)"
+del /S /F /Q "%LOCALAPPDATA%\AMD\DxCache\*"                        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\GLCache\*"                        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\AMD\VkCache\*"                        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\NVIDIA\GLCache\*"                     >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\NVIDIA\DXCache\*"                     >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\NVIDIA\ComputeCache\*"                >nul 2>&1
+del /S /F /Q "%ProgramData%\NVIDIA Corporation\NV_Cache\*"         >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\Intel\ShaderCache\*"                  >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\D3DSCache\*"                          >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\DirectX Shader Cache\*"     >nul 2>&1
+echo %date% %time% : Cleared GPU/shader caches                      >> %logs%
+
+:: --- NOT cleared: DaVinci Resolve and Adobe media caches ---
+:: These are the one category that fails the test: re-conforming audio and
+:: re-rendering optimized media/peak files is hours of work on a real project,
+:: not a few seconds of shader compilation. They live in the opt-in purge.
 
 :: --- Dumps (facultatif mais sans impact sur réglages) ---
 echo %date% %time% : Deleting MiniDump files                             >> %logs%
-del /F /S /Q "%SystemRoot%\Minidump\*"
+:: Minidumps kept: only forensic record of a BSOD or GPU driver crash, ~0 MB.
 echo %date% %time% : Deleting Memory Dump file                           >> %logs%
 del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 
@@ -735,14 +749,17 @@ del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 :: Same class as a browser cache. Every WebView2-hosted app (new Teams, Office
 :: add-ins, several game launchers) re-downloads and re-compiles afterwards.
 
-:: Recycle Bin fallback per drive (silent)
-for %%D in (C D E F) do if exist "%%D:\" (
-  rd /S /Q "%%D:\$Recycle.Bin" 2>nul
-)
+:: --- REMOVED: emptying the Recycle Bin on every drive ---
+:: That is the user's undo buffer, not a cache - 21.9 MB of their own deleted
+:: files on C: right now. `rd` on the container also wipes every SID's bin and
+:: strips the system/hidden attributes that make it behave like a Recycle Bin.
+:: Storage Sense (enabled below) already ages it out on a schedule the user
+:: controls, which is the right way to do this.
 
 :: --- Thumbnail & icon cache (rebuilt automatically; locked files are skipped) ---
 echo %date% %time% : Deleting thumbnail/icon cache                  >> %logs%
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\Explorer\thumbcache_*.db" 2>nul
+:: thumbcache kept: Explorer visibly re-generates every thumbnail afterwards,
+:: painful in large footage folders. iconcache is cheap so it stays.
 del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db" 2>nul
 
 :: --- Windows Error Reporting reports + crash dumps ---
@@ -751,28 +768,74 @@ del /F /S /Q "%ProgramData%\Microsoft\Windows\WER\*" 2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\WER\*" 2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\CrashDumps\*" 2>nul
 
+:: --- Unbounded log/telemetry files: the real invisible wins ---
+:: These are append-only and nothing ever prunes them. Measured on this machine
+:: when the rule was written: AMD PPC 317 MB, WMI ETL 228 MB, CbsPersist 93 MB,
+:: USOShared 86 MB. All of it is pure log, regenerated on demand, and none of it
+:: is ever read by the user.
+call :L "%cInfo%" "Clearing unbounded log/trace files (AMD PPC, ETL traces, servicing logs)"
+:: AMD Adrenalin usage telemetry - append-only, documented at 30+ GB on some
+:: systems. Keep the folder and config.csv; only the growing CSVs go.
+del /F /Q "%LOCALAPPDATA%\AMD\PPC\sdkusage.csv"              >nul 2>&1
+del /F /Q "%LOCALAPPDATA%\AMD\PPC\apprecord.csv"             >nul 2>&1
+del /F /Q "%LOCALAPPDATA%\AMD\PPC\driverworkloadstats.csv"   >nul 2>&1
+del /F /Q "%LOCALAPPDATA%\AMD\CN\RSX_*.log*"                 >nul 2>&1
+:: Stale ETL traces. Per-file only - never rd the WMI or RtBackup folders.
+del /F /Q "%WINDIR%\System32\LogFiles\WMI\*.etl.*"           >nul 2>&1
+del /F /Q "%ProgramData%\Microsoft\Diagnosis\ETLLogs\AutoLogger\*.etl" >nul 2>&1
+:: Update-orchestrator logs. Never touch USOPrivate\UpdateStore.
+del /F /S /Q "%ProgramData%\USOShared\Logs\*.etl"            >nul 2>&1
+:: Assorted servicing logs
+del /F /Q "%WINDIR%\Logs\DISM\dism.log"                      >nul 2>&1
+del /F /S /Q "%WINDIR%\Logs\waasmedic\*"                     >nul 2>&1
+del /F /S /Q "%WINDIR%\Logs\SIH\*"                            >nul 2>&1
+del /F /S /Q "%WINDIR%\Logs\NetSetup\*"                       >nul 2>&1
+del /F /S /Q "%WINDIR%\Logs\WindowsUpdate\*.etl"              >nul 2>&1
+:: Two named files only - %WINDIR%\inf otherwise holds the real driver INFs
+del /F /Q "%WINDIR%\inf\setupapi.dev.log"                     >nul 2>&1
+del /F /Q "%WINDIR%\inf\setupapi.app.log"                     >nul 2>&1
+del /F /Q "%WINDIR%\debug\wiatrace.log"                       >nul 2>&1
+echo %date% %time% : Cleared unbounded log/trace files              >> %logs%
+
 :: --- Old servicing / setup logs (CBS, Panther) ---
 echo %date% %time% : Deleting CBS and Panther logs                  >> %logs%
-del /F /S /Q "%WINDIR%\Logs\CBS\*" 2>nul
+del /F /Q "%WINDIR%\Logs\CBS\CbsPersist_*.log" >nul 2>&1
+del /F /Q "%WINDIR%\Logs\CBS\CbsPersist_*.cab" >nul 2>&1
 del /F /S /Q "%WINDIR%\Panther\*" 2>nul
 
 :: --- Legacy IE/Edge system web cache (INetCache) ---
 echo %date% %time% : Deleting INetCache                             >> %logs%
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\INetCache\*" 2>nul
+:: INetCache left alone: shared WinINET cache used by Office, the Store and
+:: installers, and it stages Outlook attachments that may be open.
 
 :: --- GPU driver extraction leftovers (NOT the installed drivers) ---
 echo %date% %time% : Deleting driver extraction folders            >> %logs%
 rd /S /Q "C:\NVIDIA" 2>nul
-rd /S /Q "C:\AMD"    2>nul
-rd /S /Q "C:\Intel"  2>nul
+:: C:\AMD kept: extracted chipset/driver installer - the fallback copy of a
+:: known-good AMD package.
+del /F /S /Q "C:\Intel\GfxCPLBatchFiles\*" >nul 2>&1
+del /F /S /Q "C:\Intel\Logs\*"            >nul 2>&1
 
-:: --- REMOVED: browser cache purge + closing Edge/Chrome, and wsreset.
-:: Measured on this machine: Chrome Cache 741 MB + Code Cache 550 MB +
-:: ServiceWorker 1471 MB = ~2.8 GB, against 610 GB free on C:. Deleting it
-:: buys nothing and costs re-downloads, JS re-compilation and re-warmed
-:: service workers - and killing the browser closes the user's tabs.
-:: wsreset closes the Store window for a cache that is already self-managed.
-:: These live in menu 1 -> "Deep cache purge" now, as an explicit opt-in.
+:: --- Chromium browser caches: EVERY profile, browser left running ---
+:: A rotten HTTP/code cache is a well-known cause of broken pages, stale assets
+:: and renderer crashes, and clearing it is the standard fix. It rebuilds
+:: itself as you browse, so it is worth doing periodically.
+:: Two deliberate choices:
+::   - no taskkill: closing the user's tabs to clean a cache is not acceptable.
+::     Files the running browser holds open are simply skipped.
+::   - every profile is enumerated (Default, "Profile 1", "Profile 2", ...)
+::     instead of hardcoding Default - this machine has two.
+:: Never touched: Cookies, Login Data, Web Data, History, Bookmarks,
+:: Local Storage, IndexedDB - those are user data, not cache.
+call :L "%cInfo%" "Clearing browser caches - all profiles, browser stays open"
+call :chromecache "%LOCALAPPDATA%\Google\Chrome\User Data"
+call :chromecache "%LOCALAPPDATA%\Microsoft\Edge\User Data"
+call :chromecache "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data"
+call :chromecache "%LOCALAPPDATA%\Vivaldi\User Data"
+:: WebView2 shares the Chromium cache layout and rots the same way
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\Cache\*"        >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Cache\*"      >nul 2>&1
+del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Code Cache\*" >nul 2>&1
 :delete_skip_apps
 
 :: --- Windows.old (removes rollback): FULL mode only ---
@@ -785,13 +848,17 @@ if exist "%SystemDrive%\Windows.old" (
 )
 :delete_skip_winold
 
-:: --- REMOVED: Spotify / Discord / Teams caches ---
-:: Spotify Storage and Data hold the OFFLINE MUSIC cache: deleting them forces
-:: a full re-download of everything saved for offline listening.
-:: Discord Cache / Code Cache / GPUCache are the same class as a browser cache -
-:: re-downloads and re-compilation for a few dozen MB.
-:: Teams LocalCache can sign the user out of the new Teams client.
-:: None of these are invisible, so none of them belong in an automatic pass.
+:: --- Discord: Electron caches (rebuild on next launch, classic fix for a
+:: stuck/blank client). Its logins live in Local Storage, which is untouched.
+call :L "%cInfo%" "Clearing Discord caches (classic fix for a stuck client)"
+del /F /S /Q "%APPDATA%\discord\Cache\Cache_Data\*"    >nul 2>&1
+del /F /S /Q "%APPDATA%\discord\Code Cache\*"          >nul 2>&1
+del /F /S /Q "%APPDATA%\discord\GPUCache\*"            >nul 2>&1
+
+:: --- NOT cleared ---
+:: Spotify Storage/Data: that is the OFFLINE MUSIC cache. Clearing it forces a
+:: multi-GB re-download of everything saved for offline listening.
+:: Teams LocalCache: known to sign the user out of the new Teams client.
 
 call :L "%cInfo%" "Cleaning game launcher caches (Steam / Ubisoft / EA / Origin / Epic)"
 :: Steam: logs and crash dumps only - both invisible and genuinely useless.
@@ -831,17 +898,14 @@ del /F /S /Q "%WINDIR%\ServiceProfiles\LocalService\AppData\Local\FontCache\*" 2
 del /F /Q "%WINDIR%\System32\FNTCACHE.DAT" 2>nul
 net start FontCache >nul 2>&1
 
-if not "%autoclean%"=="2" goto delete_skip_vss
-call :L "%cInfo%" "Trimming old restore points (keeping the most recent)"
-set "SHCOUNT=0"
-for /f %%c in ('vssadmin list shadows /for=%SystemDrive% 2^>nul ^| find /c "HarddiskVolumeShadowCopy"') do set "SHCOUNT=%%c"
-echo %date% %time% : Shadow copies on %SystemDrive% = %SHCOUNT%      >> %logs%
-:vss_trim_loop
-if %SHCOUNT% LEQ 1 goto vss_trim_done
-vssadmin delete shadows /for=%SystemDrive% /oldest /quiet >nul 2>&1
-set /a SHCOUNT-=1
-goto vss_trim_loop
-:vss_trim_done
+:: --- REMOVED: restore-point trimming ---
+:: This was actively dangerous. OPTY creates a restore point at the start of a
+:: run and then changes the registry, services and drivers. Trimming down to
+:: "the most recent" point deletes the older, KNOWN-GOOD points and keeps the
+:: one created moments before the changes - i.e. it destroys the rollback for
+:: OPTY's own work. It also contradicts SystemRestorePointCreationFrequency=0
+:: set elsewhere in this file, and Windows already expires shadow copies on its
+:: own. Restore points are a safety net; a maintenance tool does not delete them.
 :delete_skip_vss
 
 echo %date% %time% : :delete done                                        >> %logs%
@@ -1211,12 +1275,13 @@ powercfg /setactive SCHEME_CURRENT >nul
 call :L "%cInfo%" "Background apps + telemetry off"
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v "GlobalUserDisabled" /t REG_DWORD /d 1 /f >nul
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsRunInBackground" /t REG_DWORD /d 2 /f >nul
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0 /f >nul
+:: AllowTelemetry=0 is Enterprise/Education only - on Pro it is clamped to 1
+:: (Required), so claiming to set it would be a lie in the log. The scheduled
+:: task disables are what actually reduce telemetry here.
+
 
 call :L "%cInfo%" "Disabling telemetry scheduled tasks (Appraiser / CEIP / DmClient)"
-schtasks /Change /TN "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" /Disable >nul 2>&1
-schtasks /Change /TN "\Microsoft\Windows\Application Experience\ProgramDataUpdater" /Disable >nul 2>&1
+schtasks /Change /TN "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser Exp" /Disable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\PcaPatchDbTask" /Disable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\StartupAppTask" /Disable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Customer Experience Improvement Program\Consolidator" /Disable >nul 2>&1
@@ -1277,8 +1342,7 @@ reg delete "HKLM\SOFTWARE\Microsoft\Windows\Dwm" /v "OverlayMinFPS" /f >nul 2>&1
 reg delete "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "DisableOverlays" /f >nul 2>&1
 
 call :L "%cInfo%" "Re-enabling telemetry scheduled tasks"
-schtasks /Change /TN "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" /Enable >nul 2>&1
-schtasks /Change /TN "\Microsoft\Windows\Application Experience\ProgramDataUpdater" /Enable >nul 2>&1
+schtasks /Change /TN "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser Exp" /Enable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\PcaPatchDbTask" /Enable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Application Experience\StartupAppTask" /Enable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Customer Experience Improvement Program\Consolidator" /Enable >nul 2>&1
@@ -2168,6 +2232,31 @@ goto :eof
 :: %~1 = ANSI color, %~2 = message  ->  colored console line + timestamped log
 echo(%~1%~2%cR%
 >>%logs% echo %date% %time% : %~2
+goto :eof
+
+:chromecache
+:: %~1 = a Chromium "User Data" folder. Clears the disposable caches of EVERY
+:: profile inside it (Default, "Profile 1", "Profile 2", ...) instead of
+:: hardcoding Default - this machine alone has two.
+:: The browser is deliberately NOT killed: files it holds open simply fail to
+:: delete and are skipped. Closing the user's tabs to clean a cache is not a
+:: trade this tool makes.
+:: Never touched: Cookies, Login Data, Web Data, History, Bookmarks, Local
+:: Storage, IndexedDB - that is user data, not cache. In particular there is no
+:: *.log glob here: under User Data those are LevelDB write-ahead logs holding
+:: live extension and IndexedDB state.
+if not exist "%~1" goto :eof
+for /d %%P in ("%~1\Default" "%~1\Profile *") do (
+    del /F /S /Q "%%~P\Cache\*"                       >nul 2>&1
+    del /F /S /Q "%%~P\Code Cache\*"                  >nul 2>&1
+    del /F /S /Q "%%~P\GPUCache\*"                    >nul 2>&1
+    del /F /S /Q "%%~P\Service Worker\CacheStorage\*" >nul 2>&1
+    del /F /Q    "%%~P\Crashpad\reports\*"            >nul 2>&1
+)
+del /F /S /Q "%~1\ShaderCache\*"        >nul 2>&1
+del /F /S /Q "%~1\GrShaderCache\*"      >nul 2>&1
+del /F /Q    "%~1\BrowserMetrics\*.pma" >nul 2>&1
+echo %date% %time% : Cleared Chromium caches under "%~1"            >> %logs%
 goto :eof
 
 :banner
