@@ -714,29 +714,16 @@ for /D %%i in ("C:\Users\*") do (
 )
 endlocal
 
-:: --- GPU / Shader caches (safe to clear, auto-regenerated) ---
-echo %date% %time% : Deleting GPU caches                                >> %logs%
-del /S /F /Q "%LOCALAPPDATA%\AMD\DxCache\*"
-del /S /F /Q "%ProgramData%\NVIDIA Corporation\NV_Cache\*"
-del /S /F /Q "%LOCALAPPDATA%\Intel\ShaderCache\*"
-
-:: NVIDIA GL/DX caches (user)
-del /S /F /Q "%LOCALAPPDATA%\NVIDIA\GLCache\*"        2>nul
-del /S /F /Q "%LOCALAPPDATA%\NVIDIA\DXCache\*"        2>nul
-
-:: AMD GL/Vulkan caches (user)
-del /S /F /Q "%LOCALAPPDATA%\AMD\GLCache\*"           2>nul
-del /S /F /Q "%LOCALAPPDATA%\AMD\VkCache\*"           2>nul
-
-echo %date% %time% : Deleting DirectX Shader Cache                       >> %logs%
-del /S /F /Q "%LOCALAPPDATA%\D3DSCache\*"
-del /S /F /Q "%LOCALAPPDATA%\Microsoft\DirectX Shader Cache\*"
-
-:: --- DaVinci Resolve caches (user scope only) ---
-echo %date% %time% : Deleting DaVinci Resolve media cache (user)        >> %logs%
-del /F /S /Q "%USERHOME%\Documents\DaVinci\*"
-echo %date% %time% : Deleting DaVinci AppData Roaming CacheClip >> %logs%
-del /F /S /Q "%USERHOME%\AppData\Roaming\Blackmagic Design\DaVinci Resolve\Support\CacheClip\*"
+:: --- REMOVED: GPU / shader caches (AMD DxCache/GLCache/VkCache, NVIDIA
+:: NV_Cache/GLCache/DXCache, Intel ShaderCache, D3DSCache, DirectX Shader
+:: Cache). Measured here: 1.3 MB + 1.2 MB, the rest absent. Wiping them
+:: guarantees shader re-compilation stutter the next time each game or app
+:: starts, in exchange for a rounding error of disk space. That is exactly
+:: the trade this tool should not make. Moved to the opt-in purge.
+::
+:: --- REMOVED: DaVinci Resolve media cache. Deleting it forces Resolve to
+:: re-render optimized media and previews - hours of work on a video project,
+:: not "invisible". Moved to the opt-in purge.
 
 :: --- Dumps (facultatif mais sans impact sur réglages) ---
 echo %date% %time% : Deleting MiniDump files                             >> %logs%
@@ -744,12 +731,9 @@ del /F /S /Q "%SystemRoot%\Minidump\*"
 echo %date% %time% : Deleting Memory Dump file                           >> %logs%
 del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 
-:: OPTIONAL - Edge WebView2 runtime caches (safe, but may trigger recompile)
-:: set CLEAR_WEBVIEW2=1
-echo %date% %time% : Clearing Edge WebView2 caches               >> %logs%
-del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\Cache\*" 2>nul
-del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Code Cache\*" 2>nul
-del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Cache\*" 2>nul
+:: --- REMOVED: Edge WebView2 caches ---
+:: Same class as a browser cache. Every WebView2-hosted app (new Teams, Office
+:: add-ins, several game launchers) re-downloads and re-compiles afterwards.
 
 :: Recycle Bin fallback per drive (silent)
 for %%D in (C D E F) do if exist "%%D:\" (
@@ -782,25 +766,13 @@ rd /S /Q "C:\NVIDIA" 2>nul
 rd /S /Q "C:\AMD"    2>nul
 rd /S /Q "C:\Intel"  2>nul
 
-:: --- Browser + Store (closes apps): FULL mode only, skipped in Auto-lite ---
-if not "%autoclean%"=="2" goto delete_skip_apps
-echo %date% %time% : Closing Edge/Chrome and clearing their caches  >> %logs%
-taskkill /f /im msedge.exe  >nul 2>&1
-taskkill /f /im chrome.exe  >nul 2>&1
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\Cache\*"        2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\Code Cache\*"   2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\GPUCache\*"     2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Cache\*"         2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Code Cache\*"    2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\GPUCache\*"      2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Edge\User Data\Default\Service Worker\CacheStorage\*"  2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Google\Chrome\User Data\Default\Service Worker\CacheStorage\*"   2>nul
-
-:: --- Microsoft Store download cache (wsreset) ---
-echo %date% %time% : Resetting Microsoft Store cache               >> %logs%
-start "" wsreset.exe
-timeout /t 15 /nobreak >nul
-taskkill /f /im "WinStore.App.exe" >nul 2>&1
+:: --- REMOVED: browser cache purge + closing Edge/Chrome, and wsreset.
+:: Measured on this machine: Chrome Cache 741 MB + Code Cache 550 MB +
+:: ServiceWorker 1471 MB = ~2.8 GB, against 610 GB free on C:. Deleting it
+:: buys nothing and costs re-downloads, JS re-compilation and re-warmed
+:: service workers - and killing the browser closes the user's tabs.
+:: wsreset closes the Store window for a cache that is already self-managed.
+:: These live in menu 1 -> "Deep cache purge" now, as an explicit opt-in.
 :delete_skip_apps
 
 :: --- Windows.old (removes rollback): FULL mode only ---
@@ -813,40 +785,45 @@ if exist "%SystemDrive%\Windows.old" (
 )
 :delete_skip_winold
 
-call :L "%cInfo%" "Cleaning app caches (Spotify / Teams / Discord)"
-del /F /S /Q "%USERHOME%\AppData\Local\Spotify\Storage\*"             2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Spotify\Data\*"                2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\Spotify\Storage\*"           2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\discord\Cache\*"             2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\discord\Code Cache\*"        2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\discord\GPUCache\*"          2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\Microsoft\Teams\Cache\*"     2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\Microsoft\Teams\GPUCache\*"  2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\*" 2>nul
+:: --- REMOVED: Spotify / Discord / Teams caches ---
+:: Spotify Storage and Data hold the OFFLINE MUSIC cache: deleting them forces
+:: a full re-download of everything saved for offline listening.
+:: Discord Cache / Code Cache / GPUCache are the same class as a browser cache -
+:: re-downloads and re-compilation for a few dozen MB.
+:: Teams LocalCache can sign the user out of the new Teams client.
+:: None of these are invisible, so none of them belong in an automatic pass.
 
 call :L "%cInfo%" "Cleaning game launcher caches (Steam / Ubisoft / EA / Origin / Epic)"
-:: Steam: install path from registry; shadercache + http cache + logs/dumps (rebuilt on launch)
+:: Steam: logs and crash dumps only - both invisible and genuinely useless.
+:: NOT steamapps\shadercache: wiping it guarantees shader re-compilation
+:: stutter, and the registry InstallPath only covers the C: library anyway
+:: (the real libraries are on D:/E: here), so it was harmful AND incomplete.
+:: NOT depotcache: those .manifest files are what avoid a full re-download
+:: when Steam verifies files.
 set "STEAMPATH="
 for /f "tokens=2,*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Valve\Steam" /v "InstallPath" 2^>nul ^| findstr /i "InstallPath"') do set "STEAMPATH=%%b"
 if not defined STEAMPATH goto delete_skip_steam
-rd /S /Q "%STEAMPATH%\steamapps\shadercache"    2>nul
-del /F /S /Q "%STEAMPATH%\appcache\httpcache\*"  2>nul
-del /F /S /Q "%STEAMPATH%\logs\*"                2>nul
-del /F /S /Q "%STEAMPATH%\dumps\*"               2>nul
+del /F /S /Q "%STEAMPATH%\logs\*"                >nul 2>&1
+del /F /S /Q "%STEAMPATH%\dumps\*"               >nul 2>&1
 :delete_skip_steam
 set "STEAMPATH="
 del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        2>nul
 del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\Electronic Arts\EA Desktop\cache\*"   2>nul
 del /F /S /Q "%ProgramData%\EA Core\cache\*"                                 2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Origin\*"                             2>nul
-del /F /S /Q "%ProgramData%\Origin\*"                                        2>nul
+:: Origin (legacy): ONLY the cache/log subfolders. Never the folder itself -
+:: %ProgramData%\Origin\LocalContent holds game entitlement data and wiping it
+:: can stop games from launching.
+del /F /S /Q "%USERHOME%\AppData\Local\Origin\Logs\*"                        >nul 2>&1
+del /F /S /Q "%USERHOME%\AppData\Roaming\Origin\Logs\*"                      >nul 2>&1
+del /F /S /Q "%ProgramData%\Origin\Logs\*"                                   >nul 2>&1
 for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" 2>nul
 del /F /S /Q "%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\Logs\*"       2>nul
 
-call :L "%cInfo%" "Cleaning Adobe media cache (Premiere / After Effects / Media Encoder)"
-del /F /S /Q "%USERHOME%\AppData\Roaming\Adobe\Common\Media Cache Files\*"   2>nul
-del /F /S /Q "%USERHOME%\AppData\Roaming\Adobe\Common\Media Cache\*"         2>nul
+:: --- REMOVED: Adobe Common Media Cache ---
+:: Deleting it forces Premiere/After Effects to re-conform audio and re-render
+:: peak files for every project. Same reasoning as the DaVinci cache:
+:: expensive to regenerate, and very much visible to the user.
 
 call :L "%cInfo%" "Clearing font cache (Prefetch left intact - it speeds up app launches)"
 net stop FontCache >nul 2>&1
