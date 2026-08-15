@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.4
+set current_version=05.5
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -1360,7 +1360,10 @@ powercfg /setactive SCHEME_CURRENT >nul
 
 call :L "%cInfo%" "Background apps + telemetry off"
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v "GlobalUserDisabled" /t REG_DWORD /d 1 /f >nul
-reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsRunInBackground" /t REG_DWORD /d 2 /f >nul
+:: REMOVED: LetAppsRunInBackground=2 (Force Deny). It is machine-scope and NOT
+:: edition-gated, so on Pro it really does kill toasts and background sync for
+:: every packaged app, and greys the per-app toggle with "managed by your
+:: organization" - the exact banner this script says it refuses to cause.
 :: AllowTelemetry=0 is Enterprise/Education only - on Pro it is clamped to 1
 :: (Required), so claiming to set it would be a lie in the log. The scheduled
 :: task disables are what actually reduce telemetry here.
@@ -1375,9 +1378,20 @@ schtasks /Change /TN "\Microsoft\Windows\Customer Experience Improvement Program
 schtasks /Change /TN "\Microsoft\Windows\Feedback\Siuf\DmClient" /Disable >nul 2>&1
 schtasks /Change /TN "\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload" /Disable >nul 2>&1
 
-call :L "%cInfo%" "Disabling VBS / Memory Integrity HVCI for gaming - security tradeoff"
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v "Enabled" /t REG_DWORD /d 0 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v "EnableVirtualizationBasedSecurity" /t REG_DWORD /d 0 /f >nul
+:: HVCI is the biggest security regression in this whole script, so it is the
+:: one thing here that asks first instead of being bundled into "apply profile".
+call :L "%cWarn%" "Disable Memory Integrity (HVCI)? It removes kernel code-integrity"
+call :L "%cWarn%" "enforcement, and some anti-cheats (Vanguard, FACEIT) require it ON."
+set "choice="
+set /p choice= Disable HVCI? 1 (Yes) - 0 (No, keep it enabled):
+if "%choice%"=="1" (
+    reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v "Enabled" /t REG_DWORD /d 0 /f >nul
+    reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v "EnableVirtualizationBasedSecurity" /t REG_DWORD /d 0 /f >nul
+    echo %date% %time% : HVCI/VBS disabled on explicit confirmation           >> %logs%
+) else (
+    call :L "%cOK%" "  HVCI left enabled"
+    echo %date% %time% : HVCI left enabled                                    >> %logs%
+)
 
 call :L "%cOK%" "Gaming / Performance tweaks applied - a reboot is recommended (Memory Integrity)."
 pause
@@ -1449,8 +1463,11 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "T
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v "ShowTaskViewButton" /t REG_DWORD /d 1 /f >nul
 
 call :L "%cInfo%" "Re-enabling VBS / Memory Integrity HVCI"
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v "Enabled" /t REG_DWORD /d 1 /f >nul
-reg delete "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v "EnableVirtualizationBasedSecurity" /f >nul 2>&1
+:: The Windows default for both is the value being ABSENT, not 1. Forcing 1 on
+:: a machine whose hardware or drivers cannot support HVCI causes driver-load
+:: failures, so the revert removes the override instead of asserting a value.
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
 
 call :L "%cInfo%" "Restoring services + GameDVR + hibernation to Windows defaults (map_only undo)"
 sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
@@ -1463,7 +1480,7 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" /v "Sea
 reg add "HKCU\System\GameConfigStore" /v "GameDVR_Enabled" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d 1 /f >nul
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\GameDVR" /v "AllowGameDVR" /f >nul 2>&1
-reg delete "HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR" /v "value" /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR" /v "value" /t REG_DWORD /d 1 /f >nul
 powercfg /h on >nul
 
 call :L "%cInfo%" "Restoring ads / suggestions / Spotlight to Windows defaults"
@@ -1549,6 +1566,14 @@ reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protecti
 call :L "%cInfo%" "UAC ON (EnableLUA=1, secure prompt) - reboot needed if it was off"
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA" /t REG_DWORD /d 1 /f >nul
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "ConsentPromptBehaviorAdmin" /t REG_DWORD /d 5 /f >nul
+:: The banner above promised "secure prompt" but this was never written. Without
+:: it the UAC dialog renders on the interactive desktop, where any user-level
+:: process can overlay it, screenshot it or synthesise input against it.
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "PromptOnSecureDesktop" /t REG_DWORD /d 1 /f >nul
+
+call :L "%cInfo%" "Memory Integrity / HVCI back to the Windows default (value absent)"
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
 
 call :L "%cInfo%" "Display: clearing leftover overlay/MPO overrides (their default is ABSENT)"
 :: Writing 0 does NOT restore these - the Windows default is the value not existing.
@@ -1559,7 +1584,9 @@ call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "OverlayTestMode"
 call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "OverlayMinFPS"
 call :killkey "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "DisableIndependentFlip"
 call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DisableOverlays"
-call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "UnsupportedMonitorModesAllowed"
+:: NOT removed: UnsupportedMonitorModesAllowed. It is dxgkrnl's custom-mode
+:: gate (CRU / Adrenalin custom timings), unrelated to MPO, it is set to 1 on
+:: this machine, and nothing here would ever write it back.
 :: HAGS is driver-assumed on RDNA3 since Adrenalin 23.12.1 and Anti-Lag 2 needs it.
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
 call :L "%cInfo%" "Re-asserted hardware GPU scheduling (HwSchMode=2)"
@@ -1664,14 +1691,17 @@ cls
 echo %date% %time% : Re-asserting SysMain/Prefetch good defaults (2026 SSD best practice)   >> %logs%
 reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnablePrefetcher" /t REG_DWORD /d 00000003 /f
 reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnableSuperfetch" /t REG_DWORD /d 00000003 /f
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" /v "SearchOrderConfig" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : Set SearchOrderConfig=0                            >> %logs%
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR" /v "value" /t REG_SZ /d "00000000" /f
-echo %date% %time% : Set AllowGameDVR value=00000000 (machine-level)     >> %logs%
+:: REMOVED: SearchOrderConfig=0. That is not a default (default is 1) and it
+:: stops Windows Update from delivering ANY driver or firmware - including
+:: Intel I211 / AX210 and chipset security fixes. The revert in menu 7 sets 1.
+:: REMOVED: writing PolicyManager\...\AllowGameDVR as REG_SZ. It is an OS
+:: policy-schema key (policytype=4, lowrange/highrange) whose scalar siblings
+:: are REG_DWORD, so the string was a type the policy engine will not read.
 reg add "HKEY_CURRENT_USER\System\GameConfigStore" /v "GameDVR_Enabled" /t REG_DWORD /d 00000000 /f
 echo %date% %time% : Set GameDVR_Enabled=0 (user-level)                  >> %logs%
-reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\GameDVR" /v "AllowGameDVR" /t REG_DWORD /d 00000000 /f
-echo %date% %time% : Set AllowGameDVR=0 under Policies\Windows\GameDVR   >> %logs%
+:: REMOVED: the Policies\Windows\GameDVR write. Windows' own GPBlockingRegKeyPath
+:: names exactly this key as what greys out Settings > Gaming > Captures.
+:: The HKCU writes below already disable GameDVR without any org banner.
 reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d 00000000 /f
 echo %date% %time% : Set AppCaptureEnabled=0 (user-level)                >> %logs%
 powercfg /h off
@@ -1691,8 +1721,9 @@ sc stop WSearch
 echo %date% %time% : Stopped service: WSearch                           >> %logs%
 sc stop WerSvc
 echo %date% %time% : Stopped service: WerSvc                              >> %logs%
-sc stop Spooler
-echo %date% %time% : Stopped service: Spooler                            >> %logs%
+:: REMOVED: stopping the Print Spooler. Its default start type is Automatic
+:: and nothing demand-starts it, so setting it to Manual silently kills all
+:: printing after the next reboot - from a menu labelled "services + power".
 sc stop DPS
 echo %date% %time% : Stopped service: DPS                                  >> %logs%
 sc stop TabletInputService
@@ -1701,8 +1732,7 @@ sc config "WSearch" start= demand
 echo %date% %time% : Configured WSearch start= demand                      >> %logs%
 sc config "WerSvc" start= demand
 echo %date% %time% : Configured WerSvc start= demand                         >> %logs%
-sc config "Spooler" start= demand
-echo %date% %time% : Configured Spooler start= demand                       >> %logs%
+
 sc config "DPS" start= demand
 echo %date% %time% : Configured DPS start= demand                            >> %logs%
 sc config "TabletInputService" start= disabled
@@ -2214,7 +2244,13 @@ cls
 call :L "%cStep%" "Restoring factory defaults on: %NICDESC%"
 echo(
 :: every tunable keyword carries its own factory value in Ndi\Params\<kw>\default
-for /f "delims=" %%P in ('reg query "%NICKEY%\Ndi\Params" 2^>nul') do call :nicdefault "%NICKEY%" "%%P"
+:: Restore ONLY the keywords :net_apply actually writes. The unfiltered query
+:: returned all 31 the driver exposes, so "Restore" also re-enabled Wake-on-LAN,
+:: 802.3az EEE and ReduceSpeedOnPowerDown - settings the user had deliberately
+:: turned off and that OPTY never touched.
+:: findstr /e /c: is required here: a `for %%P in (*RSS ITR)` style list would be
+:: treated as a filesystem glob and silently drop every *-prefixed keyword.
+for /f "delims=" %%P in ('reg query "%NICKEY%\Ndi\Params" 2^>nul ^| findstr /i /e /c:"\*InterruptModeration" /c:"\ITR" /c:"\*LsoV2IPv4" /c:"\*LsoV2IPv6" /c:"\*TCPChecksumOffloadIPv4" /c:"\*TCPChecksumOffloadIPv6" /c:"\*UDPChecksumOffloadIPv4" /c:"\*UDPChecksumOffloadIPv6" /c:"\*IPChecksumOffloadIPv4" /c:"\*RSS" /c:"\*NumRssQueues" /c:"\*JumboPacket" /c:"\*ReceiveBuffers" /c:"\*TransmitBuffers"') do call :nicdefault "%NICKEY%" "%%P"
 echo(
 call :L "%cInfo%" "Restoring TCP globals"
 netsh int tcp set global autotuninglevel=normal >nul
