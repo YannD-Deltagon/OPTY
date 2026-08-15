@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=06.1
+set current_version=06.2
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -2367,6 +2367,58 @@ call :L "%cInfo%" "Buffer headroom - requested 1024, clamped to the driver max a
 call :nicset "%NICKEY%" "*ReceiveBuffers" "1024"
 call :nicset "%NICKEY%" "*TransmitBuffers" "1024"
 
+call :L "%cInfo%" "Energy Efficient Ethernet off (link stability, not a ping fix)"
+call :nicset "%NICKEY%" "EEELinkAdvertisement" "0"
+call :nicset "%NICKEY%" "*EEE" "0"
+call :nicset "%NICKEY%" "EnableGreenEthernet" "0"
+call :nicset "%NICKEY%" "AdvancedEEE" "0"
+
+echo(
+call :rule
+echo(  %cT%Usage profile%cR%
+echo(  %cInfo%Everything above is identical for gaming, streaming and torrenting -%cR%
+echo(  %cInfo%game traffic is small UDP that never touches LSO, RSC or jumbo frames.%cR%
+echo(  %cInfo%Only TWO settings genuinely differ, and both are conditional:%cR%
+echo(
+echo(     %cVal%1.%cR%  Balanced       %cInfo%Windows defaults for both - recommended%cR%
+echo(     %cVal%2.%cR%  Low latency    %cInfo%Flow Control off: avoids a PAUSE frame stalling%cR%
+echo(                    %cInfo%your upload up to 33.6 ms - but only if a switch on%cR%
+echo(                    %cInfo%your LAN actually sends them. Costs dropped packets%cR%
+echo(                    %cInfo%instead of a brief pause under saturation.%cR%
+echo(     %cVal%3.%cR%  Throughput     %cInfo%Lifts the MMCSS network cap (~120 Mbit/s) that%cR%
+echo(                    %cInfo%applies ONLY while audio is playing. Costs the%cR%
+echo(                    %cInfo%protection that cap exists for: network DPC work can%cR%
+echo(                    %cInfo%steal time from audio threads.%cR%
+echo(
+set "choice="
+set /p choice= Profile (1/2/3):
+echo %date% %time% : net profile "%choice%"                        >> %logs%
+if "%choice%"=="2" goto net_prof_lat
+if "%choice%"=="3" goto net_prof_thr
+call :L "%cInfo%" "Balanced - Flow Control and the MMCSS cap left at their defaults"
+call :nicset "%NICKEY%" "*FlowControl" "3"
+call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD 10 "NetworkThrottlingIndex"
+goto net_prof_done
+
+:net_prof_lat
+call :L "%cWarn%" "Low latency - Flow Control off"
+call :nicset "%NICKEY%" "*FlowControl" "0"
+:: Deliberately no automatic "did this help" check: the only honest signal is the
+:: adapter's own "Pause Frames Received" counter, which this driver does not
+:: expose through any scriptable interface. Saying it changed nothing would be
+:: as much a guess as saying it helped.
+call :L "%cInfo%" "  This only does something if a switch on your LAN sends PAUSE frames."
+call :L "%cInfo%" "  If none does, the measured effect is exactly zero."
+call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD 10 "NetworkThrottlingIndex"
+goto net_prof_done
+
+:net_prof_thr
+call :L "%cWarn%" "Throughput - lifting the MMCSS network cap"
+call :nicset "%NICKEY%" "*FlowControl" "3"
+call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD 4294967295 "NetworkThrottlingIndex"
+call :L "%cInfo%" "  Honest A/B: run a large download while playing audio, before and after."
+:net_prof_done
+
 echo(
 call :L "%cInfo%" "Re-asserting good TCP globals"
 netsh int tcp set global autotuninglevel=normal >nul
@@ -2846,8 +2898,18 @@ for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v max 2^>nul ^| finds
 for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v step 2^>nul ^| findstr /i "REG_SZ"') do set "NSTEP=%%M"
 if defined NMAX call :nicclamp
 if defined NSTEP call :nicround
+:: report whether this actually repaired anything - on a fresh or OEM machine
+:: these often differ, on an already-tuned one they will all say "already"
+set "OLDV="
+for /f "tokens=3" %%O in ('reg query "%~1" /v "%~2" 2^>nul ^| findstr /i /c:"REG_SZ"') do set "OLDV=%%O"
 reg add "%~1" /v "%~2" /t REG_SZ /d "%NV%" /f >nul 2>&1
-call :L "%cInfo%" "  %~2 = %NV%"
+if not defined OLDV (
+    call :L "%cOK%" "  SET      %~2 = %NV%   (was absent)"
+) else if "%OLDV%"=="%NV%" (
+    call :L "%cInfo%" "  already  %~2 = %NV%"
+) else (
+    call :L "%cOK%" "  FIXED    %~2 : was %OLDV%, now %NV%"
+)
 goto :eof
 
 :nicclamp
