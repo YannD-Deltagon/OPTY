@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.8
+set current_version=05.9
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -619,14 +619,81 @@ echo.                                                           >> %logs%
 echo ====================== :CLEAN ======================       >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :clean label                            >> %logs%
-echo Cleanmgr...                                                 
-if /i "%autoclean%"=="2" (cleanmgr /verylowdisk & goto clean_wsl)
-cleanmgr /sageset:65535
-echo %date% %time% : Executed cleanmgr /sageset:65535              >> %logs%
-pause
-cleanmgr /sagerun:65535
-echo %date% %time% : Executed cleanmgr /sagerun:65535              >> %logs%
-timeout /t 5
+call :L "%cStep%" "Disk Cleanup - explicit allow-list, no GUI, no /verylowdisk"
+set "VC=HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches"
+
+:: Why this replaced /sageset:65535 + /sagerun:65535 + /verylowdisk:
+::  - cleanmgr profile numbers are 4 digits. 65535 silently became 6553, and
+::    that profile ended up with Recycle Bin, User file versions (File History),
+::    both dump handlers and Update Cleanup ENABLED. So every run emptied the
+::    bin on every drive and shredded BSOD dumps - the exact things the manual
+::    cleanup above deliberately refuses to touch.
+::  - /verylowdisk runs EVERY registered handler, third-party ones included,
+::    with no prompt and no record of what it removed.
+:: Now: wipe the legacy profiles, write an explicit allow-list, run that.
+call :L "%cWarn%" "Clearing the old profile (it had Recycle Bin + File History ON)"
+for /f "delims=" %%K in ('reg query "%VC%" 2^>nul') do (
+    reg delete "%%K" /v StateFlags6553  /f >nul 2>&1
+    reg delete "%%K" /v StateFlags65535 /f >nul 2>&1
+)
+
+:: ENABLE - caches, temp, shaders and logs only.
+:: Explicit literals, never a loop over the key: enumerating and setting 2 would
+:: also arm DownloadsFolder, which deletes the user's Downloads with no age gate.
+for %%H in (
+ "Active Setup Temp Folders"
+ "D3D Shader Cache"
+ "Delivery Optimization Files"
+ "Diagnostic Data Viewer database files"
+ "Downloaded Program Files"
+ "Feedback Hub Archive log files"
+ "Internet Cache Files"
+ "RetailDemo Offline Content"
+ "Setup Log Files"
+ "Temporary Files"
+ "Thumbnail Cache"
+ "Windows Defender"
+ "Windows Error Reporting Files"
+ "Windows Upgrade Log Files"
+) do reg query "%VC%\%%~H" >nul 2>&1 && reg add "%VC%\%%~H" /v StateFlags0064 /t REG_DWORD /d 2 /f >nul 2>&1
+
+:: DISABLE - re-asserted explicitly rather than left to chance.
+for %%H in (
+ "BranchCache"
+ "Content Indexer Cleaner"
+ "Device Driver Packages"
+ "DownloadsFolder"
+ "Language Pack"
+ "Old ChkDsk Files"
+ "Previous Installations"
+ "Recycle Bin"
+ "System error memory dump files"
+ "System error minidump files"
+ "Temporary Setup Files"
+ "Update Cleanup"
+ "Upgrade Discarded Files"
+ "User file versions"
+ "Windows ESD installation files"
+) do reg query "%VC%\%%~H" >nul 2>&1 && reg add "%VC%\%%~H" /v StateFlags0064 /t REG_DWORD /d 0 /f >nul 2>&1
+echo %date% %time% : Wrote StateFlags0064 allow-list (14 on / 15 off) >> %logs%
+
+:: /sagerun walks every drive, so a dead SMB mapping can stall it. Hard 10 min cap.
+start "" cleanmgr /sagerun:64
+set /a CMW=0
+:clean_wait
+timeout /t 5 /nobreak >nul
+set /a CMW+=5
+tasklist /fi "imagename eq cleanmgr.exe" /nh 2>nul | findstr /i "cleanmgr.exe" >nul 2>&1 || goto clean_done
+if %CMW% GEQ 600 (
+    taskkill /f /im cleanmgr.exe >nul 2>&1
+    call :L "%cWarn%" "cleanmgr exceeded 10 min - stopped. A disconnected network drive is the usual cause."
+    echo %date% %time% : cleanmgr /sagerun:64 TIMED OUT after 600s   >> %logs%
+    goto clean_wsl
+)
+goto clean_wait
+:clean_done
+call :L "%cOK%" "Disk Cleanup finished (profile 0064)"
+echo %date% %time% : cleanmgr /sagerun:64 completed in %CMW%s        >> %logs%
 
 
 :clean_wsl
@@ -1347,7 +1414,11 @@ call :L "%cInfo%" "Foreground boost (MMCSS SystemProfile)"
 :: they are documented as unused or overridden when Scheduling Category=High,
 :: and the values every guide tells you to write are already the defaults.
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 38 /f >nul
+:: 0x26 (38) is what "Adjust for best performance of: Programs" writes, but on a
+:: client SKU it decodes to the same short/variable/foreground-boosted profile as
+:: the shipped default 0x2, and no 2025/2026 measurement shows a frametime
+:: difference. Writing it only made "restore defaults" have something to undo.
+:: Left at the Windows default on purpose.
 
 call :L "%cInfo%" "Game Mode ON (HAGS and MPO moved to menu 3 -> 5: Display tweaks)"
 reg add "HKCU\Software\Microsoft\GameBar" /v "AutoGameModeEnabled" /t REG_DWORD /d 1 /f >nul
@@ -1599,6 +1670,16 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "Con
 :: process can overlay it, screenshot it or synthesise input against it.
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "PromptOnSecureDesktop" /t REG_DWORD /d 1 /f >nul
 
+call :L "%cInfo%" "MMCSS + scheduler back to Windows defaults (20 / 10 / 2)"
+:: Measured live on this machine: SystemResponsiveness=10,
+:: NetworkThrottlingIndex=0xFFFFFFFF, Win32PrioritySeparation=38 - all left over
+:: from earlier OPTY builds. :reassert_defaults never touched them, so they
+:: survived every "restore". This is a real fix, not a no-op.
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "NetworkThrottlingIndex" /t REG_DWORD /d 10 /f >nul
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 2 /f >nul
+echo %date% %time% : Re-asserted MMCSS 20 / NTI 10 / Win32PrioSep 2   >> %logs%
+
 call :L "%cInfo%" "Memory Integrity / HVCI back to the Windows default (value absent)"
 call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" "Enabled"
 call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
@@ -1823,8 +1904,27 @@ echo.                                                           >> %logs%
 echo ====================== :POWERCFG ======================      >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :powercfg label                         >> %logs%
-powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-echo %date% %time% : Duplicated "Ultimate Performance" power plan      >> %logs%
+:: -duplicatescheme creates a NEW scheme every single time it runs. Unguarded,
+:: this machine ended up with three identical "Ultimate Performance" plans.
+:: Only duplicate it if no copy exists yet.
+set "HASULT="
+for /f "delims=" %%S in ('powercfg /list 2^>nul ^| findstr /i "e9a42b02-d5df-448d-aa00-03f14749eb61"') do set "HASULT=1"
+if defined HASULT goto powercfg_have
+powercfg /list > "%TEMP%\opty_pc_before.txt" 2>nul
+powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cWarn%" "Ultimate Performance is not available on this build - keeping the current plan"
+    echo %date% %time% : duplicatescheme unavailable                   >> %logs%
+    goto powercfg_done
+)
+call :L "%cOK%" "Ultimate Performance plan created"
+echo %date% %time% : Duplicated Ultimate Performance power plan       >> %logs%
+goto powercfg_done
+:powercfg_have
+call :L "%cInfo%" "Ultimate Performance already exists - not duplicating again"
+echo %date% %time% : Ultimate Performance already present, skipped    >> %logs%
+:powercfg_done
+del /f /q "%TEMP%\opty_pc_before.txt" >nul 2>&1
 powercfg.cpl
 echo %date% %time% : Launched powercfg.cpl GUI                         >> %logs%
 pause
