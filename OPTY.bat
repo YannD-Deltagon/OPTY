@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.7
+set current_version=05.8
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -2198,7 +2198,7 @@ echo(
 set "NICCLS=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
 del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
 for /f "delims=" %%K in ('reg query "%NICCLS%" 2^>nul') do (
-    reg query "%%K\Ndi\Params\*ReceiveBuffers" >nul 2>&1 && (
+    reg query "%%K\Ndi\Params" >nul 2>&1 && (
         for /f "tokens=2,*" %%A in ('reg query "%%K" /v DriverDesc 2^>nul ^| findstr /i "DriverDesc"') do >>"%TEMP%\opty_nic_list.txt" echo %%K %%B
     )
 )
@@ -2296,7 +2296,7 @@ call :L "%cStep%" "NETWORK - restore the driver's own factory defaults"
 set "NICCLS=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}"
 del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
 for /f "delims=" %%K in ('reg query "%NICCLS%" 2^>nul') do (
-    reg query "%%K\Ndi\Params\*ReceiveBuffers" >nul 2>&1 && (
+    reg query "%%K\Ndi\Params" >nul 2>&1 && (
         for /f "tokens=2,*" %%A in ('reg query "%%K" /v DriverDesc 2^>nul ^| findstr /i "DriverDesc"') do >>"%TEMP%\opty_nic_list.txt" echo %%K %%B
     )
 )
@@ -2700,6 +2700,10 @@ echo ====================== :RESTORE_POINT ==================== >> %logs%
 echo %date% %time% : Creating system restore point               >> %logs%
 call :L "%cStep%" "Creating a System Restore Point - safety net before changes..."
 powershell -NoProfile -Command "Enable-ComputerRestore -Drive '%SystemDrive%\'" >nul 2>&1
+:: Windows refuses a second restore point within 1440 minutes, so the throttle
+:: is lifted just long enough to create ours - then put straight back. The old
+:: code left it at 0 forever, silently changing how System Protection behaves
+:: on the machine long after OPTY had exited.
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "SystemRestorePointCreationFrequency" /t REG_DWORD /d 0 /f >nul 2>&1
 powershell -NoProfile -Command "Checkpoint-Computer -Description 'OPTY v%current_version% - before optimization' -RestorePointType 'MODIFY_SETTINGS'" >nul 2>&1
 if errorlevel 1 (
@@ -2707,4 +2711,8 @@ if errorlevel 1 (
 ) else (
     call :L "%cOK%" "Restore point created"
 )
+:: Put the throttle back to the Windows default (1440 minutes) so OPTY does not
+:: leave System Protection permanently altered behind it.
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "SystemRestorePointCreationFrequency" /t REG_DWORD /d 1440 /f >nul 2>&1
+echo %date% %time% : Restore-point throttle put back to 1440 min     >> %logs%
 goto :eof
