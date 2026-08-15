@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.2
+set current_version=05.3
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -295,13 +295,13 @@ echo.
 set "choice="
 set /p choice= Enter action:
 echo %date% %time% : Opti-mopti "%choice%"                            >> %logs%
-if /i "%choice%"=="1" set autoclean=0 & set autoshutdownreboot=5 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto mdisenable
-if /i "%choice%"=="2" set autoclean=1 & set autoshutdownreboot=0 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto wupdate
-if /i "%choice%"=="3" set autoclean=2 & set autoshutdownreboot=0 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto stopapps
-if /i "%choice%"=="2s" set autoclean=1 & set autoshutdownreboot=1 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto wupdate
-if /i "%choice%"=="3s" set autoclean=2 & set autoshutdownreboot=1 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto stopapps
-if /i "%choice%"=="2r" set autoclean=1 & set autoshutdownreboot=2 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto wupdate
-if /i "%choice%"=="3r" set autoclean=2 & set autoshutdownreboot=2 & echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot% >> %logs% & goto stopapps
+if /i "%choice%"=="1" (set "autoclean=0" & set "autoshutdownreboot=5" & call :logvars & goto mdisenable)
+if /i "%choice%"=="2" (set "autoclean=1" & set "autoshutdownreboot=0" & call :logvars & goto wupdate)
+if /i "%choice%"=="3" (set "autoclean=2" & set "autoshutdownreboot=0" & call :logvars & goto stopapps)
+if /i "%choice%"=="2s" (set "autoclean=1" & set "autoshutdownreboot=1" & call :logvars & goto wupdate)
+if /i "%choice%"=="3s" (set "autoclean=2" & set "autoshutdownreboot=1" & call :logvars & goto stopapps)
+if /i "%choice%"=="2r" (set "autoclean=1" & set "autoshutdownreboot=2" & call :logvars & goto wupdate)
+if /i "%choice%"=="3r" (set "autoclean=2" & set "autoshutdownreboot=2" & call :logvars & goto stopapps)
 if /i "%choice%"=="0" goto menu
 color 0C
 echo This is not a valid action                                      
@@ -427,7 +427,7 @@ echo %date% %time% : Entered :netdns label                           >> %logs%
 call :L "%cStep%" "NETWORK - DNS flush + TCP tuning (Winsock/IP reset is manual-only)..."
 ipconfig /flushdns
 echo %date% %time% : Executed ipconfig /flushdns                      >> %logs%
-if "%autoclean%"=="2" goto netdns_tcp
+if /i "%autoclean%"=="2" goto netdns_tcp
 netsh int ip reset
 echo %date% %time% : Executed netsh int ip reset                      >> %logs%
 netsh winsock reset
@@ -870,10 +870,18 @@ if exist "%SystemDrive%\Windows.old" (
 
 :: --- Discord: Electron caches (rebuild on next launch, classic fix for a
 :: stuck/blank client). Its logins live in Local Storage, which is untouched.
-call :L "%cInfo%" "Clearing Discord caches (classic fix for a stuck client)"
-del /F /S /Q "%APPDATA%\discord\Cache\Cache_Data\*"    >nul 2>&1
-del /F /S /Q "%APPDATA%\discord\Code Cache\*"          >nul 2>&1
-del /F /S /Q "%APPDATA%\discord\GPUCache\*"            >nul 2>&1
+:: Same guard as the browsers: deleting the unlocked data_* blocks while the
+:: memory-mapped index survives is exactly what produces the grey / infinite
+:: loading Discord screen this is supposed to prevent.
+call :isrunning "Discord.exe"
+if defined RUNNING (
+    call :L "%cWarn%" "  Discord is running - caches skipped, close it and re-run"
+) else (
+    call :L "%cInfo%" "Clearing Discord caches (classic fix for a stuck client)"
+    del /F /S /Q "%APPDATA%\discord\Cache\Cache_Data\*"    >nul 2>&1
+    del /F /S /Q "%APPDATA%\discord\Code Cache\*"          >nul 2>&1
+    del /F /S /Q "%APPDATA%\discord\GPUCache\*"            >nul 2>&1
+)
 
 :: --- NOT cleared ---
 :: Spotify Storage/Data: that is the OFFLINE MUSIC cache. Clearing it forces a
@@ -899,18 +907,29 @@ del /F /S /Q "%STEAMPATH%\dumps\*"               >nul 2>&1
 call :isrunning "steam.exe"
 if not defined RUNNING del /F /S /Q "%LOCALAPPDATA%\Steam\htmlcache\*" >nul 2>&1
 set "STEAMPATH="
-del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        2>nul
-del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Electronic Arts\EA Desktop\cache\*"   2>nul
-del /F /S /Q "%ProgramData%\EA Core\cache\*"                                 2>nul
+:: Launcher caches - each one guarded, for the same reason as Discord: a
+:: half-deleted cache under a running client is worse than not cleaning at all.
+call :isrunning "upc.exe"
+if not defined RUNNING (
+    del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        >nul 2>&1
+    del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  >nul 2>&1
+) else ( call :L "%cWarn%" "  Ubisoft Connect is running - skipped" )
+call :isrunning "EADesktop.exe"
+if not defined RUNNING (
+    del /F /S /Q "%USERHOME%\AppData\Local\Electronic Arts\EA Desktop\cache\*"   >nul 2>&1
+    del /F /S /Q "%ProgramData%\EA Core\cache\*"                                 >nul 2>&1
+) else ( call :L "%cWarn%" "  EA App is running - skipped" )
 :: Origin (legacy): ONLY the cache/log subfolders. Never the folder itself -
 :: %ProgramData%\Origin\LocalContent holds game entitlement data and wiping it
 :: can stop games from launching.
 del /F /S /Q "%USERHOME%\AppData\Local\Origin\Logs\*"                        >nul 2>&1
 del /F /S /Q "%USERHOME%\AppData\Roaming\Origin\Logs\*"                      >nul 2>&1
 del /F /S /Q "%ProgramData%\Origin\Logs\*"                                   >nul 2>&1
-for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" 2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\Logs\*"       2>nul
+call :isrunning "EpicGamesLauncher.exe"
+if not defined RUNNING (
+    for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" >nul 2>&1
+    del /F /S /Q "%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\Logs\*"   >nul 2>&1
+) else ( call :L "%cWarn%" "  Epic Games Launcher is running - skipped" )
 
 :: --- REMOVED: Adobe Common Media Cache ---
 :: Deleting it forces Premiere/After Effects to re-conform audio and re-render
@@ -1184,8 +1203,15 @@ echo ====================== :ENABLE_GOOGLE_UPDATE ================= >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :enable_google_update label             >> %logs%
 cls
-taskkill /f /im chrome.exe
-echo %date% %time% : Killed Chrome processes                       >> %logs%
+:: Never force-close the browser. The HKLM policy write below does not need
+:: Chrome closed at all; the old taskkill just destroyed the user's tabs.
+call :isrunning "chrome.exe"
+if defined RUNNING (
+    call :L "%cWarn%" "Chrome is running. Close it yourself if you want, then press a key."
+    call :L "%cInfo%" "OPTY never force-closes your browser."
+    pause
+)
+echo %date% %time% : Chrome close requested, never force-killed     >> %logs%
 cls
 REG ADD "HKLM\SOFTWARE\Policies\Google\Update" /v "UpdateDefault" /t REG_DWORD /d 1 /f
 echo %date% %time% : Set Google UpdateDefault=1                     >> %logs%
@@ -2367,6 +2393,13 @@ if not defined RUNNING for /d %%F in ("%UL%\Mozilla\Firefox\Profiles\*") do (
     del /F /S /Q "%%~F\jumpListCache\*" >nul 2>&1
     del /F /S /Q "%%~F\thumbnails\*"    >nul 2>&1
 )
+goto :eof
+
+:logvars
+:: Called AFTER the mode is set. The old code logged %autoclean% inline on the
+:: same line as the `set`, so cmd expanded it before the assignment ran and the
+:: log recorded the PREVIOUS run's mode (empty on the first pass).
+>>%logs% echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot%
 goto :eof
 
 :isrunning
