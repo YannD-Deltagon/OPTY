@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.9
+set current_version=06.0
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -276,6 +276,7 @@ echo(     %cVal%8.%cR%  Re-enable updates       %cInfo%Office / Chrome / Windows
 echo(
 echo(   %cT%OPTY%cR%
 echo(     %cVal%9.%cR%  Clean OPTY files        %cInfo%logs and reports in %OPTY_HOME_D%%cR%
+echo(     %cVal%D.%cR%  Driver store            %cInfo%remove superseded driver packages%cR%
 echo(     %cVal%0.%cR%  Exit
 echo(
 call :rule
@@ -291,6 +292,7 @@ if "%choice%"=="6" (call :restore_point & goto debloat2026)
 if "%choice%"=="7" (call :restore_point & goto mrestore)
 if "%choice%"=="8" (call :restore_point & goto mreenable)
 if "%choice%"=="9" goto Clean_Opty_Curl
+if /i "%choice%"=="D" goto driverstore
 if "%choice%"=="0" goto end
 if "%choice%"=="." goto update_opty
 color 0C
@@ -655,6 +657,9 @@ for %%H in (
  "Windows Defender"
  "Windows Error Reporting Files"
  "Windows Upgrade Log Files"
+ "Recycle Bin"
+ "System error memory dump files"
+ "System error minidump files"
 ) do reg query "%VC%\%%~H" >nul 2>&1 && reg add "%VC%\%%~H" /v StateFlags0064 /t REG_DWORD /d 2 /f >nul 2>&1
 
 :: DISABLE - re-asserted explicitly rather than left to chance.
@@ -666,9 +671,6 @@ for %%H in (
  "Language Pack"
  "Old ChkDsk Files"
  "Previous Installations"
- "Recycle Bin"
- "System error memory dump files"
- "System error minidump files"
  "Temporary Setup Files"
  "Update Cleanup"
  "Upgrade Discarded Files"
@@ -879,7 +881,10 @@ echo %date% %time% : Cleared GPU/shader caches                      >> %logs%
 
 :: --- Dumps (facultatif mais sans impact sur réglages) ---
 echo %date% %time% : MiniDump kept (crash forensics)                     >> %logs%
-:: Minidumps kept: only forensic record of a BSOD or GPU driver crash, ~0 MB.
+:: Crash dumps: deleted on the maintainer's explicit instruction. Note this
+:: loses the only forensic record of a BSOD or GPU driver crash.
+call :L "%cInfo%" "Deleting crash dumps"
+del /F /S /Q "%SystemRoot%\Minidump\*" >nul 2>&1
 echo %date% %time% : Deleting Memory Dump file                           >> %logs%
 del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 
@@ -887,12 +892,11 @@ del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 :: Same class as a browser cache. Every WebView2-hosted app (new Teams, Office
 :: add-ins, several game launchers) re-downloads and re-compiles afterwards.
 
-:: --- REMOVED: emptying the Recycle Bin on every drive ---
-:: That is the user's undo buffer, not a cache - 21.9 MB of their own deleted
-:: files on C: right now. `rd` on the container also wipes every SID's bin and
-:: strips the system/hidden attributes that make it behave like a Recycle Bin.
-:: Storage Sense (enabled below) already ages it out on a schedule the user
-:: controls, which is the right way to do this.
+:: Recycle Bin: emptied on the maintainer's explicit instruction. The cleanmgr
+:: handler above covers it properly via the shell API; this pass catches the
+:: other volumes. FIXED drives only - a disconnected SMB mapping would stall.
+call :L "%cInfo%" "Emptying the Recycle Bin on every fixed drive"
+for %%D in (%FIXEDLIST%) do if exist "%%D:\$Recycle.Bin" rd /S /Q "%%D:\$Recycle.Bin" >nul 2>&1
 
 :: --- Thumbnail & icon cache (rebuilt automatically; locked files are skipped) ---
 echo %date% %time% : Deleting icon cache (thumbnails kept)          >> %logs%
@@ -2452,6 +2456,98 @@ call :L "%cOK%" "Adapter restored to the driver's own defaults."
 del /f /q "%TEMP%\opty_nic_list.txt" >nul 2>&1
 pause
 goto mnetwork
+
+
+:driverstore
+echo.                                                           >> %logs%
+echo ====================== :DRIVERSTORE ====================== >> %logs%
+echo %date% %time% : Entered :driverstore label                  >> %logs%
+color 0E
+cls
+call :banner "DRIVER STORE - superseded third-party packages"
+echo(
+echo(  %cInfo%Windows keeps every driver package ever installed, old versions%cR%
+echo(  %cInfo%included, and never prunes them. Only THIRD-PARTY packages%cR%
+echo(  %cInfo%(oemNN.inf) are considered, through pnputil - the supported API.%cR%
+echo(
+echo(  %cWarn%Cost: you lose "Roll Back Driver" for the versions removed.%cR%
+echo(  %cInfo%This deliberately does NOT hand-delete FileRepository folders: much%cR%
+echo(  %cInfo%of that folder is hardlinked into WinSxS, so removing it frees far%cR%
+echo(  %cInfo%less than its apparent size and breaks SFC / DISM repair.%cR%
+echo(  %cInfo%A package still backing a device is refused - /force is never used.%cR%
+echo(
+echo(     %cVal%1.%cR%  Analyse only   %cInfo%list what would go, delete nothing%cR%
+echo(     %cVal%2.%cR%  Remove         %cInfo%keep the newest of each INF family%cR%
+echo(
+echo(     %cVal%0.%cR%  Back
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : driverstore "%choice%"                       >> %logs%
+if "%choice%"=="1" goto ds_run
+if "%choice%"=="2" goto ds_run
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto driverstore
+
+:ds_run
+set "DSMODE=%choice%"
+set "DSLIST=%TEMP%\opty_ds.txt"
+del /f /q "%DSLIST%" >nul 2>&1
+call :L "%cInfo%" "Enumerating driver packages..."
+:: pnputil output is localised and block-structured, so the grouping is done in
+:: one PowerShell pass - the same sanctioned exception as the restore point.
+:: The DELETION stays in CMD below, one visible pnputil call per package.
+powershell -NoProfile -Command "$b=(pnputil /enum-drivers) -join [char]10; $p=@(); foreach($k in ($b -split '(?m)^\s*$')){ if($k -match 'oem\d+\.inf'){ $pub=[regex]::Match($k,'oem\d+\.inf').Value; $o=[regex]::Match($k,'(?im)^[^\r\n:]*(origine|Original)[^:]*:\s*(\S+)').Groups[2].Value; $v=[regex]::Match($k,'(?im)^[^\r\n:]*(Version)[^:]*:\s*(.+)$').Groups[2].Value.Trim(); if($o){ $d=[datetime]::MinValue; [void][datetime]::TryParse(($v -split ' ')[0],[ref]$d); $p+=[pscustomobject]@{P=$pub;O=$o;D=$d} } } }; $p | Group-Object O | Where-Object Count -gt 1 | ForEach-Object { $_.Group | Sort-Object D -Descending | Select-Object -Skip 1 } | ForEach-Object { $_.P + ' ' + $_.O }" > "%DSLIST%" 2>nul
+
+if not exist "%DSLIST%" goto ds_none
+set "DSCOUNT=0"
+for /f %%C in ('type "%DSLIST%" ^| find /c /v ""') do set "DSCOUNT=%%C"
+if "%DSCOUNT%"=="0" goto ds_none
+echo(
+call :L "%cInfo%" "Superseded packages (the newest of each family is kept):"
+for /f "usebackq tokens=1,2" %%A in ("%DSLIST%") do echo(   %cVal%%%A%cR%  ^(%%B^)
+echo(
+if "%DSMODE%"=="1" (
+    call :L "%cOK%" "Analyse only - nothing was removed."
+    echo %date% %time% : driverstore analyse only, %DSCOUNT% superseded >> %logs%
+    del /f /q "%DSLIST%" >nul 2>&1
+    pause
+    goto driverstore
+)
+call :L "%cWarn%" "This removes the packages above. Driver rollback for them is lost."
+set "choice="
+set /p choice= Type YES to confirm:
+if /i not "%choice%"=="YES" (
+    call :L "%cInfo%" "Cancelled - nothing removed."
+    del /f /q "%DSLIST%" >nul 2>&1
+    pause
+    goto driverstore
+)
+for /f "usebackq tokens=1" %%A in ("%DSLIST%") do call :ds_del "%%A"
+call :L "%cOK%" "Done. Packages still in use were refused and left in place."
+del /f /q "%DSLIST%" >nul 2>&1
+pause
+goto driverstore
+
+:ds_del
+:: no /force on purpose - a package backing a present device must survive
+pnputil /delete-driver "%~1" >nul 2>&1
+if errorlevel 1 (
+    call :L "%cInfo%" "  %~1 in use or protected - kept"
+) else (
+    call :L "%cOK%" "  %~1 removed"
+)
+goto :eof
+
+:ds_none
+call :L "%cOK%" "No superseded third-party driver package found."
+del /f /q "%DSLIST%" >nul 2>&1
+pause
+goto driverstore
 
 
 :Clean_Opty_Curl
