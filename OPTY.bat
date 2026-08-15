@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.3
+set current_version=05.4
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -134,8 +134,19 @@ cls
 echo.                                                  
 echo  Check Update for this script...                           
 echo.                                                  
-for /f "tokens=2 delims=V" %%a in ('curl -s https://api.github.com/repos/YannD-Deltagon/OPTY/releases/latest -L -H "Accept: application/json" ^| findstr "tag_name"') do set latest_version=%%a
-set latest_version=%latest_version:~0,-2%
+:: The API is queried unauthenticated, so it is rate limited (60/h per IP) and
+:: can answer with an error body. If tag_name is missing, latest_version stays
+:: undefined and %latest_version:~0,-2% would expand to the literal "~0,-2",
+:: which used to offer a bogus update on an up-to-date install. Bail out
+:: instead: an update check that cannot answer means "no update".
+set "latest_version="
+for /f "tokens=2 delims=V" %%a in ('curl -s https://api.github.com/repos/YannD-Deltagon/OPTY/releases/latest -L -H "Accept: application/json" ^| findstr "tag_name"') do set "latest_version=%%a"
+if not defined latest_version (
+    echo %date% %time% : Version check failed - staying on %current_version%  >> %logs%
+    goto update_not_available
+)
+set "latest_version=%latest_version:~0,-2%"
+if not defined latest_version goto update_not_available
 echo %date% %time% : current_version=%current_version%, latest_version=%latest_version% >> %logs%
 if "%current_version%"=="%latest_version%" goto update_not_available
 echo %date% %time% : Update found                          >> %logs%
@@ -153,7 +164,9 @@ set "choice="
 set /p choice=Do you want to update ? Y (Yes) - N (No)
 echo %date% %time% : User choice for update = "%choice%"       >> %logs%
 if /i "%choice%"=="Y" goto update_found_and_accepted
-if /i "%choice%"=="N" goto update_found_and_not_accepted
+:: Anything else - including a bare Enter - means "no". Without this the code
+:: fell straight through into the update, so pressing Enter replaced the script.
+goto update_found_and_not_accepted
 
 :update_found_and_accepted
 echo.                                                           >> %logs%
@@ -163,16 +176,38 @@ echo %date% %time% : Entered :update_found_and_accepted label    >> %logs%
 cls
 color 02
 echo.                                                  
-curl -o "%~dp0\new_OPTY.bat" -LJO %GitHubLatestLink%OPTY.bat
-echo %date% %time% : Downloaded new_OPTY.bat                   >> %logs%
-echo.                                                  
-echo The script has been updated to %latest_version%.           
-echo.                                                  
-move /y "%~dp0new_OPTY.bat" "%~dp0OPTY.bat"
+:: -f makes curl fail on HTTP errors instead of writing the error page to disk,
+:: and -LJO was contradictory with -o (curl warns and honours -o anyway).
+:: Without this, a 404 wrote an HTML page over OPTY.bat and curl still exited 0.
+:: :shortcut already deleted the copy the user launched, so this file is the
+:: ONLY one left - and it is the undo path for every change OPTY makes.
+curl -f -L -o "%~dp0new_OPTY.bat" %GitHubLatestLink%OPTY.bat
+if errorlevel 1 goto update_download_failed
+if not exist "%~dp0new_OPTY.bat" goto update_download_failed
+:: Sanity-check the payload really is an OPTY script before overwriting.
+find /c "set current_version=" "%~dp0new_OPTY.bat" >nul 2>&1 || goto update_download_failed
+echo %date% %time% : Downloaded and validated new_OPTY.bat      >> %logs%
+copy /y "%~dp0OPTY.bat" "%~dp0OPTY_rollback.bat" >nul 2>&1
+move /y "%~dp0new_OPTY.bat" "%~dp0OPTY.bat" >nul || goto update_download_failed
 echo %date% %time% : Replaced old OPTY.bat with new version     >> %logs%
+echo.
+echo The script has been updated to %latest_version%.
+echo  (previous version kept as OPTY_rollback.bat)
+echo.
 start "" "%~dp0OPTY.bat"
 echo %date% %time% : Relaunched updated script                  >> %logs%
 exit
+
+:update_download_failed
+del /f /q "%~dp0new_OPTY.bat" >nul 2>&1
+echo %date% %time% : Update download failed - keeping v%current_version% >> %logs%
+color 0C
+echo.
+echo  Update failed, or the downloaded file was not a valid OPTY.bat.
+echo  Keeping version %current_version% - nothing was replaced.
+echo.
+timeout /t 6
+goto menu
 
 :update_found_and_not_accepted
 echo.                                                           >> %logs%
@@ -2200,7 +2235,9 @@ echo.                                                           >> %logs%
 echo ====================== :CLEAN_OPTY_CURL ================= >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :Clean_Opty_Curl label                >> %logs%
-for /f "delims=" %%f in ('dir /b /a-d "%~dp0" ^| findstr /i /v "OPTY.bat"') do (
+:: Keep OPTY.bat itself AND OPTY_rollback.bat - the rollback copy is the only
+:: way back if a self-update ships a broken build, so cleaning must not eat it.
+for /f "delims=" %%f in ('dir /b /a-d "%~dp0" ^| findstr /i /v /c:"OPTY.bat" /c:"OPTY_rollback.bat"') do (
     echo %date% %time% : Deleting file "%~dp0%%f"                   >> %logs%
     del /f /q "%~dp0%%f"
 )
