@@ -468,16 +468,15 @@ echo.                                                           >> %logs%
 echo ====================== :NETDNS ======================       >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :netdns label                           >> %logs%
-call :L "%cStep%" "NETWORK - DNS flush + TCP tuning (Winsock/IP reset is manual-only)..."
+call :L "%cStep%" "NETWORK - flush the DNS cache and re-assert good TCP defaults..."
 ipconfig /flushdns
 echo %date% %time% : Executed ipconfig /flushdns                      >> %logs%
-if /i "%autoclean%"=="2" goto netdns_tcp
-netsh int ip reset
-echo %date% %time% : Executed netsh int ip reset                      >> %logs%
-netsh winsock reset
-echo %date% %time% : Executed netsh winsock reset                     >> %logs%
-netsh winsock reset proxy
-echo %date% %time% : Executed netsh winsock reset proxy               >> %logs%
+:: `netsh int ip reset` and `winsock reset` used to run here. They are repair
+:: tools, not maintenance: they wipe static IP, static DNS, persistent routes,
+:: per-interface metrics and any third-party Winsock LSP (VPN clients install
+:: those). That is configuration, and this tool does not delete configuration.
+:: They now live in menu 5 (Repair Windows) behind a typed RESET confirmation.
+:: The flush above stays - it discards a cache, not a setting.
 :netdns_tcp
 :: --- TCP/IP performance tuning ---
 call :L "%cInfo%" "Re-asserting good TCP defaults (autotuning normal / rss on / heuristics off)"
@@ -800,9 +799,16 @@ call :L "%cInfo%" "Enabling Storage Sense (native automatic maintenance)"
 :: NOT set: the HKLM StorageSense policy. It greys out the Storage Sense
 :: toggle in Settings with "managed by your organization". The HKCU values
 :: below do the same job while leaving the user in control.
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "01" /t REG_DWORD /d 1 /f >nul
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "04" /t REG_DWORD /d 1 /f >nul
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v "2048" /t REG_DWORD /d 30 /f >nul
+set "SSP=HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy"
+call :regset "%SSP%" "01" REG_DWORD 1 "Storage Sense on"
+call :regset "%SSP%" "04" REG_DWORD 1 "clean temp files"
+call :regset "%SSP%" "2048" REG_DWORD 30 "run every 30 days"
+:: Pin the Downloads rules OFF explicitly. Turning Storage Sense on without
+:: doing this inherits whatever the machine already had - and on a box where
+:: 32 is 1, OPTY would be the thing that armed automatic deletion of the user's
+:: Downloads folder. 512 is the age threshold that goes with it.
+call :regset "%SSP%" "32" REG_DWORD 0 "NEVER auto-delete Downloads"
+call :regset "%SSP%" "512" REG_DWORD 0 "Downloads age threshold off"
 :: --- Windows Update download cache ---
 echo %date% %time% : Stopping wuauserv service                       >> %logs%
 net stop wuauserv >nul 2>&1
@@ -1903,11 +1909,16 @@ echo %date% %time% : Entered :powercfg label                         >> %logs%
 :: -duplicatescheme creates a NEW scheme every single time it runs. Unguarded,
 :: this machine ended up with three identical "Ultimate Performance" plans.
 :: Only duplicate it if no copy exists yet.
+:: The previous guard searched powercfg /list for the TEMPLATE guid
+:: e9a42b02-... - but -duplicatescheme gives the copy a brand new random GUID,
+:: so the template guid never appears in the list and the guard never fired.
+:: That is why this machine ended up with three identical Ultimate plans.
+:: Fix: give the copy a FIXED destination GUID and test for that one instead.
+set "ULTGUID=9f9d6f1a-0b7e-4c3a-9c8e-0a1b2c3d4e5f"
 set "HASULT="
-for /f "delims=" %%S in ('powercfg /list 2^>nul ^| findstr /i "e9a42b02-d5df-448d-aa00-03f14749eb61"') do set "HASULT=1"
+for /f "delims=" %%S in ('powercfg /list 2^>nul ^| findstr /i "%ULTGUID%"') do set "HASULT=1"
 if defined HASULT goto powercfg_have
-powercfg /list > "%TEMP%\opty_pc_before.txt" 2>nul
-powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 >nul 2>&1
+powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 %ULTGUID% >nul 2>&1
 if errorlevel 1 (
     call :L "%cWarn%" "Ultimate Performance is not available on this build - keeping the current plan"
     echo %date% %time% : duplicatescheme unavailable                   >> %logs%
@@ -2315,6 +2326,7 @@ echo(  %cInfo%Guided repair. Each step asks before it runs, so you can skip any 
 echo(  %cInfo%Order matters: DISM repairs the component store that SFC restores from.%cR%
 echo(
 echo(     %cVal%1.%cR%  Start guided repair     %cInfo%DISM -^> SFC -^> Windows Update -^> disk%cR%
+echo(     %cVal%2.%cR%  Reset the network stack %cWarn%destroys static IP / DNS / routes / VPN LSPs%cR%
 echo(
 echo(     %cVal%0.%cR%  Menu
 echo(
@@ -2323,6 +2335,7 @@ set "choice="
 set /p choice= Enter action:
 echo %date% %time% : mrepair "%choice%"                            >> %logs%
 if "%choice%"=="0" goto menu
+if "%choice%"=="2" goto netreset
 if not "%choice%"=="1" (
     color 0C
     echo This is not a valid action
@@ -2333,6 +2346,47 @@ call :restore_point
 set autoclean=0
 set autoshutdownreboot=5
 goto mdism
+
+:netreset
+echo.                                                           >> %logs%
+echo ====================== :NETRESET ========================= >> %logs%
+echo %date% %time% : Entered :netreset label                     >> %logs%
+color 0C
+cls
+call :banner "RESET THE NETWORK STACK - repair only"
+echo(
+echo(  %cWarn%This is a repair tool, not maintenance. It rewrites the IP stack to%cR%
+echo(  %cWarn%factory settings and requires a reboot. It will DESTROY, with no way%cR%
+echo(  %cWarn%for OPTY to put them back:%cR%
+echo(     %cInfo%- a static IP address or static DNS servers%cR%
+echo(     %cInfo%- persistent routes and per-interface metrics%cR%
+echo(     %cInfo%- third-party Winsock LSPs, which VPN clients install%cR%
+echo(
+echo(  %cInfo%On a plain DHCP machine it is harmless. Only run it if the network is%cR%
+echo(  %cInfo%actually broken.%cR%
+echo(
+call :rule
+set "choice="
+set /p choice= Type RESET to confirm, anything else cancels:
+if /i not "%choice%"=="RESET" (
+    call :L "%cOK%" "Cancelled - nothing was reset."
+    pause
+    goto mrepair
+)
+call :restore_point
+call :L "%cWarn%" "Resetting the IP stack and Winsock catalog..."
+netsh int ip reset
+echo %date% %time% : Executed netsh int ip reset                      >> %logs%
+netsh winsock reset
+echo %date% %time% : Executed netsh winsock reset                     >> %logs%
+:: Re-assert the good TCP globals AFTER the reset, or they go back to defaults
+netsh int tcp set global autotuninglevel=normal >nul
+netsh int tcp set heuristics disabled >nul
+netsh int tcp set global rss=enabled >nul
+call :L "%cOK%" "Network stack reset. REBOOT REQUIRED for it to take effect."
+echo %date% %time% : Network stack reset, reboot required            >> %logs%
+pause
+goto mrepair
 
 
 :mrestore
