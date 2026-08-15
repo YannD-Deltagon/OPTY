@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=06.0
+set current_version=06.1
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -1667,21 +1667,21 @@ reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protecti
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableScanOnRealtimeEnable" /f >nul 2>&1
 
 call :L "%cInfo%" "UAC ON (EnableLUA=1, secure prompt) - reboot needed if it was off"
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA" /t REG_DWORD /d 1 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "ConsentPromptBehaviorAdmin" /t REG_DWORD /d 5 /f >nul
+call :regset "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableLUA" REG_DWORD 1 "UAC EnableLUA"
+call :regset "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "ConsentPromptBehaviorAdmin" REG_DWORD 5 "UAC prompt behaviour"
 :: The banner above promised "secure prompt" but this was never written. Without
 :: it the UAC dialog renders on the interactive desktop, where any user-level
 :: process can overlay it, screenshot it or synthesise input against it.
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "PromptOnSecureDesktop" /t REG_DWORD /d 1 /f >nul
+call :regset "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "PromptOnSecureDesktop" REG_DWORD 1 "UAC secure desktop"
 
 call :L "%cInfo%" "MMCSS + scheduler back to Windows defaults (20 / 10 / 2)"
 :: Measured live on this machine: SystemResponsiveness=10,
 :: NetworkThrottlingIndex=0xFFFFFFFF, Win32PrioritySeparation=38 - all left over
 :: from earlier OPTY builds. :reassert_defaults never touched them, so they
 :: survived every "restore". This is a real fix, not a no-op.
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d 20 /f >nul
-reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "NetworkThrottlingIndex" /t REG_DWORD /d 10 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" /v "Win32PrioritySeparation" /t REG_DWORD /d 2 /f >nul
+call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" REG_DWORD 20 "MMCSS SystemResponsiveness"
+call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD 10 "NetworkThrottlingIndex"
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" REG_DWORD 2 "Win32PrioritySeparation"
 echo %date% %time% : Re-asserted MMCSS 20 / NTI 10 / Win32PrioSep 2   >> %logs%
 
 call :L "%cInfo%" "Memory Integrity / HVCI back to the Windows default (value absent)"
@@ -1701,14 +1701,14 @@ call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DisableOv
 :: gate (CRU / Adrenalin custom timings), unrelated to MPO, it is set to 1 on
 :: this machine, and nothing here would ever write it back.
 :: HAGS is driver-assumed on RDNA3 since Adrenalin 23.12.1 and Anti-Lag 2 needs it.
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" REG_DWORD 2 "Hardware GPU scheduling"
 call :L "%cInfo%" "Re-asserted hardware GPU scheduling (HwSchMode=2)"
 
 call :L "%cInfo%" "System perf defaults: TRIM on, SysMain/Prefetch on, system-managed pagefile"
 fsutil behavior set disabledeletenotify 0 >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnablePrefetcher" /t REG_DWORD /d 00000003 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnableSuperfetch" /t REG_DWORD /d 00000003 /f >nul
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v "AutomaticManagedPagefile" /t REG_DWORD /d 1 /f >nul
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnablePrefetcher" REG_DWORD 3 "Prefetcher"
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch" REG_DWORD 3 "Superfetch"
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "AutomaticManagedPagefile" REG_DWORD 1 "System-managed pagefile"
 sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
 
 call :L "%cOK%" "Good defaults re-asserted. Reboot recommended if UAC was previously off."
@@ -1782,7 +1782,7 @@ goto display_tweaks
 
 :dt_hags_on
 call :L "%cWarn%" "Enabling HAGS (HwSchMode=2). Reboot after."
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" /v "HwSchMode" /t REG_DWORD /d 2 /f >nul
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" REG_DWORD 2 "Hardware GPU scheduling"
 call :L "%cOK%" "HAGS enabled. REBOOT required."
 pause
 goto display_tweaks
@@ -2764,6 +2764,34 @@ goto :eof
 :: same line as the `set`, so cmd expanded it before the assignment ran and the
 :: log recorded the PREVIOUS run's mode (empty on the first pass).
 >>%logs% echo %date% %time% : Variables - autoclean=%autoclean%, autoshutdownreboot=%autoshutdownreboot%
+goto :eof
+
+:regset
+:: %~1 key  %~2 value  %~3 type  %~4 data  %~5 label
+:: Reads the current value BEFORE writing, so the log can distinguish "this
+:: actually repaired something" from "this was already correct". Without it the
+:: tool prints the same OK either way, which makes every report unfalsifiable.
+:: reg query prints DWORDs as 0xNN, so numeric comparison goes through set /a.
+set "RV="
+for /f "tokens=3" %%A in ('reg query "%~1" /v "%~2" 2^>nul ^| findstr /i /c:"    %~2    REG_"') do set "RV=%%A"
+reg add "%~1" /v "%~2" /t %~3 /d %~4 /f >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   %~5 (write refused)"
+    goto :eof
+)
+if not defined RV (
+    call :L "%cOK%" "  SET      %~5 = %~4   (was absent)"
+    goto :eof
+)
+if /i "%RV%"=="%~4" goto regset_same
+set "RVN=" & set "TGN="
+set /a RVN=%RV% 2>nul
+set /a TGN=%~4 2>nul
+if defined RVN if defined TGN if "%RVN%"=="%TGN%" goto regset_same
+call :L "%cOK%" "  FIXED    %~5 : was %RV%, now %~4"
+goto :eof
+:regset_same
+call :L "%cInfo%" "  already  %~5 = %~4"
 goto :eof
 
 :isrunning
