@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.5
+set current_version=05.6
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -66,16 +66,31 @@ echo.                                                           >> %logs%
 echo ====================== :SHORTCUT ======================     >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :shortcut label                      >> %logs%
-if not "%~dp0" == "C:\OPTY_by-YannD\" (
-    echo %date% %time% : Creating shortcut folder & copying script >> %logs%
-    md "C:\OPTY_by-YannD"
-    xcopy /y "%~dp0OPTY.bat" "C:\OPTY_by-YannD"
-    echo %date% %time% : Starting script from new location         >> %logs%
-    start "" "C:\OPTY_by-YannD\OPTY.bat"
-    echo %date% %time% : Deleting original script                  >> %logs%
+:: Case-insensitive compare: "c:\opty_by-yannd\" used to fail this test, so the
+:: script relocated on top of itself and then deleted the copy it was running.
+:: And the original is only removed once the copy is verified present - the old
+:: order deleted the source even when xcopy had failed, which is how a checkout
+:: of this repo could simply lose OPTY.bat.
+if /i not "%~dp0" == "%OPTY_HOME%\" (
+    echo %date% %time% : Relocating to %OPTY_HOME%                  >> %logs%
+    if not exist "%OPTY_HOME%" md "%OPTY_HOME%" >nul 2>&1
+    xcopy /y /q "%~dp0OPTY.bat" "%OPTY_HOME%\" >nul
+    if not exist "%OPTY_HOME%\OPTY.bat" (
+        echo %date% %time% : Relocation FAILED - staying put        >> %logs%
+        color 0C
+        echo.
+        echo  Could not copy OPTY.bat to %OPTY_HOME% - running from here instead.
+        echo.
+        timeout /t 5
+        goto shortcut_done
+    )
+    echo %date% %time% : Starting script from new location          >> %logs%
+    start "" "%OPTY_HOME%\OPTY.bat"
+    echo %date% %time% : Removing the original copy                 >> %logs%
     del "%~dp0OPTY.bat"
     exit
 )
+:shortcut_done
 
 call :sysinfo
 
@@ -514,7 +529,7 @@ dism /Online /Cleanup-image /RestoreHealth
 >>%logs% echo %date% %time% : DISM RestoreHealth exit=%errorlevel%
 echo %date% %time% : Executed DISM /RestoreHealth                      >> %logs%
 dism /Online /Cleanup-image /StartComponentCleanup
-echo %date% %time% : Executed DISM /StartComponentCleanup /ResetBase    >> %logs%
+echo %date% %time% : Executed DISM /StartComponentCleanup (no /ResetBase) >> %logs%
 if /i %autoclean% == 2 goto sfc
 timeout /t 5
 
@@ -796,7 +811,7 @@ echo %date% %time% : Cleared GPU/shader caches                      >> %logs%
 :: not a few seconds of shader compilation. They live in the opt-in purge.
 
 :: --- Dumps (facultatif mais sans impact sur réglages) ---
-echo %date% %time% : Deleting MiniDump files                             >> %logs%
+echo %date% %time% : MiniDump kept (crash forensics)                     >> %logs%
 :: Minidumps kept: only forensic record of a BSOD or GPU driver crash, ~0 MB.
 echo %date% %time% : Deleting Memory Dump file                           >> %logs%
 del /F /S /Q "%SystemRoot%\MEMORY.DMP"
@@ -813,7 +828,7 @@ del /F /S /Q "%SystemRoot%\MEMORY.DMP"
 :: controls, which is the right way to do this.
 
 :: --- Thumbnail & icon cache (rebuilt automatically; locked files are skipped) ---
-echo %date% %time% : Deleting thumbnail/icon cache                  >> %logs%
+echo %date% %time% : Deleting icon cache (thumbnails kept)          >> %logs%
 :: thumbcache kept: Explorer visibly re-generates every thumbnail afterwards,
 :: painful in large footage folders. iconcache is cheap so it stays.
 del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db" 2>nul
@@ -883,7 +898,7 @@ del /F /S /Q "C:\Intel\Logs\*"            >nul 2>&1
 ::     instead of hardcoding Default - this machine has two.
 :: Never touched: Cookies, Login Data, Web Data, History, Bookmarks,
 :: Local Storage, IndexedDB - those are user data, not cache.
-call :L "%cInfo%" "Clearing browser caches - every user, every profile, browser stays open"
+call :L "%cInfo%" "Clearing browser caches - every user and profile; running browsers are skipped, never closed"
 :: Every Windows user, not just the one running the script, and every browser
 :: family - including ones not installed here, which cost nothing to probe.
 for /d %%U in ("%SystemDrive%\Users\*") do call :userclean "%%~fU"
@@ -1101,7 +1116,11 @@ cls
 color 0F
 call :get_free_mb "%SystemDrive%"
 set "FREE_AFTER=%FREE_MB%"
-if not defined FREE_BEFORE set "FREE_BEFORE=0"
+:: FREE_BEFORE is only captured when entering :mopti. Reaching this screen from
+:: the guided-repair path meant comparing against 0 and reporting the whole
+:: drive as "freed" - a several-hundred-GB fiction. Skip the report instead.
+if not defined FREE_BEFORE goto skip_disk_report
+if "%FREE_BEFORE%"=="0" goto skip_disk_report
 set /a FREED=FREE_AFTER-FREE_BEFORE
 set /a FREED_GB=FREED/1024
 set /a "FREED_DEC=(FREED*10/1024) %% 10"
@@ -1117,6 +1136,7 @@ echo(%cT%===============================================================%cR%
 echo(
 >>%logs% echo %date% %time% : DISK REPORT %SystemDrive% before=%FREE_BEFORE%MB after=%FREE_AFTER%MB freed=%FREED%MB approx=%FREED_GB%GB
 timeout /t 6 /nobreak >nul
+:skip_disk_report
 
 if /i %autoshutdownreboot% == 0 goto skipshutdownreboot
 if /i %autoshutdownreboot% == 1 goto shutdown
@@ -2354,8 +2374,15 @@ goto :eof
 
 :L
 :: %~1 = ANSI color, %~2 = message  ->  colored console line + timestamped log
-echo(%~1%~2%cR%
->>%logs% echo %date% %time% : %~2
+:: %~2 is echoed through delayed expansion for the same reason as :banner -
+:: %~2 strips the quotes, so a message containing > or | was re-parsed as a
+:: redirection and the line vanished entirely. "menu 3 -> 5: Display tweaks"
+:: printed nothing at all and tried to redirect into a drive called 5:.
+setlocal enabledelayedexpansion
+set "MSG=%~2"
+echo(%~1!MSG!%cR%
+>>%logs% echo %date% %time% : !MSG!
+endlocal
 goto :eof
 
 :chromecache
