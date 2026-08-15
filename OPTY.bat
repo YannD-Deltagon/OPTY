@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.6
+set current_version=05.7
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -1515,7 +1515,15 @@ reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManage
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v "RotatingLockScreenOverlayEnabled" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableWindowsSpotlightFeatures" /f >nul 2>&1
 
-call :L "%cOK%" "All profile defaults restored (gaming + debloat + services). Game Mode/HAGS left as-is."
+call :L "%cInfo%" "Restoring mouse defaults (Speed=1, T1=6, T2=10)"
+reg add "HKCU\Control Panel\Mouse" /v "MouseSensitivity" /t REG_SZ /d "10" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "1" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold1" /t REG_SZ /d "6" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold2" /t REG_SZ /d "10" /f >nul
+call :mousecurve
+call :mouseapply
+
+call :L "%cOK%" "All profile defaults restored (gaming + debloat + services + mouse)."
 pause
 goto menu
 
@@ -1872,18 +1880,78 @@ goto mregmouse
 :mouseantilag
 echo.                                                           >> %logs%
 echo ====================== :MOUSEANTILAG ===================    >> %logs%
-echo.                                                           >> %logs%
 echo %date% %time% : Entered :mouseantilag label                     >> %logs%
-reg add "HKEY_CURRENT_USER\Control Panel\Mouse" /v "MouseSensitivity" /t REG_SZ /d "10" /f
-echo %date% %time% : Set MouseSensitivity=10 (neutral pointer speed)  >> %logs%
-reg add "HKEY_CURRENT_USER\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "0" /f
-echo %date% %time% : Set MouseSpeed=0 (Enhance pointer precision OFF) >> %logs%
-reg add "HKEY_CURRENT_USER\Control Panel\Mouse" /v "MouseThreshold1" /t REG_SZ /d "0" /f
-echo %date% %time% : Set MouseThreshold1=0                            >> %logs%
-reg add "HKEY_CURRENT_USER\Control Panel\Mouse" /v "MouseThreshold2" /t REG_SZ /d "0" /f
-echo %date% %time% : Set MouseThreshold2=0                            >> %logs%
+color 0D
+cls
+call :banner "MOUSE"
+echo(
+echo(  %cInfo%All four values are REG_SZ strings, not DWORDs - a DWORD write here is%cR%
+echo(  %cInfo%ignored by Windows. Defaults confirmed from the .DEFAULT user profile.%cR%
+echo(
+echo(     %cVal%1.%cR%  True 1:1     %cInfo%acceleration off - Speed=0, thresholds 0%cR%
+echo(     %cVal%2.%cR%  Restore      %cInfo%Windows defaults - Speed=1, T1=6, T2=10%cR%
+echo(
+echo(     %cVal%0.%cR%  Back
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mouseantilag "%choice%"                         >> %logs%
+if "%choice%"=="1" goto mouse_apply
+if "%choice%"=="2" goto mouse_restore
+if "%choice%"=="0" goto mregprofil
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto mouseantilag
+
+:mouse_apply
+call :L "%cInfo%" "Disabling pointer acceleration (true 1:1)"
+reg add "HKCU\Control Panel\Mouse" /v "MouseSensitivity" /t REG_SZ /d "10" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "0" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold1" /t REG_SZ /d "0" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold2" /t REG_SZ /d "0" /f >nul
+call :mouseapply
+call :L "%cOK%" "Pointer acceleration off. Menu 4 -> 3 -> 2 undoes this."
 pause
-goto menu
+goto mouseantilag
+
+:mouse_restore
+:: Values verified against HKEY_USERS\.DEFAULT\Control Panel\Mouse, which is the
+:: profile Windows stamps onto a brand-new account - i.e. the factory state.
+call :L "%cInfo%" "Restoring Windows mouse defaults (Speed=1, T1=6, T2=10)"
+reg add "HKCU\Control Panel\Mouse" /v "MouseSensitivity" /t REG_SZ /d "10" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseSpeed" /t REG_SZ /d "1" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold1" /t REG_SZ /d "6" /f >nul
+reg add "HKCU\Control Panel\Mouse" /v "MouseThreshold2" /t REG_SZ /d "10" /f >nul
+:: OPTY v03.x wrote truncated 17/20-byte SmoothMouse curves; the real ones are
+:: 40 bytes. Removing them lets Windows regenerate correct defaults at logon.
+call :mousecurve
+call :mouseapply
+call :L "%cOK%" "Mouse restored to Windows defaults."
+pause
+goto mouseantilag
+
+:mousecurve
+:: only remove the curves if they are NOT the expected 40-byte default
+for /f "tokens=3" %%C in ('reg query "HKCU\Control Panel\Mouse" /v SmoothMouseXCurve 2^>nul ^| findstr /i "REG_BINARY"') do call :curvecheck "SmoothMouseXCurve" "%%C"
+for /f "tokens=3" %%C in ('reg query "HKCU\Control Panel\Mouse" /v SmoothMouseYCurve 2^>nul ^| findstr /i "REG_BINARY"') do call :curvecheck "SmoothMouseYCurve" "%%C"
+goto :eof
+
+:curvecheck
+:: %~1 = value name, %~2 = the hex blob reg query printed.
+:: The stock curve is 40 bytes = exactly 80 hex characters. Anything shorter is
+:: a leftover from the old hardcoded curves, so it goes and Windows rebuilds it.
+set "CV=%~2"
+if "%CV:~80,1%"=="" if not "%CV:~79,1%"=="" goto :eof
+reg delete "HKCU\Control Panel\Mouse" /v "%~1" /f >nul 2>&1
+call :L "%cInfo%" "  removed non-default %~1 (leftover from an older OPTY)"
+goto :eof
+
+:mouseapply
+:: make the change live without a logoff
+rundll32.exe user32.dll,UpdatePerUserSystemParameters >nul 2>&1
+goto :eof
 
 
 
