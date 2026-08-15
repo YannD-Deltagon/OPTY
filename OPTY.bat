@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=05.1
+set current_version=05.2
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -700,9 +700,15 @@ del /S /F /Q "C:\Windows\SoftwareDistribution\Download\*"
 echo %date% %time% : Restarting wuauserv service                      >> %logs%
 net start wuauserv >nul 2>&1
 
-:: --- Delivery Optimization cache ---
-echo %date% %time% : Deleting Delivery Optimization files             >> %logs%
-del /F /S /Q "%ProgramData%\Microsoft\Windows\DeliveryOptimization\Cache\*"
+:: --- Per-drive junk, on every FIXED drive ---
+:: Windows drops DeliveryOptimization / WUDownloadCache and upgrade staging
+:: folders on whichever volume it picked, not always C:. Network drives are
+:: excluded - several of the mapped shares here are disconnected and each one
+:: would cost a 30 s timeout.
+call :L "%cInfo%" "Sweeping per-drive junk on every fixed drive"
+call :fixeddrives
+for %%D in (%FIXEDLIST%) do call :drivesweep %%D
+echo %date% %time% : Fixed drives swept:%FIXEDLIST%                  >> %logs%
 
 :: --- Temp (system + all users Local\Temp as in your model) ---
 echo %date% %time% : Deleting Windows Temp folder                     >> %logs%
@@ -842,11 +848,10 @@ del /F /S /Q "C:\Intel\Logs\*"            >nul 2>&1
 ::     instead of hardcoding Default - this machine has two.
 :: Never touched: Cookies, Login Data, Web Data, History, Bookmarks,
 :: Local Storage, IndexedDB - those are user data, not cache.
-call :L "%cInfo%" "Clearing browser caches - all profiles, browser stays open"
-call :chromecache "%LOCALAPPDATA%\Google\Chrome\User Data" "chrome.exe"
-call :chromecache "%LOCALAPPDATA%\Microsoft\Edge\User Data" "msedge.exe"
-call :chromecache "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data" "brave.exe"
-call :chromecache "%LOCALAPPDATA%\Vivaldi\User Data" "vivaldi.exe"
+call :L "%cInfo%" "Clearing browser caches - every user, every profile, browser stays open"
+:: Every Windows user, not just the one running the script, and every browser
+:: family - including ones not installed here, which cost nothing to probe.
+for /d %%U in ("%SystemDrive%\Users\*") do call :userclean "%%~fU"
 :: WebView2 shares the Chromium cache layout and rots the same way
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\Cache\*"        >nul 2>&1
 del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Cache\*"      >nul 2>&1
@@ -2296,6 +2301,72 @@ del /F /S /Q "%~1\extensions_crx_cache\*" >nul 2>&1
 del /F /S /Q "%~1\Crashpad\reports\*"     >nul 2>&1
 del /F /Q    "%~1\BrowserMetrics\*.pma"   >nul 2>&1
 echo %date% %time% : Cleared Chromium caches under "%~1"            >> %logs%
+goto :eof
+
+:fixeddrives
+:: FIXEDLIST = the letters of every FIXED drive, e.g. " C D E G J".
+:: Network drives must never be swept: this machine maps 11 SMB shares and
+:: several are disconnected, so touching them costs a 30 s timeout each.
+:: The drive-type wording is localised ("Lecteur fixe" here), so instead of
+:: matching an English word we take the reference string from %SystemDrive%
+:: at runtime and compare against that.
+set "FIXEDLIST="
+set "FIXEDREF="
+for /f "tokens=2 delims=:" %%T in ('fsutil fsinfo drivetype %SystemDrive% 2^>nul') do set "FIXEDREF=%%T"
+if not defined FIXEDREF goto :eof
+for %%D in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do call :fixedprobe %%D
+goto :eof
+
+:fixedprobe
+set "DT="
+for /f "tokens=2 delims=:" %%T in ('fsutil fsinfo drivetype %~1: 2^>nul') do set "DT=%%T"
+if not defined DT goto :eof
+if /i not "%DT%"=="%FIXEDREF%" goto :eof
+set "FIXEDLIST=%FIXEDLIST% %~1"
+goto :eof
+
+:drivesweep
+:: %~1 = drive letter. Per-drive junk that Windows drops at the root of
+:: whichever volume it decided to use - not only C:.
+del /F /S /Q "%~1:\DeliveryOptimization\*"                >nul 2>&1
+del /F /S /Q "%~1:\WUDownloadCache\*"                     >nul 2>&1
+del /F /S /Q "%~1:\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache\*" >nul 2>&1
+del /F /S /Q "%~1:\.cache\*"                              >nul 2>&1
+:: Interrupted / leftover feature-update staging folders. Only ever present
+:: after a failed or completed in-place upgrade, and useless afterwards.
+if exist "%~1:\$WINDOWS.~BT" rd /S /Q "%~1:\$WINDOWS.~BT" >nul 2>&1
+if exist "%~1:\$Windows.~WS" rd /S /Q "%~1:\$Windows.~WS" >nul 2>&1
+if exist "%~1:\$WinREAgent"  rd /S /Q "%~1:\$WinREAgent"  >nul 2>&1
+echo %date% %time% : Swept drive %~1:                               >> %logs%
+goto :eof
+
+:userclean
+:: %~1 = a user profile folder. Runs the per-user cache sweep for EVERY profile
+:: on the machine, not only the one running the script.
+:: Caches only - never Cookies, History, Login Data, Preferences or Bookmarks.
+if not exist "%~1\AppData\Local" goto :eof
+set "UL=%~1\AppData\Local"
+set "UR=%~1\AppData\Roaming"
+:: Chromium-family browsers, including ones that are not installed here
+:: (guarded by :chromecache, which returns immediately if the folder is absent)
+call :chromecache "%UL%\Google\Chrome\User Data" "chrome.exe"
+call :chromecache "%UL%\Google\Chrome Beta\User Data" "chrome.exe"
+call :chromecache "%UL%\Chromium\User Data" "chrome.exe"
+call :chromecache "%UL%\Microsoft\Edge\User Data" "msedge.exe"
+call :chromecache "%UL%\BraveSoftware\Brave-Browser\User Data" "brave.exe"
+call :chromecache "%UL%\Vivaldi\User Data" "vivaldi.exe"
+call :chromecache "%UL%\Opera Software\Opera Stable" "opera.exe"
+call :chromecache "%UL%\Opera Software\Opera GX Stable" "opera.exe"
+call :chromecache "%UL%\Yandex\YandexBrowser\User Data" "browser.exe"
+:: Firefox family: cache2 / startupCache live under Local, and a stale
+:: startupCache is the classic "Firefox opens with no window" bug.
+call :isrunning "firefox.exe"
+if not defined RUNNING for /d %%F in ("%UL%\Mozilla\Firefox\Profiles\*") do (
+    del /F /S /Q "%%~F\cache2\*"        >nul 2>&1
+    del /F /S /Q "%%~F\startupCache\*"  >nul 2>&1
+    del /F /S /Q "%%~F\jumpListCache\*" >nul 2>&1
+    del /F /S /Q "%%~F\thumbnails\*"    >nul 2>&1
+)
 goto :eof
 
 :isrunning
