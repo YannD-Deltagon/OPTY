@@ -1,7 +1,7 @@
 :::: OPTY by @YannD-Deltagon ::::
 
 @echo off
-set current_version=06.2
+set current_version=06.3
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -258,25 +258,21 @@ color 0F
 cls
 call :banner "OPTY v%current_version%   -   Windows 11 optimizer   -   @YannD-Deltagon"
 echo(
-echo(   %cT%MAINTENANCE%cR%
-echo(     %cVal%1.%cR%  Clean ^& Optimize        %cInfo%Manual / Auto Lite / Auto Full%cR%
-echo(     %cVal%2.%cR%  Repair Windows          %cInfo%DISM, SFC, CHKDSK - one at a time%cR%
+echo(     %cVal%1.%cR%  %cT%CLEAN%cR%                   %cInfo%run this regularly%cR%
+echo(         %cInfo%Temp, caches, shaders, logs, Disk Cleanup, WSL/Docker disks,%cR%
+echo(         %cInfo%defrag/TRIM, disk check. Manual, Auto Lite or Auto Full,%cR%
+echo(         %cInfo%optionally followed by reboot or shutdown.%cR%
 echo(
-echo(   %cT%TUNING%cR%
-echo(     %cVal%3.%cR%  Network                 %cInfo%diagnose, full report, apply, restore%cR%
-echo(     %cVal%4.%cR%  System ^& Gaming         %cInfo%registry profile, power plan, mouse%cR%
-echo(     %cVal%5.%cR%  Display ^& GPU           %cInfo%MPO / HAGS - opt-in, read the notes%cR%
+echo(     %cVal%2.%cR%  %cT%SETUP%cR%                   %cInfo%run once on a new PC%cR%
+echo(         %cInfo%Settings and registry: network, display/GPU, system, privacy%cR%
+echo(         %cInfo%and debloat. Everything here is reversible from menu 4.%cR%
 echo(
-echo(   %cT%PRIVACY%cR%
-echo(     %cVal%6.%cR%  Debloat 2026            %cInfo%Recall, Copilot, ads, widgets, telemetry%cR%
-echo(
-echo(   %cT%SAFETY NET%cR%
-echo(     %cVal%7.%cR%  Restore defaults        %cInfo%re-assert good defaults / undo profiles%cR%
-echo(     %cVal%8.%cR%  Re-enable updates       %cInfo%Office / Chrome / Windows Update via GPO%cR%
-echo(
-echo(   %cT%OPTY%cR%
-echo(     %cVal%9.%cR%  Clean OPTY files        %cInfo%logs and reports in %OPTY_HOME_D%%cR%
-echo(     %cVal%D.%cR%  Driver store            %cInfo%remove superseded driver packages%cR%
+call :rule
+echo(   %cInfo%Secondary%cR%
+echo(     %cVal%3.%cR%  Reports         %cInfo%network report, diagnose, open the log folder%cR%
+echo(     %cVal%4.%cR%  Restore         %cInfo%undo everything OPTY changed / re-assert defaults%cR%
+echo(     %cVal%5.%cR%  Repair Windows  %cInfo%guided DISM, SFC, disk check%cR%
+echo(     %cVal%6.%cR%  Maintenance     %cInfo%driver store, clean OPTY's own files%cR%
 echo(     %cVal%0.%cR%  Exit
 echo(
 call :rule
@@ -284,15 +280,11 @@ set "choice="
 set /p choice= Enter action:
 echo %date% %time% : Menu choice "%choice%"                           >> %logs%
 if "%choice%"=="1" (call :restore_point & goto mopti)
-if "%choice%"=="2" goto mrepair
-if "%choice%"=="3" goto mnetwork
-if "%choice%"=="4" (call :restore_point & goto mregprofil)
-if "%choice%"=="5" goto display_tweaks
-if "%choice%"=="6" (call :restore_point & goto debloat2026)
-if "%choice%"=="7" (call :restore_point & goto mrestore)
-if "%choice%"=="8" (call :restore_point & goto mreenable)
-if "%choice%"=="9" goto Clean_Opty_Curl
-if /i "%choice%"=="D" goto driverstore
+if "%choice%"=="2" (call :restore_point & goto msetup)
+if "%choice%"=="3" goto mreports
+if "%choice%"=="4" (call :restore_point & goto mrestore)
+if "%choice%"=="5" goto mrepair
+if "%choice%"=="6" goto mmaint
 if "%choice%"=="0" goto end
 if "%choice%"=="." goto update_opty
 color 0C
@@ -1302,7 +1294,7 @@ echo %date% %time% : ReEnable.bat-mreenable "%choice%"                     >> %l
 if "%choice%"=="1" goto office_update
 if "%choice%"=="2" goto enable_google_update
 if "%choice%"=="3" goto enable_windows_update
-if "%choice%"=="0" goto menu
+if "%choice%"=="0" goto msetup
 color 0C
 echo This is not a valid action                                      
 echo %date% %time% : Invalid option in :mreenable                        >> %logs%
@@ -1397,7 +1389,7 @@ echo %date% %time% : mregprofil "%choice%"                         >> %logs%
 if "%choice%"=="1" goto gaming_perf
 if "%choice%"=="2" goto map_only
 if "%choice%"=="3" goto mouseantilag
-if "%choice%"=="0" goto menu
+if "%choice%"=="0" goto msetup
 color 0C
 echo This is not a valid action
 echo %date% %time% : Invalid option in :mregprofil                 >> %logs%
@@ -1644,7 +1636,7 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v "DisableWindo
 
 call :L "%cOK%" "Debloat 2026 applied. Sign out or reboot for all changes to take effect."
 pause
-goto menu
+goto msetup
 
 
 :reassert_defaults
@@ -1754,7 +1746,7 @@ if "%choice%"=="1" goto dt_mpo_off
 if "%choice%"=="2" goto dt_mpo_on
 if "%choice%"=="3" goto dt_hags_on
 if "%choice%"=="4" goto dt_hags_off
-if "%choice%"=="0" goto menu
+if "%choice%"=="0" goto msetup
 color 0C
 echo This is not a valid action
 echo %date% %time% : Invalid option in :display_tweaks            >> %logs%
@@ -2163,7 +2155,97 @@ echo(
 set "choice="
 set /p choice= Open the report now? 1 (Yes) - 0 (No):
 if "%choice%"=="1" start "" notepad "%NICTXT%"
-goto menu
+goto mreports
+
+
+:msetup
+echo.                                                           >> %logs%
+echo ====================== :MSETUP =========================== >> %logs%
+echo %date% %time% : Entered :msetup label                       >> %logs%
+color 0D
+cls
+call :banner "SETUP - settings you apply once on a new PC"
+echo(
+echo(  %cInfo%Nothing here needs running again unless Windows or an update undoes it.%cR%
+echo(  %cInfo%Every write reports whether it repaired something or was already right,%cR%
+echo(  %cInfo%and everything is reversible from the main menu, option 4.%cR%
+echo(
+echo(     %cVal%1.%cR%  Network            %cInfo%adapter settings + usage profile%cR%
+echo(     %cVal%2.%cR%  Display ^& GPU      %cInfo%MPO / HAGS - opt-in, read the notes%cR%
+echo(     %cVal%3.%cR%  System ^& gaming    %cInfo%registry profile, power plan, mouse%cR%
+echo(     %cVal%4.%cR%  Privacy ^& debloat  %cInfo%Recall, Copilot, ads, widgets, telemetry%cR%
+echo(     %cVal%5.%cR%  Re-enable updates  %cInfo%Office / Chrome / Windows Update behind GPO%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : msetup "%choice%"                            >> %logs%
+if "%choice%"=="1" goto mnetwork
+if "%choice%"=="2" goto display_tweaks
+if "%choice%"=="3" goto mregprofil
+if "%choice%"=="4" goto debloat2026
+if "%choice%"=="5" goto mreenable
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto msetup
+
+
+:mreports
+echo.                                                           >> %logs%
+echo ====================== :MREPORTS ========================= >> %logs%
+echo %date% %time% : Entered :mreports label                     >> %logs%
+color 0B
+cls
+call :banner "REPORTS"
+echo(
+echo(     %cVal%1.%cR%  Network diagnose   %cInfo%what differs from your driver defaults%cR%
+echo(     %cVal%2.%cR%  Network report     %cInfo%every setting + limits to a .txt and .json%cR%
+echo(     %cVal%3.%cR%  Open OPTY folder   %cInfo%logs and reports in %OPTY_HOME_D%%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mreports "%choice%"                          >> %logs%
+if "%choice%"=="1" goto net_diag
+if "%choice%"=="2" goto netinfo_report
+if "%choice%"=="3" (start "" "%OPTY_HOME%" & goto mreports)
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto mreports
+
+
+:mmaint
+echo.                                                           >> %logs%
+echo ====================== :MMAINT =========================== >> %logs%
+echo %date% %time% : Entered :mmaint label                       >> %logs%
+color 0E
+cls
+call :banner "MAINTENANCE"
+echo(
+echo(     %cVal%1.%cR%  Driver store       %cInfo%remove superseded driver packages%cR%
+echo(     %cVal%2.%cR%  Clean OPTY files   %cInfo%old logs and reports (keeps the script)%cR%
+echo(
+echo(     %cVal%0.%cR%  Menu
+echo(
+call :rule
+set "choice="
+set /p choice= Enter action:
+echo %date% %time% : mmaint "%choice%"                            >> %logs%
+if "%choice%"=="1" goto driverstore
+if "%choice%"=="2" goto Clean_Opty_Curl
+if "%choice%"=="0" goto menu
+color 0C
+echo This is not a valid action
+timeout /t 3 >nul
+goto mmaint
 
 
 :mnetwork
@@ -2189,7 +2271,7 @@ if "%choice%"=="1" goto net_diag
 if "%choice%"=="2" goto netinfo_report
 if "%choice%"=="3" (call :restore_point & goto net_apply)
 if "%choice%"=="4" (call :restore_point & goto net_restore)
-if "%choice%"=="0" goto menu
+if "%choice%"=="0" goto msetup
 color 0C
 echo This is not a valid action
 echo %date% %time% : Invalid option in :mnetwork                  >> %logs%
@@ -2539,7 +2621,7 @@ set /p choice= Enter action:
 echo %date% %time% : driverstore "%choice%"                       >> %logs%
 if "%choice%"=="1" goto ds_run
 if "%choice%"=="2" goto ds_run
-if "%choice%"=="0" goto menu
+if "%choice%"=="0" goto mmaint
 color 0C
 echo This is not a valid action
 timeout /t 3 >nul
@@ -2613,7 +2695,7 @@ for /f "delims=" %%f in ('dir /b /a-d "%~dp0" ^| findstr /i /v /c:"OPTY.bat" /c:
     echo %date% %time% : Deleting file "%~dp0%%f"                   >> %logs%
     del /f /q "%~dp0%%f"
 )
-goto menu
+goto mmaint
 
 
 :end
