@@ -1791,6 +1791,47 @@ call :regset "HKLM\SYSTEM\CurrentControlSet\Control\CI\Config" "VulnerableDriver
 call :killkey "%MMK%" "VerifyDrivers"
 call :killkey "%MMK%" "VerifyDriverLevel"
 
+call :L "%cInfo%" "CPU power - looking for caps that no Windows GUI displays"
+:: Read the ACTIVE scheme's overrides straight from the registry. Two reasons:
+:: powercfg /query is localised AND it hides settings whose attributes mark them
+:: hidden - PROCFREQMAX is exactly such a setting, so /query prints nothing for
+:: it even when a cap is active. The registry shows it, and shows the difference
+:: between "explicitly overridden" and "inherits the scheme default".
+::
+:: That difference is the whole design here. On a clean machine NONE of these
+:: keys exist - the scheme inherits. So writing a value like CPMINCORES=100
+:: would CREATE an override where Windows had none: moving away from the
+:: shipped state while logging it as a repair. Only caps that are actually set,
+:: and whose "off" value provably equals the default behaviour, are touched.
+set "ACTSCH=" & set "SUBP=54533251-82be-4824-96c1-47b60b740d00"
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes" /v ActivePowerScheme 2^>nul ^| findstr /i /c:"    ActivePowerScheme    REG_"') do set "ACTSCH=%%A"
+if not defined ACTSCH goto rad_pwrdone
+:: PROCFREQMAX - a stuck maximum-frequency cap. Invisible in Settings, in the
+:: Control Panel power pages and in Task Manager. Single most common cause of
+:: "why is this new PC slow" that a script can actually fix. 0 = no limit.
+call :pwrfix 75b0ae3f-bce0-45a7-8c89-c9611c25e100 0 "Max CPU frequency cap"
+:: PROCTHROTTLEMAX - maximum processor state. Default is 100 on AC.
+call :pwrfix bc5038f7-23e0-4960-96da-33abaf5935ec 100 "Max processor state (AC)"
+:: IDLEDISABLE=1 blocks the C-states. It is sold as a latency tweak; what it
+:: actually does is keep the package hot, and a hot package boosts LOWER on
+:: Zen 3/4/5 and Raptor Lake. 0 = idle states enabled = the default.
+call :pwrfix 5d76a2ca-e8c0-402f-a133-2158492d58ad 0 "CPU idle states"
+:: PERFBOOSTMODE is REPORTED, never rewritten: its default is per-scheme (2 on
+:: most, 1 on some OEM plans), so there is no single correct value to assert.
+:: Likewise CPMINCORES: core parking is ON by default on Balanced, so writing
+:: 100 is a preference and belongs in the gaming profile, not in a repair path.
+call :pwrreport be337238-0d82-4146-a960-4f3749d470c7 "Processor boost mode"
+:rad_pwrdone
+
+call :L "%cInfo%" "GPU tuning residue (every default here is ABSENT, not 0)"
+:: TdrLevel=0 does not stop a GPU hang - it removes the 2-second recovery, so
+:: the hang becomes a hard freeze instead of a blink. TdrDelay bumps are the
+:: same trade. All six ship absent.
+for %%V in (TdrLevel TdrDelay TdrDdiDelay TdrLimitCount TdrLimitTime TdrDebugMode) do call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "%%V"
+:: EnablePreemption=0 disables GPU preemption: compute and long shaders can no
+:: longer be interrupted, which is what TDR relies on to recover.
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" "EnablePreemption"
+
 call :L "%cInfo%" "Power throttling override (per-app is the supported verb)"
 :: EcoQoS only ever throttled processes Windows classifies as BACKGROUND - the
 :: foreground game was never affected. What the global override actually buys is
@@ -1997,13 +2038,34 @@ echo %date% %time% : Entered :regsc_map_only label                   >> %logs%
 :: prints "already" four times; on a machine some other "optimizer" degraded it
 :: prints FIXED and repairs it - which is the whole point of a universal tool.
 call :L "%cStep%" "Service start types - back to the Windows defaults"
-call :svcset "SysMain"            auto          2 "SysMain (SuperFetch/prefetch)"
+:: Every value below was verified against a live Windows 11 25H2 install before
+:: being written down, not copied from a tweak list. Anything set to "demand"
+:: that Windows ships as "auto" is dead: nothing demand-starts these, so the
+:: feature just silently stops working after the next reboot.
+call :svcset "SysMain"               auto          2 "SysMain (prefetch)"
 sc start SysMain >nul 2>&1
-call :svcset "WSearch"            delayed-auto  2 "WSearch (Start menu + Explorer search)"
-call :svcset "DPS"                auto          2 "DPS (diagnostics, troubleshooters)"
-call :svcset "Spooler"            auto          2 "Spooler (printing)"
-call :svcset "WerSvc"             demand        3 "WerSvc (error reporting)"
-call :svcset "TabletInputService" demand        3 "TabletInputService (touch kbd, WIN+.)"
+call :svcset "WSearch"               delayed-auto  2 "WSearch (Start menu + Explorer search)"
+call :svcset "DPS"                   auto          2 "DPS (diagnostics, troubleshooters)"
+call :svcset "Spooler"               auto          2 "Spooler (printing)"
+call :svcset "StorSvc"               delayed-auto  2 "StorSvc (Storage Sense, disk info)"
+call :svcset "Themes"                auto          2 "Themes (visual styles)"
+call :svcset "AudioEndpointBuilder"  auto          2 "Audio endpoints"
+call :svcset "Audiosrv"              auto          2 "Windows Audio"
+call :svcset "ShellHWDetection"      auto          2 "ShellHWDetection (AutoPlay)"
+call :svcset "Dnscache"              auto          2 "DNS client cache"
+call :svcset "WerSvc"                demand        3 "WerSvc (error reporting)"
+call :svcset "TabletInputService"    demand        3 "TabletInputService (touch kbd, WIN+.)"
+call :svcset "defragsvc"             demand        3 "Optimize Drives (defrag/TRIM)"
+call :svcset "VSS"                   demand        3 "Volume Shadow Copy (restore points)"
+call :svcset "swprv"                 demand        3 "Shadow Copy provider"
+call :svcset "vds"                   demand        3 "Virtual Disk (Disk Management)"
+call :svcset "SecurityHealthService" demand        3 "Windows Security health"
+:: RemoteRegistry really does ship DISABLED on client Windows - leaving it on is
+:: the anomaly, so this one asserts 4.
+call :svcset "RemoteRegistry"        disabled      4 "RemoteRegistry (off by default)"
+:: NOT scripted: WaaSMedicSvc. sc config returns access denied on 24H2+ even
+:: elevated, so any tool that claims to have set it is reporting a write that
+:: did not happen.
 echo %date% %time% : Re-asserted default service start types                >> %logs%
 pause
 echo %date% %time% : Exiting :regsc_map_only, going to :mregpowercfg       >> %logs%
@@ -3305,6 +3367,50 @@ if defined ISMANAGED (
     call :L "%cWarn%" "Managed machine detected (%ISMANAGED%) - policy keys will be REPORTED, not changed"
     >>%logs% echo %date% %time% : ISMANAGED=%ISMANAGED% - policy writes suppressed
 )
+goto :eof
+
+:pwrread
+:: %~1 = processor-subgroup setting GUID -> PWAC / PWDC = the ACTIVE scheme's
+:: overrides, or empty when the scheme inherits the shipped default.
+set "PWAC=" & set "PWDC="
+set "PWK=HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes\%ACTSCH%\%SUBP%\%~1"
+for /f "tokens=3" %%A in ('reg query "%PWK%" /v ACSettingIndex 2^>nul ^| findstr /i /c:"    ACSettingIndex    REG_"') do set "PWAC=%%A"
+for /f "tokens=3" %%A in ('reg query "%PWK%" /v DCSettingIndex 2^>nul ^| findstr /i /c:"    DCSettingIndex    REG_"') do set "PWDC=%%A"
+goto :eof
+
+:pwrfix
+:: %~1 setting GUID  %~2 the value that means "no restriction"  %~3 label
+:: Does nothing when the scheme inherits (no override = already correct) or when
+:: the override already equals the harmless value. Only an actual cap is undone.
+call :pwrread %~1
+if not defined PWAC (
+    call :L "%cInfo%" "  already  %~3 (no override - inherits the scheme default)"
+    goto :eof
+)
+set /a PWACN=%PWAC% 2>nul
+if "%PWACN%"=="%~2" (
+    call :L "%cInfo%" "  already  %~3 = %~2"
+    goto :eof
+)
+powercfg /setacvalueindex SCHEME_CURRENT %SUBP% %~1 %~2 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   %~3 (powercfg refused)"
+    goto :eof
+)
+if defined PWDC powercfg /setdcvalueindex SCHEME_CURRENT %SUBP% %~1 %~2 >nul 2>&1
+powercfg /setactive SCHEME_CURRENT >nul 2>&1
+call :L "%cOK%" "  FIXED    %~3 : was capped at %PWACN%, now %~2"
+>>%logs% echo %date% %time% : powercfg %~3 %PWACN% -^> %~2
+goto :eof
+
+:pwrreport
+:: %~1 setting GUID  %~2 label. Reports an override without rewriting it - used
+:: where the correct default is per-scheme and asserting one value would be a guess.
+call :pwrread %~1
+if not defined PWAC goto :eof
+set /a PWACN=%PWAC% 2>nul
+call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not changed)"
+>>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
 goto :eof
 
 :svcfixifdisabled
