@@ -1566,12 +1566,19 @@ call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\Hyper
 call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" "EnableVirtualizationBasedSecurity"
 
 call :L "%cInfo%" "Restoring services + GameDVR + hibernation to Windows defaults (map_only undo)"
-sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
-sc config WSearch start= delayed-auto >nul & sc start WSearch >nul 2>&1
-sc config Spooler start= auto >nul & sc start Spooler >nul 2>&1
-sc config DPS start= auto >nul & sc start DPS >nul 2>&1
-sc config WerSvc start= demand >nul
-sc config TabletInputService start= demand >nul
+:: These five exist here to undo the OLD gaming profile, which used to set them to
+:: demand/disabled. The current profile no longer touches them, so on a machine
+:: that never ran an old build this restores something that was never changed -
+:: and it can overwrite a deliberate choice. It is kept because users of older
+:: builds still need the way back, but it goes through :svcset so the log says
+:: plainly which ones it actually altered, instead of doing it silently to >nul.
+call :svcset "SysMain"            auto          2 "SysMain (prefetch)"
+sc start SysMain >nul 2>&1
+call :svcset "WSearch"            delayed-auto  2 "WSearch (search indexing)"
+call :svcset "Spooler"            auto          2 "Spooler (printing)"
+call :svcset "DPS"                auto          2 "DPS (diagnostics)"
+call :svcset "WerSvc"             demand        3 "WerSvc (error reporting)"
+call :svcset "TabletInputService" demand        3 "TabletInputService (touch keyboard)"
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" /v "SearchOrderConfig" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\System\GameConfigStore" /v "GameDVR_Enabled" /t REG_DWORD /d 1 /f >nul
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d 1 /f >nul
@@ -2019,54 +2026,37 @@ echo.                                                           >> %logs%
 echo ====================== :REGSC_MAP_ONLY ==================== >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :regsc_map_only label                   >> %logs%
-:: This block used to DEGRADE services below their shipped defaults: it stopped
-:: WSearch / WerSvc / DPS / TabletInputService, then set WSearch and DPS to
-:: "demand" and TabletInputService to "disabled".
+:: HISTORY OF THIS BLOCK, because it has now been wrong twice in opposite ways.
 ::
-:: Two things were wrong with that.
-:: 1. Nothing demand-starts WSearch, so "demand" silently kills Start-menu and
-::    Explorer search after the next reboot - exactly like the Spooler trap
-::    already removed below. DPS at "demand" breaks the troubleshooters, and a
-::    disabled TabletInputService breaks the touch keyboard and emoji panel
-::    (WIN+.) on every laptop and 2-in-1. The owner gets no clue why.
-:: 2. :gaming_restore set those very same services back to auto / delayed-auto,
-::    so the two halves of OPTY contradicted each other and whichever ran last
-::    won. That is not a setting, that is a coin flip.
+:: v1 DEGRADED services: it stopped WSearch / WerSvc / DPS / TabletInputService
+:: and set them to demand or disabled. That was folklore - and it contradicted
+:: :gaming_restore, which set the same services back, so whichever ran last won.
 ::
-:: The measured win was noise anyway: on an SSD these four idle at ~0% CPU.
-:: So this now RE-ASSERTS the shipped defaults instead. On a healthy machine it
-:: prints "already" four times; on a machine some other "optimizer" degraded it
-:: prints FIXED and repairs it - which is the whole point of a universal tool.
-call :L "%cStep%" "Service start types - back to the Windows defaults"
-:: Every value below was verified against a live Windows 11 25H2 install before
-:: being written down, not copied from a tweak list. Anything set to "demand"
-:: that Windows ships as "auto" is dead: nothing demand-starts these, so the
-:: feature just silently stops working after the next reboot.
-call :svcset "SysMain"               auto          2 "SysMain (prefetch)"
-sc start SysMain >nul 2>&1
-call :svcset "WSearch"               delayed-auto  2 "WSearch (Start menu + Explorer search)"
-call :svcset "DPS"                   auto          2 "DPS (diagnostics, troubleshooters)"
-call :svcset "Spooler"               auto          2 "Spooler (printing)"
-call :svcset "StorSvc"               delayed-auto  2 "StorSvc (Storage Sense, disk info)"
-call :svcset "Themes"                auto          2 "Themes (visual styles)"
-call :svcset "AudioEndpointBuilder"  auto          2 "Audio endpoints"
-call :svcset "Audiosrv"              auto          2 "Windows Audio"
-call :svcset "ShellHWDetection"      auto          2 "ShellHWDetection (AutoPlay)"
-call :svcset "Dnscache"              auto          2 "DNS client cache"
-call :svcset "WerSvc"                demand        3 "WerSvc (error reporting)"
-call :svcset "TabletInputService"    demand        3 "TabletInputService (touch kbd, WIN+.)"
-call :svcset "defragsvc"             demand        3 "Optimize Drives (defrag/TRIM)"
-call :svcset "VSS"                   demand        3 "Volume Shadow Copy (restore points)"
-call :svcset "swprv"                 demand        3 "Shadow Copy provider"
-call :svcset "vds"                   demand        3 "Virtual Disk (Disk Management)"
-call :svcset "SecurityHealthService" demand        3 "Windows Security health"
-:: RemoteRegistry really does ship DISABLED on client Windows - leaving it on is
-:: the anomaly, so this one asserts 4.
-call :svcset "RemoteRegistry"        disabled      4 "RemoteRegistry (off by default)"
-:: NOT scripted: WaaSMedicSvc. sc config returns access denied on 24H2+ even
-:: elevated, so any tool that claims to have set it is reporting a write that
-:: did not happen.
-echo %date% %time% : Re-asserted default service start types                >> %logs%
+:: v2 (mine) over-corrected: it FORCED all seventeen back to the shipped default
+:: start types. Tested live on the owner's machine, the justification for that
+:: was wrong too:
+::   - WSearch at Start=Manual is RUNNING, SearchIndexer.exe alive. Something
+::     demand-starts it. Search works. "Manual kills Start menu search" is false.
+::   - What actually turns off WEB results is BingSearchEnabled=0 under
+::     HKCU\...\Windows\CurrentVersion\Search - a separate knob. The owner wants
+::     local-only search, deliberately.
+::   - Spooler at Manual with zero printers installed breaks nothing.
+:: So Manual on these is a PREFERENCE with trade-offs, not damage, and a tool has
+:: no business overriding a deliberate choice without asking.
+::
+:: v3, below: REPORT ONLY. Nothing here writes. The per-service question, with an
+:: explanation of what each service does and what changing it actually costs,
+:: belongs in the SETUP questionnaire - that is what it is being built for.
+:: The only services still repaired automatically are in :reassert_defaults, and
+:: only when found DISABLED, which is the one state nothing demand-starts out of.
+call :L "%cStep%" "Service start types - REPORT ONLY (nothing is changed here)"
+call :L "%cInfo%" "  2=auto  3=manual/on-demand  4=disabled"
+for %%S in (SysMain WSearch DPS Spooler StorSvc Themes AudioEndpointBuilder Audiosrv ShellHWDetection Dnscache WerSvc TabletInputService defragsvc VSS swprv vds SecurityHealthService RemoteRegistry) do call :svcshow %%S
+call :L "%cInfo%" "To change any of these, use SETUP - it explains each one before asking."
+:: NOT scripted anywhere: WaaSMedicSvc. sc config returns access denied on 24H2+
+:: even elevated, so a tool that claims to have set it is reporting a write that
+:: never happened.
+echo %date% %time% : Reported service start types (no writes)               >> %logs%
 pause
 echo %date% %time% : Exiting :regsc_map_only, going to :mregpowercfg       >> %logs%
 goto mregpowercfg
@@ -3411,6 +3401,20 @@ if not defined PWAC goto :eof
 set /a PWACN=%PWAC% 2>nul
 call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not changed)"
 >>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
+goto :eof
+
+:svcshow
+:: %~1 service -> print its current start type. Reads only, writes nothing.
+:: The start type comes from the registry rather than from `sc qc`, whose output
+:: is translated (FR: TYPE_DEMARRAGE) and would break the parse off en-US.
+set "SVS="
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\%~1" /v Start 2^>nul ^| findstr /i /c:"    Start    REG_"') do set "SVS=%%A"
+if not defined SVS ( call :L "%cInfo%" "  %~1 : not present on this edition" & goto :eof )
+set /a SVS=%SVS% 2>nul
+set "SVR="
+sc query "%~1" 2>nul | findstr /i /c:"RUNNING" >nul && set "SVR= (running)"
+if "%SVS%"=="4" ( call :L "%cWarn%" "  %~1 = 4 disabled%SVR%" & goto :eof )
+call :L "%cInfo%" "  %~1 = %SVS%%SVR%"
 goto :eof
 
 :svcfixifdisabled
