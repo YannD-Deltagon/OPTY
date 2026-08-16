@@ -1849,8 +1849,18 @@ call :L "%cInfo%" "Windows Update - services and policies"
 :: Repair ONLY services that are DISABLED. wlidsvc disabled means feature updates
 :: are never offered (0x80070426); mpssvc disabled leaves downloads stuck at 0%.
 :: DoSvc is the PRIMARY downloader on Windows 11 - BITS is only the fallback.
-for %%S in (wuauserv UsoSvc DoSvc BITS CryptSvc TrustedInstaller msiserver InstallService AppIDSvc wlidsvc) do call :svcfixifdisabled %%S demand
-call :svcfixifdisabled mpssvc auto
+:: Each service is repaired to ITS OWN shipped start type, not to a blanket
+:: "demand". An earlier version of this loop sent all ten to demand, which was
+:: wrong for three of them: CryptSvc ships Automatic, and DoSvc and UsoSvc ship
+:: Automatic (delayed). Repairing those to demand leaves the machine in a state
+:: Windows never shipped, while the log cheerfully reports "FIXED".
+:: Verified on a live 25H2 install: CryptSvc Start=2, DoSvc Start=2 delayed=1,
+:: UsoSvc Start=2 delayed=1, mpssvc Start=2, BITS Start=3, wuauserv Start=3.
+for %%S in (wuauserv BITS TrustedInstaller msiserver InstallService AppIDSvc wlidsvc) do call :svcfixifdisabled %%S demand
+call :svcfixifdisabled CryptSvc auto
+call :svcfixifdisabled mpssvc   auto
+call :svcfixifdisabled DoSvc    delayed-auto
+call :svcfixifdisabled UsoSvc   delayed-auto
 if defined ISMANAGED goto rad_wu_report
 :: DELETE, never write 0: writing 0 keeps the "Some settings are managed by your
 :: organization" banner and keeps the Settings control greyed out. The real
@@ -3118,12 +3128,30 @@ goto :eof
 del /F /S /Q "%~1:\DeliveryOptimization\*"                >nul 2>&1
 del /F /S /Q "%~1:\WUDownloadCache\*"                     >nul 2>&1
 del /F /S /Q "%~1:\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache\*" >nul 2>&1
-del /F /S /Q "%~1:\.cache\*"                              >nul 2>&1
-:: Interrupted / leftover feature-update staging folders. Only ever present
-:: after a failed or completed in-place upgrade, and useless afterwards.
+:: REMOVED: del "<drive>:\.cache\*". It was matched by NAME ONLY, at the root of
+:: every fixed drive, with no check of what put it there. On a developer machine
+:: a root .cache is routinely Bazel, Yarn, Cargo, pip or a Hugging Face model
+:: store - tens of gigabytes of re-download, not Windows Update payload. This
+:: machine has C:\.cache right now. It also broke the project's own standing
+:: rule that OPTY never clears development caches.
+:: Interrupted / leftover feature-update staging folders. GUARDED: together with
+:: Windows.old these three are what Settings > Recovery > "Go back" needs, so
+:: while Windows.old still exists the rollback window is open and they stay.
+:: Once Windows.old is gone the rollback is already impossible and they are dead
+:: weight. A reboot-pending update also blocks it - deleting mid-upgrade forces
+:: Windows to re-download the whole feature update.
+set "UPGGUARD="
+if exist "%SystemDrive%\Windows.old" set "UPGGUARD=rollback window still open"
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" >nul 2>&1 && set "UPGGUARD=an update is waiting for a reboot"
+if defined UPGGUARD (
+    call :L "%cWarn%" "  KEPT     upgrade staging folders on %~1: - %UPGGUARD%"
+    >>%logs% echo %date% %time% : Kept staging folders on %~1: ^(%UPGGUARD%^)
+    goto drivesweep_done
+)
 if exist "%~1:\$WINDOWS.~BT" rd /S /Q "%~1:\$WINDOWS.~BT" >nul 2>&1
 if exist "%~1:\$Windows.~WS" rd /S /Q "%~1:\$Windows.~WS" >nul 2>&1
 if exist "%~1:\$WinREAgent"  rd /S /Q "%~1:\$WinREAgent"  >nul 2>&1
+:drivesweep_done
 echo %date% %time% : Swept drive %~1:                               >> %logs%
 goto :eof
 
@@ -3387,10 +3415,21 @@ if errorlevel 1 (
     call :L "%cErr%" "  FAILED   %~3 (powercfg refused)"
     goto :eof
 )
-if defined PWDC powercfg /setdcvalueindex SCHEME_CURRENT %SUBP% %~1 %~2 >nul 2>&1
 powercfg /setactive SCHEME_CURRENT >nul 2>&1
-call :L "%cOK%" "  FIXED    %~3 : was capped at %PWACN%, now %~2"
->>%logs% echo %date% %time% : powercfg %~3 %PWACN% -^> %~2
+call :L "%cOK%" "  FIXED    %~3 on AC : was capped at %PWACN%, now %~2"
+>>%logs% echo %date% %time% : powercfg AC %~3 %PWACN% -^> %~2
+:: The DC (battery) index is deliberately NOT rewritten. This used to overwrite
+:: it with the same unrestricted value whenever a DC override existed, deciding
+:: from the AC value alone and reporting only the AC change - so a laptop owner's
+:: or a vendor's intentional on-battery cap, set for heat, fan noise or runtime,
+:: was silently lifted and the log never said so. OPTY has no laptop detection,
+:: so it reports the battery value and lets the owner decide.
+if not defined PWDC goto :eof
+set /a PWDCN=%PWDC% 2>nul
+if "%PWDCN%"=="%~2" goto :eof
+call :L "%cWarn%" "           battery (DC) is capped at %PWDCN% - LEFT ALONE, that may be deliberate"
+call :L "%cInfo%" "           to lift it too: powercfg /setdcvalueindex SCHEME_CURRENT %SUBP% %~1 %~2"
+>>%logs% echo %date% %time% : DC cap %PWDCN% on %~3 reported, not changed
 goto :eof
 
 :pwrreport
