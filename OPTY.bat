@@ -3216,7 +3216,12 @@ if defined RVN if defined TGN if "%RVN%"=="%TGN%" goto regset_same
 call :L "%cOK%" "  FIXED    %~5 : was %RV%, now %~4"
 goto :eof
 :regset_same
-call :L "%cInfo%" "  already  %~5 = %~4"
+:: "written ... was already correct", not "already". The write above is
+:: UNCONDITIONAL and always has been - on a fresh or foreign machine the write is
+:: what makes the value true, and "it looked right" is never a reason to skip it.
+:: The read-before-write exists only so this report can tell a repair from a
+:: no-op. The old wording read as "we skipped this one", which was misleading.
+call :L "%cInfo%" "  written  %~5 = %~4   (was already correct)"
 goto :eof
 
 :svcset
@@ -3245,7 +3250,7 @@ if not defined SVCOLD (
 set "SVCN="
 set /a SVCN=%SVCOLD% 2>nul
 if "%SVCN%"=="%~3" (
-    call :L "%cInfo%" "  already  %~4 = %~2"
+    call :L "%cInfo%" "  written  %~4 = %~2   (was already correct)"
     goto :eof
 )
 call :L "%cOK%" "  FIXED    %~4 : start type was %SVCN%, now %~2"
@@ -3304,14 +3309,16 @@ for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v step 2^>nul ^| find
 if defined NMAX call :nicclamp
 if defined NSTEP call :nicround
 :: report whether this actually repaired anything - on a fresh or OEM machine
-:: these often differ, on an already-tuned one they will all say "already"
+:: these often differ; on an already-tuned one they all say "was already
+:: correct" - the keyword being WRITTEN, because the reg add above is
+:: unconditional. A value that looks right is still rewritten.
 set "OLDV="
 for /f "tokens=3" %%O in ('reg query "%~1" /v "%~2" 2^>nul ^| findstr /i /c:"REG_SZ"') do set "OLDV=%%O"
 reg add "%~1" /v "%~2" /t REG_SZ /d "%NV%" /f >nul 2>&1
 if not defined OLDV (
     call :L "%cOK%" "  SET      %~2 = %NV%   (was absent)"
 ) else if "%OLDV%"=="%NV%" (
-    call :L "%cInfo%" "  already  %~2 = %NV%"
+    call :L "%cInfo%" "  written  %~2 = %NV%   (was already correct)"
 ) else (
     call :L "%cOK%" "  FIXED    %~2 : was %OLDV%, now %NV%"
 )
