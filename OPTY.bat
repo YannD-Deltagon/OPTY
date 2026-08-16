@@ -1441,7 +1441,10 @@ for /f "delims=" %%K in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\Tcpi
 call :L "%cInfo%" "Re-asserting good defaults: SSD TRIM on + system-managed pagefile (8.3 names off)"
 fsutil behavior set disabledeletenotify 0 >nul
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v "AutomaticManagedPagefile" /t REG_DWORD /d 1 /f >nul
-fsutil behavior set disable8dot3 1 >nul
+:: 2 = per-volume / system managed, which is what Windows ships. Forcing 1
+:: disables 8.3 names everywhere and breaks legacy MSI uninstallers that still
+:: hold PROGRA~1 style paths.
+fsutil behavior set disable8dot3 2 >nul
 
 call :L "%cInfo%" "Faster startup apps at login"
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v "StartupDelayInMSec" /t REG_DWORD /d 0 /f >nul
@@ -1702,10 +1705,28 @@ call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "DisableOv
 call :regset "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" REG_DWORD 2 "Hardware GPU scheduling"
 call :L "%cInfo%" "Re-asserted hardware GPU scheduling (HwSchMode=2)"
 
+call :L "%cInfo%" "Windows Update driver delivery (verified broken on real machines)"
+:: SearchOrderConfig=0 and ExcludeWUDriversInQualityUpdate=1 together stop WU
+:: delivering ANY driver or firmware. Every newly attached device then lands on
+:: Code 28 with no explanation. The true default of the Exclude policy is ABSENT.
+call :regset "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching" "SearchOrderConfig" REG_DWORD 1 "WU driver search"
+call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "ExcludeWUDriversInQualityUpdate"
+call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" "DontSearchWindowsUpdate"
+call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\Device Metadata" "PreventDeviceMetadataFromNetwork"
+
+call :L "%cInfo%" "Memory management back to Windows defaults"
+:: DisablePagingExecutive=1 and ClearPageFileAtShutdown=1 are classic optimizer
+:: leftovers. The first is not a default and can break kernel dumps; the second
+:: can add tens of minutes to every shutdown. Both default to 0.
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "DisablePagingExecutive" REG_DWORD 0 "DisablePagingExecutive"
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "ClearPageFileAtShutdown" REG_DWORD 0 "ClearPageFileAtShutdown"
+
 call :L "%cInfo%" "System perf defaults: TRIM on, SysMain/Prefetch on, system-managed pagefile"
 fsutil behavior set disabledeletenotify 0 >nul
 call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnablePrefetcher" REG_DWORD 3 "Prefetcher"
-call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch" REG_DWORD 3 "Superfetch"
+:: Windows ships EnableSuperfetch ABSENT - SysMain owns that behaviour now.
+:: Creating it would be inventing a value the OS never had.
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch"
 call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "AutomaticManagedPagefile" REG_DWORD 1 "System-managed pagefile"
 sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
 
@@ -1801,7 +1822,7 @@ echo %date% %time% : Entered :map_only label                         >> %logs%
 cls
 echo %date% %time% : Re-asserting SysMain/Prefetch good defaults (2026 SSD best practice)   >> %logs%
 reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnablePrefetcher" /t REG_DWORD /d 00000003 /f
-reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v "EnableSuperfetch" /t REG_DWORD /d 00000003 /f
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch"
 :: REMOVED: SearchOrderConfig=0. That is not a default (default is 1) and it
 :: stops Windows Update from delivering ANY driver or firmware - including
 :: Intel I211 / AX210 and chipset security fixes. The revert in menu 7 sets 1.
@@ -1815,8 +1836,9 @@ echo %date% %time% : Set GameDVR_Enabled=0 (user-level)                  >> %log
 :: The HKCU writes below already disable GameDVR without any org banner.
 reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v "AppCaptureEnabled" /t REG_DWORD /d 00000000 /f
 echo %date% %time% : Set AppCaptureEnabled=0 (user-level)                >> %logs%
-powercfg /h off
-echo %date% %time% : Disabled hibernation via powercfg                  >> %logs%
+:: Hibernation left alone: turning it off also disables Fast Startup and the
+:: hiberfil, which is a preference, not a repair. It stays in the +hbn/-hbn
+:: toggle where the user chooses.
 timeout /t 5
 goto regsc_map_only
 
@@ -1825,29 +1847,33 @@ echo.                                                           >> %logs%
 echo ====================== :REGSC_MAP_ONLY ==================== >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :regsc_map_only label                   >> %logs%
-sc config SysMain start= auto
-echo %date% %time% : Re-asserted SysMain start= auto (good default)        >> %logs%
+:: This block used to DEGRADE services below their shipped defaults: it stopped
+:: WSearch / WerSvc / DPS / TabletInputService, then set WSearch and DPS to
+:: "demand" and TabletInputService to "disabled".
+::
+:: Two things were wrong with that.
+:: 1. Nothing demand-starts WSearch, so "demand" silently kills Start-menu and
+::    Explorer search after the next reboot - exactly like the Spooler trap
+::    already removed below. DPS at "demand" breaks the troubleshooters, and a
+::    disabled TabletInputService breaks the touch keyboard and emoji panel
+::    (WIN+.) on every laptop and 2-in-1. The owner gets no clue why.
+:: 2. :gaming_restore set those very same services back to auto / delayed-auto,
+::    so the two halves of OPTY contradicted each other and whichever ran last
+::    won. That is not a setting, that is a coin flip.
+::
+:: The measured win was noise anyway: on an SSD these four idle at ~0% CPU.
+:: So this now RE-ASSERTS the shipped defaults instead. On a healthy machine it
+:: prints "already" four times; on a machine some other "optimizer" degraded it
+:: prints FIXED and repairs it - which is the whole point of a universal tool.
+call :L "%cStep%" "Service start types - back to the Windows defaults"
+call :svcset "SysMain"            auto          2 "SysMain (SuperFetch/prefetch)"
 sc start SysMain >nul 2>&1
-sc stop WSearch
-echo %date% %time% : Stopped service: WSearch                           >> %logs%
-sc stop WerSvc
-echo %date% %time% : Stopped service: WerSvc                              >> %logs%
-:: REMOVED: stopping the Print Spooler. Its default start type is Automatic
-:: and nothing demand-starts it, so setting it to Manual silently kills all
-:: printing after the next reboot - from a menu labelled "services + power".
-sc stop DPS
-echo %date% %time% : Stopped service: DPS                                  >> %logs%
-sc stop TabletInputService
-echo %date% %time% : Stopped service: TabletInputService                 >> %logs%
-sc config "WSearch" start= demand
-echo %date% %time% : Configured WSearch start= demand                      >> %logs%
-sc config "WerSvc" start= demand
-echo %date% %time% : Configured WerSvc start= demand                         >> %logs%
-
-sc config "DPS" start= demand
-echo %date% %time% : Configured DPS start= demand                            >> %logs%
-sc config "TabletInputService" start= disabled
-echo %date% %time% : Disabled TabletInputService                            >> %logs%
+call :svcset "WSearch"            delayed-auto  2 "WSearch (Start menu + Explorer search)"
+call :svcset "DPS"                auto          2 "DPS (diagnostics, troubleshooters)"
+call :svcset "Spooler"            auto          2 "Spooler (printing)"
+call :svcset "WerSvc"             demand        3 "WerSvc (error reporting)"
+call :svcset "TabletInputService" demand        3 "TabletInputService (touch kbd, WIN+.)"
+echo %date% %time% : Re-asserted default service start types                >> %logs%
 pause
 echo %date% %time% : Exiting :regsc_map_only, going to :mregpowercfg       >> %logs%
 goto mregpowercfg
@@ -2980,6 +3006,38 @@ call :L "%cOK%" "  FIXED    %~5 : was %RV%, now %~4"
 goto :eof
 :regset_same
 call :L "%cInfo%" "  already  %~5 = %~4"
+goto :eof
+
+:svcset
+:: %~1 service  %~2 sc "start=" keyword  %~3 expected Start value  %~4 label
+:: Same contract as :regset - read first, then report SET / already / FIXED.
+:: The start type is read from the registry, not from `sc qc`, because sc's
+:: output is localised (FR: "TYPE_DEMARRAGE") and parsing it breaks off en-US.
+:: Start values: 2=auto 3=demand 4=disabled. delayed-auto is Start=2 plus
+:: DelayedAutostart=1, so it compares as 2 here and sc config sets the flag.
+sc query "%~1" >nul 2>&1
+if errorlevel 1 (
+    call :L "%cInfo%" "  absent   %~4 (service not present on this edition)"
+    goto :eof
+)
+set "SVCOLD="
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\%~1" /v Start 2^>nul ^| findstr /i /c:"    Start    REG_"') do set "SVCOLD=%%A"
+sc config "%~1" start= %~2 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   %~4 (sc config refused)"
+    goto :eof
+)
+if not defined SVCOLD (
+    call :L "%cOK%" "  SET      %~4 = %~2"
+    goto :eof
+)
+set "SVCN="
+set /a SVCN=%SVCOLD% 2>nul
+if "%SVCN%"=="%~3" (
+    call :L "%cInfo%" "  already  %~4 = %~2"
+    goto :eof
+)
+call :L "%cOK%" "  FIXED    %~4 : start type was %SVCN%, now %~2"
 goto :eof
 
 :isrunning
