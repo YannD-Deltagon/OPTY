@@ -1655,6 +1655,15 @@ echo %date% %time% : Entered :reassert_defaults label             >> %logs%
 color FC
 cls
 call :L "%cStep%" "Re-asserting Windows GOOD DEFAULTS (safety net vs prior bad tweaks)..."
+call :ismanaged
+
+call :L "%cInfo%" "Automatic Maintenance kill-switch"
+:: Highest-leverage single value in the whole file. MaintenanceDisabled=1 stops
+:: scheduled defrag/TRIM, chkdsk ProactiveScan, search-index compaction and
+:: WinSxS cleanup - all at once, while every one of those tasks still shows
+:: "Ready" in Task Scheduler. Nothing in any Windows GUI reveals it.
+:: The default IS the value being absent, so this is a delete, not a write of 0.
+call :killkey "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance" "MaintenanceDisabled"
 
 call :L "%cInfo%" "Windows Firewall ON (all profiles)"
 netsh advfirewall set allprofiles state on >nul
@@ -1727,12 +1736,134 @@ call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Manag
 :: Windows ships EnableSuperfetch ABSENT - SysMain owns that behaviour now.
 :: Creating it would be inventing a value the OS never had.
 call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch"
-call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "AutomaticManagedPagefile" REG_DWORD 1 "System-managed pagefile"
+:: AutomaticManagedPagefile is only the CHECKBOX state - the sole consumer is
+:: wbem\cimwin32.dll. The value the kernel actually reads is PagingFiles, so
+:: writing the checkbox on a machine whose pagefile was deleted repairs nothing
+:: and still logs "system-managed pagefile". Repair the real one, and only when
+:: it is missing or empty: a deliberate fixed-size pagefile must not be clobbered.
+:: tokens=2* - reg query columns are name / type / data, so token 2 is the type
+:: and the rest is the data. tokens=3 (as used for DWORDs elsewhere) grabs only
+:: the first word of a multi-word REG_MULTI_SZ and reported "0 0" as the pagefile.
+set "PFV="
+for /f "tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v PagingFiles 2^>nul ^| findstr /i /c:"    PagingFiles    REG_"') do set "PFV=%%B"
+if not defined PFV (
+    reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v PagingFiles /t REG_MULTI_SZ /d "%SystemDrive%\pagefile.sys 0 0" /f >nul 2>&1
+    call :regset "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "AutomaticManagedPagefile" REG_DWORD 1 "System-managed pagefile"
+    call :L "%cOK%" "  FIXED    virtual memory was DISABLED - system-managed pagefile restored (reboot)"
+) else (
+    call :L "%cInfo%" "  already  pagefile configured: %PFV%"
+)
 sc config SysMain start= auto >nul & sc start SysMain >nul 2>&1
+
+call :L "%cInfo%" "Memory-manager leftovers whose default is ABSENT (not 0)"
+:: Every value below ships missing. A previous tool writing 0 here is not
+:: "back to default", it is a different third state. MoveImages=0 in particular
+:: turns off image relocation, which is a core part of ASLR - removing it is a
+:: security repair, not a performance one.
+set "MMK=HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"
+for %%V in (DisablePageCombining IoPageLockLimit PoolUsageMaximum MoveImages SystemCacheDirtyPageThreshold NonPagedPoolLimit PagedPoolLimit SystemCacheLimit SystemPtesLimit AllocationPreference) do call :killkey "%MMK%" "%%V"
+:: NEVER touch SessionPoolSize / SessionViewSize - Setup writes real values there.
+:: These three DO ship present at 0, so they are written, not deleted.
+call :regset "%MMK%" "LargeSystemCache"     REG_DWORD 0 "LargeSystemCache"
+call :regset "%MMK%" "SecondLevelDataCache" REG_DWORD 0 "SecondLevelDataCache"
+call :regset "%MMK%" "SystemPages"          REG_DWORD 0 "SystemPages"
+
+call :L "%cInfo%" "Spectre/Meltdown mitigations"
+:: Only the exact disable pattern is undone: Override=3 AND OverrideMask=3.
+:: A benign 0/0 is Microsoft's own ENABLE recipe (KB4073119) - a third state,
+:: not the default - and blindly deleting it would undo a deliberate choice.
+:: The true Windows default is both values absent.
+set "FSO=" & set "FSOM="
+for /f "tokens=3" %%A in ('reg query "%MMK%" /v FeatureSettingsOverride 2^>nul ^| findstr /i /c:"    FeatureSettingsOverride    REG_"') do set "FSO=%%A"
+for /f "tokens=3" %%A in ('reg query "%MMK%" /v FeatureSettingsOverrideMask 2^>nul ^| findstr /i /c:"    FeatureSettingsOverrideMask    REG_"') do set "FSOM=%%A"
+if "%FSO%"=="0x3" if "%FSOM%"=="0x3" (
+    call :killkey "%MMK%" "FeatureSettingsOverride"
+    call :killkey "%MMK%" "FeatureSettingsOverrideMask"
+    call :L "%cOK%" "  RESTORED CPU mitigations - they had been disabled by a previous tool"
+)
+
+call :L "%cInfo%" "Driver integrity (costs zero performance)"
+:: The MS vulnerable-driver blocklist is what stops BYOVD: a signed but exploitable
+:: driver loaded by malware to get kernel. Some "debloat" scripts turn it off.
+call :regset "HKLM\SYSTEM\CurrentControlSet\Control\CI\Config" "VulnerableDriverBlocklistEnable" REG_DWORD 1 "MS vulnerable-driver blocklist"
+:: Driver Verifier is a debugging mode. Left on by a "tuner" it can halve I/O
+:: throughput and there is no GUI hint that it is running.
+call :killkey "%MMK%" "VerifyDrivers"
+call :killkey "%MMK%" "VerifyDriverLevel"
+
+call :L "%cInfo%" "Power throttling override (per-app is the supported verb)"
+:: EcoQoS only ever throttled processes Windows classifies as BACKGROUND - the
+:: foreground game was never affected. What the global override actually buys is
+:: Search, Defender and Store updates running at full clocks during your session.
+call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" "PowerThrottlingOff"
+
+call :L "%cInfo%" "Windows Update - services and policies"
+:: Repair ONLY services that are DISABLED. wlidsvc disabled means feature updates
+:: are never offered (0x80070426); mpssvc disabled leaves downloads stuck at 0%.
+:: DoSvc is the PRIMARY downloader on Windows 11 - BITS is only the fallback.
+for %%S in (wuauserv UsoSvc DoSvc BITS CryptSvc TrustedInstaller msiserver InstallService AppIDSvc wlidsvc) do call :svcfixifdisabled %%S demand
+call :svcfixifdisabled mpssvc auto
+if defined ISMANAGED goto rad_wu_report
+:: DELETE, never write 0: writing 0 keeps the "Some settings are managed by your
+:: organization" banner and keeps the Settings control greyed out. The real
+:: default is the value not existing. A WSUS pointer or a stale
+:: TargetReleaseVersionInfo left by a debloat script means this machine silently
+:: stopped receiving security updates, with no visible error anywhere.
+set "WUP=HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+for %%V in (NoAutoUpdate AUOptions UseWUServer WUServer WUStatusServer SetDisableUXWUAccess DisableWindowsUpdateAccess SetUpdateNotificationLevel DeferQualityUpdates DeferQualityUpdatesPeriodInDays DeferFeatureUpdates DeferFeatureUpdatesPeriodInDays TargetReleaseVersion TargetReleaseVersionInfo PauseQualityUpdatesStartTime PauseFeatureUpdatesStartTime BranchReadinessLevel DisableDualScan) do call :killkey "%WUP%" "%%V"
+for %%V in (NoAutoUpdate AUOptions UseWUServer NoAutoRebootWithLoggedOnUsers) do call :killkey "%WUP%\AU" "%%V"
+:: Delivery Optimization: mode 100 (Bypass) is deprecated and breaks downloads on
+:: 24H2+, mode 99 (Simple) is the offline mode. Both are deletes, not rewrites.
+set "DOP=HKLM\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization"
+set "DODM="
+for /f "tokens=3" %%A in ('reg query "%DOP%" /v DODownloadMode 2^>nul ^| findstr /i /c:"    DODownloadMode    REG_"') do set "DODM=%%A"
+if "%DODM%"=="0x64" call :killkey "%DOP%" "DODownloadMode"
+if "%DODM%"=="0x63" call :killkey "%DOP%" "DODownloadMode"
+for %%V in (DOMaxDownloadBandwidth DOPercentageMaxDownloadBandwidth DOMaxUploadBandwidth) do call :killkey "%DOP%" "%%V"
+goto rad_bcd
+:rad_wu_report
+call :L "%cWarn%" "  SKIPPED  Windows Update policy purge - this machine is managed (%ISMANAGED%)"
+>>%logs% echo %date% %time% : WU policy purge skipped, ISMANAGED=%ISMANAGED%
+
+:rad_bcd
+call :L "%cInfo%" "Boot configuration residue"
+:: BCD edits can invalidate the TPM measurements BitLocker seals against, which
+:: means a recovery-key prompt at the next boot. So: always REPORT, and only
+:: write when the OS volume is not protected. BootStatus is the one locale-proof
+:: signal here - manage-bde's output is translated, so parsing it breaks off en-US.
+set "BLON="
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\BitLockerStatus" /v BootStatus 2^>nul ^| findstr /i /c:"    BootStatus    REG_"') do set "BLON=%%A"
+if "%BLON%"=="0x0" set "BLON="
+:: /deletevalue, not "/set X off": the true default is the element being ABSENT,
+:: and "/set nointegritychecks off" is refused outright under some Secure Boot
+:: policies. useplatformclock is the big one - it forces the HPET as the system
+:: timer, which measurably RAISES DPC latency on every modern platform.
+for %%K in (useplatformclock useplatformtick disabledynamictick tscsyncpolicy numproc onecpu maxproc groupsize truncatememory removememory) do call :bcdresidue %%K
+:: NOT touched: usefirmwarepcisettings (can change PCI resource assignment) and
+:: increaseuserva (a legitimate 32-bit element, not wreckage).
 
 call :L "%cOK%" "Good defaults re-asserted. Reboot recommended if UAC was previously off."
 pause
 goto menu
+
+:bcdresidue
+:: %~1 = BCD element that should not be there. Reports always, deletes only when
+:: BitLocker is not protecting the OS volume.
+bcdedit /enum "{current}" 2>nul | findstr /i /b /c:"%~1" >nul || goto :eof
+if defined BLON (
+    call :L "%cWarn%" "  FOUND    BCD %~1 - NOT removed, BitLocker is on"
+    call :L "%cInfo%" "           suspend BitLocker, then: bcdedit /deletevalue %~1"
+    >>%logs% echo %date% %time% : BCD residue %~1 reported only ^(BitLocker on^)
+    goto :eof
+)
+bcdedit /deletevalue "{current}" %~1 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   BCD %~1 (delete refused)"
+    goto :eof
+)
+call :L "%cOK%" "  REMOVED  BCD %~1 (reboot to take effect)"
+>>%logs% echo %date% %time% : Removed BCD element %~1
+goto :eof
 
 
 :display_tweaks
@@ -3149,6 +3280,51 @@ if not defined NPNP goto :eof
 call :L "%cWarn%" "Restarting adapter - the link will drop for a few seconds..."
 pnputil /restart-device "%NPNP%" >nul 2>&1
 call :L "%cOK%" "Adapter restarted - settings are live."
+goto :eof
+
+:ismanaged
+:: Sets ISMANAGED when this machine is domain-joined or MDM-enrolled.
+:: Anything under \Policies\ on such a machine is owned by the org: deleting it
+:: is undone at the next GP/MDM refresh, so OPTY would report a repair it did
+:: not make. Worse, on a work laptop that is tampering. Detect, then report.
+:: Each probe below was tested against a standalone home machine, because the
+:: obvious versions all FALSE-POSITIVE there and would have silently disabled the
+:: Windows Update repair for almost every user:
+::   - Enrollments\*\EnrollmentState=1 : 33 hits on a personal PC. Windows ships
+::     one stub GUID per enrollment TYPE; they are placeholders, not enrolments.
+::     The real marker is a DMClient subkey, which only a true MDM enrolment has.
+::   - Group Policy\State\Machine\Distinguished-Name : the value EXISTS on a
+::     workgroup machine, it is just empty. Presence proves nothing - it has to
+::     contain a DN, hence the "DC=" test.
+set "ISMANAGED="
+if defined USERDNSDOMAIN set "ISMANAGED=domain"
+if not defined ISMANAGED reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\State\Machine" /v "Distinguished-Name" 2>nul | findstr /i /c:"DC=" >nul && set "ISMANAGED=domain"
+if not defined ISMANAGED reg query "HKLM\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo" >nul 2>&1 && set "ISMANAGED=EntraID"
+if not defined ISMANAGED reg query "HKLM\SOFTWARE\Microsoft\Enrollments" /s /f DMClient /k 2>nul | findstr /i /c:"\DMClient" >nul && set "ISMANAGED=MDM"
+if defined ISMANAGED (
+    call :L "%cWarn%" "Managed machine detected (%ISMANAGED%) - policy keys will be REPORTED, not changed"
+    >>%logs% echo %date% %time% : ISMANAGED=%ISMANAGED% - policy writes suppressed
+)
+goto :eof
+
+:svcfixifdisabled
+:: %~1 service  %~2 sc "start=" keyword to restore
+:: Only repairs a service that was DISABLED (Start=4). Unlike :svcset this never
+:: touches a service the owner deliberately set to manual - it only undoes the
+:: one state that makes Windows Update fail with an error code nobody can read
+:: (wlidsvc off = 0x80070426, mpssvc off = downloads stuck at 0 percent).
+set "SFD="
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\%~1" /v Start 2^>nul ^| findstr /i /c:"    Start    REG_"') do set "SFD=%%A"
+if not defined SFD goto :eof
+set /a SFD=%SFD% 2>nul
+if not "%SFD%"=="4" goto :eof
+sc config "%~1" start= %~2 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   %~1 was DISABLED and could not be re-enabled"
+    goto :eof
+)
+call :L "%cOK%" "  FIXED    %~1 was DISABLED -> %~2"
+>>%logs% echo %date% %time% : Re-enabled disabled service %~1 -^> %~2
 goto :eof
 
 :killkey
