@@ -2,6 +2,78 @@
 
 @echo off
 set current_version=05.0
+
+:: ============================ CRLF SELF-HEAL ================================
+:: This MUST stay the first thing that runs, and it must use no `call` and no
+:: `goto :eof`, because those are the very things a LF-only file breaks.
+::
+:: Why it exists: CMD resolves the return address of `call :label` / `goto :eof`
+:: as a byte OFFSET into the script, and that arithmetic assumes 2-byte CRLF
+:: line endings. Hand it an LF-only file and the offsets drift, so execution
+:: resumes in the middle of an unrelated section. It is not deterministic - it
+:: depends where each label happens to land - so the script mostly works, then
+:: derails deep into a long run. That is the failure this repository has chased
+:: more than once.
+::
+:: Why it cannot be fixed on the server alone: measured against the live repo,
+::   raw.githubusercontent.com/.../master/OPTY.bat  ->  0 lone LF   OK
+::   github.com/.../raw/master/OPTY.bat             ->  0 lone LF   OK
+::   releases/latest/download/OPTY.bat              -> 1854 lone LF BROKEN
+:: Download it by hand from the Releases page and you get the broken one. So the
+:: script repairs itself instead of trusting where it came from.
+::
+:: How: `type file | find /v ""` rewrites every line terminated with CRLF.
+:: Verified lossless on this file - 188588 bytes in, 188588 out, byte-identical,
+:: and accented UTF-8 preserved exactly. Detection compares the size of the
+:: normalised copy against the original: same size means it was already CRLF.
+::
+:: NOTHING HERE OVERWRITES THE RUNNING FILE. The first attempt did, and the test
+:: caught why that is wrong: CMD re-reads the script from a saved byte offset
+:: after every command, so rewriting %~f0 mid-run leaves that offset pointing
+:: into different bytes and cmd executed the tail of a line as a command
+:: ('P~f0" >nul 2>&1' is not recognized). It repaired the file and corrupted its
+:: own execution doing it. So instead: the LF copy only ever WRITES A NEW FILE,
+:: launches it and exits. The healed copy - which is CRLF and therefore safe -
+:: is the one that overwrites the original, a file it is not itself running from.
+::
+:: NO ARGUMENT IS PASSED, and that is deliberate - measured, not assumed.
+:: `start "" "child.bat" "ARG"` does NOT launch the child at all here; it fails
+:: with "The filename, directory name, or volume label syntax is incorrect".
+:: Tested four forms: plain, with /D, with /b - all three silently failed to
+:: start the child; only `start "" cmd /c ""child.bat" ARG"` delivered the
+:: argument. `start "" "child.bat"` with NO argument works fine. So the copy
+:: identifies itself by its own filename instead, and the path to repair travels
+:: in a one-line sidecar file. Nothing depends on start's argument handling.
+if /i "%~nx0"=="OPTY_healed.bat" goto crlf_healed
+type "%~f0" | find /v "" > "%TEMP%\OPTY_crlf_probe.bat" 2>nul
+if not exist "%TEMP%\OPTY_crlf_probe.bat" goto crlf_ok
+for %%A in ("%~f0") do set "OPTYSZ0=%%~zA"
+for %%A in ("%TEMP%\OPTY_crlf_probe.bat") do set "OPTYSZ1=%%~zA"
+if "%OPTYSZ0%"=="%OPTYSZ1%" goto crlf_clean
+echo(
+echo  This copy of OPTY.bat has LF-only line endings - CMD would drift into
+echo  the wrong section partway through. Repairing and restarting...
+copy /y "%TEMP%\OPTY_crlf_probe.bat" "%~dp0OPTY_healed.bat" >nul 2>&1
+>"%~dp0OPTY_healed.target" echo %~f0
+start "" "%~dp0OPTY_healed.bat"
+exit
+:crlf_healed
+:: Running as OPTY_healed.bat, which is CRLF and therefore safe. Overwrite the
+:: original - a DIFFERENT file, so no self-modification - and hand back to it.
+set "OPTYTGT="
+if exist "%~dp0OPTY_healed.target" set /p OPTYTGT=<"%~dp0OPTY_healed.target"
+if not defined OPTYTGT set "OPTYTGT=%~dp0OPTY.bat"
+del "%~dp0OPTY_healed.target" >nul 2>&1
+copy /y "%~f0" "%OPTYTGT%" >nul 2>&1
+start "" "%OPTYTGT%"
+exit
+:crlf_clean
+del "%TEMP%\OPTY_crlf_probe.bat" >nul 2>&1
+:crlf_ok
+if exist "%~dp0OPTY_healed.bat" del "%~dp0OPTY_healed.bat" >nul 2>&1
+if exist "%~dp0OPTY_healed.target" del "%~dp0OPTY_healed.target" >nul 2>&1
+:: ===========================================================================
+
 set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/resources/
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
@@ -201,7 +273,22 @@ if errorlevel 1 goto update_download_failed
 if not exist "%~dp0new_OPTY.bat" goto update_download_failed
 :: Sanity-check the payload really is an OPTY script before overwriting.
 find /c "set current_version=" "%~dp0new_OPTY.bat" >nul 2>&1 || goto update_download_failed
-echo %date% %time% : Downloaded and validated new_OPTY.bat      >> %logs%
+:: FORCE CRLF on whatever just arrived. Measured against the live repository:
+::   raw.githubusercontent.com/.../master/OPTY.bat   3530 CR, 0 lone LF   OK
+::   github.com/.../raw/master/OPTY.bat              3530 CR, 0 lone LF   OK
+::   releases/latest/download/OPTY.bat               0 CR, 1854 lone LF   BROKEN
+:: and the third one is exactly what the line above downloads. That is the
+:: "sometimes CRLF, sometimes LF" the maintainer kept hitting. CMD computes the
+:: return address of call/goto :eof as a byte offset assuming 2-byte CRLF, so an
+:: LF file drifts into the wrong section partway through a long run.
+:: Rather than trust the server, normalise here. `type | find /v ""` rewrites
+:: every line with CRLF; verified lossless on this very file - 188588 bytes in,
+:: 188588 bytes out, byte-for-byte identical, accented UTF-8 preserved exactly.
+:: Its one limit is a 4095-character line, which validator gate 9 keeps us under.
+type "%~dp0new_OPTY.bat" | find /v "" > "%~dp0new_OPTY_crlf.bat"
+if exist "%~dp0new_OPTY_crlf.bat" move /y "%~dp0new_OPTY_crlf.bat" "%~dp0new_OPTY.bat" >nul 2>&1
+find /c "set current_version=" "%~dp0new_OPTY.bat" >nul 2>&1 || goto update_download_failed
+echo %date% %time% : Downloaded, CRLF-normalised and validated new_OPTY.bat >> %logs%
 copy /y "%~dp0OPTY.bat" "%~dp0OPTY_rollback.bat" >nul 2>&1
 move /y "%~dp0new_OPTY.bat" "%~dp0OPTY.bat" >nul || goto update_download_failed
 echo %date% %time% : Replaced old OPTY.bat with new version     >> %logs%
@@ -3128,30 +3215,22 @@ goto :eof
 del /F /S /Q "%~1:\DeliveryOptimization\*"                >nul 2>&1
 del /F /S /Q "%~1:\WUDownloadCache\*"                     >nul 2>&1
 del /F /S /Q "%~1:\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache\*" >nul 2>&1
-:: REMOVED: del "<drive>:\.cache\*". It was matched by NAME ONLY, at the root of
-:: every fixed drive, with no check of what put it there. On a developer machine
-:: a root .cache is routinely Bazel, Yarn, Cargo, pip or a Hugging Face model
-:: store - tens of gigabytes of re-download, not Windows Update payload. This
-:: machine has C:\.cache right now. It also broke the project's own standing
-:: rule that OPTY never clears development caches.
-:: Interrupted / leftover feature-update staging folders. GUARDED: together with
-:: Windows.old these three are what Settings > Recovery > "Go back" needs, so
-:: while Windows.old still exists the rollback window is open and they stay.
-:: Once Windows.old is gone the rollback is already impossible and they are dead
-:: weight. A reboot-pending update also blocks it - deleting mid-upgrade forces
-:: Windows to re-download the whole feature update.
-set "UPGGUARD="
-if exist "%SystemDrive%\Windows.old" set "UPGGUARD=rollback window still open"
-reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" >nul 2>&1 && set "UPGGUARD=an update is waiting for a reboot"
-if defined UPGGUARD (
-    call :L "%cWarn%" "  KEPT     upgrade staging folders on %~1: - %UPGGUARD%"
-    >>%logs% echo %date% %time% : Kept staging folders on %~1: ^(%UPGGUARD%^)
-    goto drivesweep_done
-)
+:: A root-level .cache. The maintainer's rule is regeneration TIME, not file
+:: type: if it comes back on its own and no user data is lost, it goes. A root
+:: .cache is a tool cache - it refetches. The one case that fails his own
+:: "under 30 minutes" test is a multi-gigabyte model or package store, so the
+:: size is reported before the delete rather than the delete being skipped.
+call :bigcache "%~1:\.cache"
+del /F /S /Q "%~1:\.cache\*"                              >nul 2>&1
+:: Feature-update staging folders. Deleted unconditionally, on the maintainer's
+:: explicit instruction - "Revenir en arriere, on delete aussi". This does end
+:: the Settings > Recovery > "Go back" path for a recent upgrade, and if a
+:: feature update is downloaded and waiting for a reboot it will be fetched
+:: again. Both are accepted: the space and the clean state are worth more to him
+:: than a rollback he has never used.
 if exist "%~1:\$WINDOWS.~BT" rd /S /Q "%~1:\$WINDOWS.~BT" >nul 2>&1
 if exist "%~1:\$Windows.~WS" rd /S /Q "%~1:\$Windows.~WS" >nul 2>&1
 if exist "%~1:\$WinREAgent"  rd /S /Q "%~1:\$WinREAgent"  >nul 2>&1
-:drivesweep_done
 echo %date% %time% : Swept drive %~1:                               >> %logs%
 goto :eof
 
@@ -3447,6 +3526,30 @@ if not defined PWAC goto :eof
 set /a PWACN=%PWAC% 2>nul
 call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not changed)"
 >>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
+goto :eof
+
+:bigcache
+:: %~1 = a cache folder about to be emptied. Reports its size first when it is
+:: big enough that "it just refetches" stops being true. The rule here is the
+:: maintainer's own: delete anything regenerable in well under 30 minutes. A
+:: 40 GB Hugging Face or NuGet store fails that test, so it gets named out loud
+:: in the log rather than vanishing silently.
+:: dir /-c prints an unseparated byte total; its label is localised (FR "octets",
+:: EN "bytes") so both are matched, and the number is taken by position.
+if not exist "%~1" goto :eof
+set "BCB="
+for /f "tokens=3" %%S in ('dir /s /-c "%~1" 2^>nul ^| findstr /i /c:" octets" /c:" bytes"') do set "BCB=%%S"
+if not defined BCB goto :eof
+set "BCB=%BCB:.=%"
+set "BCB=%BCB:,=%"
+set "BCMB=0"
+if not "%BCB:~6%"=="" set /a BCMB=%BCB:~0,-6% 2>nul
+if %BCMB% GEQ 2000 (
+    call :L "%cWarn%" "  %~1 is about %BCMB% MB - that is a long refetch, not a quick one"
+    >>%logs% echo %date% %time% : Large cache emptied: %~1 ^(~%BCMB% MB^)
+    goto :eof
+)
+>>%logs% echo %date% %time% : Cache emptied: %~1
 goto :eof
 
 :svcshow

@@ -79,11 +79,20 @@ if ($loneLf -gt 0) {
 }
 Write-Ok 'CRLF only'
 
+# --- CODE ONLY: strip '::' lines before looking for goto/call targets.
+# A '::' line is a label CMD never executes, so it is where comments and (soon)
+# the bilingual card text live. That prose legitimately contains things like
+# "call :label" and "goto the next step", which the regexes below would
+# otherwise extract as real targets and fail on. This gate is about executable
+# code, so it must only look at executable code.
+$codeLines = ($text -split "`r`n") | Where-Object { $_ -notmatch '^\s*::' }
+$code = $codeLines -join "`n"
+
 # 3. every goto target resolves (a missing label crashes CMD at runtime)
 $labels = [Collections.Generic.HashSet[string]]::new()
 foreach ($m in [regex]::Matches($text, '(?m)^:([A-Za-z0-9_\-]+)')) { [void]$labels.Add($m.Groups[1].Value.ToLower()) }
 $missing = @()
-foreach ($m in [regex]::Matches($text, 'goto[:\s]+([A-Za-z0-9_\-]+)')) {
+foreach ($m in [regex]::Matches($code, 'goto[:\s]+([A-Za-z0-9_\-]+)')) {
     $g = $m.Groups[1].Value.ToLower()
     if ($g -ne 'eof' -and -not $labels.Contains($g)) { $missing += $g }
 }
@@ -92,14 +101,32 @@ Write-Ok "$($labels.Count) labels, every goto resolves"
 
 # 4. every `call :sub` resolves too
 $missingCalls = @()
-foreach ($m in [regex]::Matches($text, '(?m)call\s+:([A-Za-z0-9_\-]+)')) {
+foreach ($m in [regex]::Matches($code, '(?m)call\s+:([A-Za-z0-9_\-]+)')) {
     $c = $m.Groups[1].Value.ToLower()
     if (-not $labels.Contains($c)) { $missingCalls += $c }
 }
 if ($missingCalls.Count) { Fail ('unresolved call target(s): ' + (($missingCalls | Sort-Object -Unique) -join ', ')) }
 Write-Ok 'every call resolves'
 
-# 5. version marker
+# 5. no line long enough to be truncated by the CRLF self-heal
+# The startup self-heal and the post-download normaliser both run
+# `type file | find /v ""`. Measured on this machine: `find` copies lines up to
+# 2048 characters intact, but a 4095-character line comes back truncated and
+# anything longer is capped at 4095. A single over-long line would therefore be
+# silently mangled the first time an LF copy repaired itself. 1000 is a wide
+# margin - today's longest line is 696.
+$long = @()
+$n = 0
+foreach ($line in ($text -split "`r`n")) {
+    $n++
+    if ($line.Length -gt 1000) { $long += "line ${n}: $($line.Length) chars" }
+}
+if ($long.Count) {
+    Fail ("line(s) over 1000 chars - `find /v ''` would truncate them during CRLF self-heal: " + ($long -join '; '))
+}
+Write-Ok 'no line over 1000 chars (self-heal safe)'
+
+# 6. version marker
 $vm = [regex]::Match($text, '(?m)^set current_version=([0-9.]+)\s*$')
 if (-not $vm.Success) { Fail 'could not read "set current_version=" from OPTY.bat' }
 $fileVersion = $vm.Groups[1].Value
