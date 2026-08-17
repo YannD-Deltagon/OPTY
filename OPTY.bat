@@ -98,6 +98,26 @@ set "cInfo=%ESC%[90m"
 set "cStep=%ESC%[1;95m"
 set "cVal=%ESC%[1;97m"
 
+:: ---- Bilingual engine: console code page, then language ----------------------
+:: SELF is where the ::T| text table lives - this file reads its own bottom half.
+set "SELF=%~f0"
+:: Measured on this machine: a fresh console on a fr-FR box is CP850, and the
+:: UTF-8 bytes of an accented character decode there as TWO characters
+:: (C3 A9 -> mojibake). 65001 is the only code page that renders this file's own
+:: bytes correctly. Every parsing idiom the script depends on was re-tested under
+:: 65001 - reg query, sc, fsutil, the prompt $E capture, set /p, choice - and
+:: none changed behaviour. The 7/8-era "65001 breaks for /f" warning does not
+:: apply to Windows 10/11.
+:: The console is shared with whatever shell launched us, so the original page is
+:: saved and put back at :end.
+call :cp_read
+set "CP_ORIG=%CURCP%"
+chcp 65001 >nul 2>&1
+call :cp_read
+set "ASCIIONLY="
+if not "%CURCP%"=="65001" set "ASCIIONLY=1"
+call :lang_detect
+
 cd /d "%~dp0"
 :: keep only the 5 most recent of each artifact family (newest first, skip 5, delete rest)
 for /f "skip=5 delims=" %%F in ('dir /b /a-d /o:-d "%~dp0logs_*.txt" 2^>nul') do del "%~dp0%%F" >nul 2>&1
@@ -3064,6 +3084,9 @@ echo ====================== :END ======================        >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :end label                             >> %logs%
 echo %date% %time% : Script end                                      >> %logs%
+:: Put the console back the way we found it. The terminal tab may well outlive
+:: this script, and leaving somebody else's shell on 65001 is not ours to do.
+if defined CP_ORIG chcp %CP_ORIG% >nul 2>&1
 color F2
 cls
 echo.                                                  
@@ -3526,6 +3549,127 @@ if not defined PWAC goto :eof
 set /a PWACN=%PWAC% 2>nul
 call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not changed)"
 >>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
+goto :eof
+
+:cp_read
+:: CURCP = the console's current code page, locale-proof. chcp's LABEL is
+:: translated ("Page de codes active :" / "Active code page:"), so the label is
+:: never parsed: take the whole line, then walk its space-separated tokens. The
+:: number is last, so the last assignment wins. Works in FR/EN/DE/JA alike.
+set "CPL="
+for /f "tokens=*" %%C in ('chcp') do set "CPL=%%C"
+set "CURCP="
+for %%C in (%CPL%) do set "CURCP=%%C"
+goto :eof
+
+:lang_detect
+:: Sets UILANG (FR|EN) and LANGPROBE (which probe fired - it goes in the log so a
+:: wrong guess is diagnosable). Order is strongest INTENT first.
+:: Rejected probes, and why:
+::   Control Panel\International\LocaleName  - the FORMAT locale. A French box
+::     switched to an English UI still reads fr-FR. Fine as a last resort only.
+::   Nls\Language\InstallLanguage - the language Windows was INSTALLED with. An
+::     OEM machine sold in France reads 040C forever, whatever the user picked.
+::   The console code page - useless here: CP850 is the OEM page for FR, DE, ES,
+::     IT, PT, NL and en-GB at once. It cannot tell French from German.
+:: findstr /r /c:"REG_MULTI_SZ *fr" never parses the column layout - only "type
+:: keyword, whitespace, fr" - which is what makes it locale-proof.
+set "LANGPROBE="
+set "UILANG=EN"
+reg query "HKCU\Control Panel\Desktop" /v PreferredUILanguages 2>nul | findstr /i /r /c:"REG_MULTI_SZ *fr" >nul && (set "UILANG=FR" & set "LANGPROBE=PreferredUILanguages" & goto :eof)
+reg query "HKCU\Control Panel\Desktop\MuiCached" /v MachinePreferredUILanguages 2>nul | findstr /i /r /c:"REG_MULTI_SZ *fr" >nul && (set "UILANG=FR" & set "LANGPROBE=MuiCached" & goto :eof)
+reg query "HKCU\Control Panel\International\User Profile" /v Languages 2>nul | findstr /i /r /c:"REG_MULTI_SZ *fr" >nul && (set "UILANG=FR" & set "LANGPROBE=UserProfileLanguages" & goto :eof)
+reg query "HKCU\Control Panel\International" /v LocaleName 2>nul | findstr /i /r /c:"REG_SZ *fr" >nul && (set "UILANG=FR" & set "LANGPROBE=LocaleName" & goto :eof)
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Nls\Language" /v InstallLanguage 2>nul | findstr /i /c:"040C" >nul && (set "UILANG=FR" & set "LANGPROBE=InstallLanguage" & goto :eof)
+set "LANGPROBE=default"
+goto :eof
+
+:card
+:: %~1 = card id. Prints that card's explanation block in %UILANG%.
+:: The text lives in the ::T| table at the bottom of this file and is read back
+:: out of the file itself. CMD treats a "::" line as a label and NEVER parses it
+:: as a command, so > < | & ^ % ( ) " * = ; , all sit there raw with no escaping.
+:: Rendering with a bare echo( of the FOR variable reproduces them verbatim,
+:: because FOR substitution happens after the special-character parse phase and
+:: the substituted value is not re-parsed. Verified: %USERNAME% comes out literal.
+::
+:: NEVER route this text through a subroutine argument. Measured twice: the
+:: tilde-1 form strips the quotes, cmd re-parses the result, carets double,
+:: variables expand, everything after a quote is lost, and a line containing a
+:: redirection character crashes cmd outright. That is the exact trap the
+:: comment on :L already documents.
+:: The ONE forbidden character in card text is "!" - the ASCII path below runs
+:: under delayed expansion, which eats it.
+:: No caret before the "|" separators: inside double quotes a caret is LITERAL,
+:: so findstr would search for "::T^|FR^|" and match nothing. Verified.
+if defined ASCIIONLY goto card_ascii
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in (`findstr /b /l /c:"::T|%UILANG%|%~1." "%SELF%"`) do echo(%cInfo%    %%D%cR%
+goto :eof
+
+:card_ascii
+:: Same table, accents folded to ASCII, for a console stuck on a legacy code page
+:: or a raster font. The substitution patterns in :deaccvar are written with real
+:: accented characters in UTF-8, exactly like the data, so pattern and data go
+:: through the SAME decode: under CP850 both sides become the same mojibake pair
+:: and still match; under 65001 both are the real character and still match. One
+:: code path, every code page. Verified live under both 850 and 65001.
+setlocal enabledelayedexpansion
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in (`findstr /b /l /c:"::T|%UILANG%|%~1." "%SELF%"`) do (
+    set "M=%%D"
+    call :deaccvar
+    echo(%cInfo%    !M!%cR%
+)
+endlocal
+goto :eof
+
+:deaccvar
+:: Called from inside :card_ascii's FOR body. CALL creates no new variable scope,
+:: so this edits the caller's M in place and delayed expansion is still live -
+:: which is exactly why M is never passed as an argument.
+:: The empty-line guard is load-bearing: on an UNDEFINED M the substitution
+:: syntax does not substitute, it yields the literal pattern text, so every blank
+:: line in a card printed as garbage until this line existed.
+if not defined M goto :eof
+set "M=!M:é=e!"
+set "M=!M:è=e!"
+set "M=!M:ê=e!"
+set "M=!M:ë=e!"
+set "M=!M:à=a!"
+set "M=!M:â=a!"
+set "M=!M:ä=a!"
+set "M=!M:î=i!"
+set "M=!M:ï=i!"
+set "M=!M:ô=o!"
+set "M=!M:ö=o!"
+set "M=!M:ù=u!"
+set "M=!M:û=u!"
+set "M=!M:ü=u!"
+set "M=!M:ç=c!"
+set "M=!M:É=E!"
+set "M=!M:È=E!"
+set "M=!M:Ê=E!"
+set "M=!M:À=A!"
+set "M=!M:Ô=O!"
+set "M=!M:Ù=U!"
+set "M=!M:Ç=C!"
+set "M=!M:œ=oe!"
+set "M=!M:æ=ae!"
+set "M=!M:«=<!"
+set "M=!M:»=>!"
+set "M=!M:’='!"
+set "M=!M:°=deg!"
+goto :eof
+
+:svccur
+:: %~1 = service -> prints its state ON THIS MACHINE, right now, next to the
+:: card. Live values never live in the text table: they are machine state, and a
+:: card that hardcoded one would be lying on somebody else's PC.
+set "SVS=" & set "SVR="
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\%~1" /v Start 2^>nul ^| findstr /i /c:"    Start    REG_"') do set "SVS=%%A"
+if not defined SVS ( call :L "%cInfo%" "    >> %~1 : not present on this edition" & goto :eof )
+set /a SVS=%SVS% 2>nul
+sc query "%~1" 2>nul | findstr /i /c:"RUNNING" >nul && set "SVR=RUNNING" || set "SVR=stopped"
+call :L "%cVal%" "    >> on this machine: %~1 Start=%SVS%, %SVR%"
 goto :eof
 
 :bigcache
