@@ -3251,12 +3251,26 @@ echo.                                                           >> %logs%
 echo ====================== :CLEAN_OPTY_CURL ================= >> %logs%
 echo.                                                           >> %logs%
 echo %date% %time% : Entered :Clean_Opty_Curl label                >> %logs%
-:: Keep OPTY.bat itself AND OPTY_rollback.bat - the rollback copy is the only
-:: way back if a self-update ships a broken build, so cleaning must not eat it.
-for /f "delims=" %%f in ('dir /b /a-d "%~dp0" ^| findstr /i /v /c:"OPTY.bat" /c:"OPTY_rollback.bat"') do (
-    echo %date% %time% : Deleting file "%~dp0%%f"                   >> %logs%
-    del /f /q "%~dp0%%f"
+:: Delete by PATTERN, never by exclusion.
+:: This used to list every file in the folder and delete all but OPTY.bat and
+:: OPTY_rollback.bat, while the menu entry beside it said "old logs and
+:: reports (keeps the script)". Run from the repository checkout that meant
+:: .gitattributes, .gitignore, LICENSE, README.md, maintenant and stop -
+:: six files tracked by git - went with the logs. Anything a user ever puts
+:: next to OPTY.bat went too.
+::
+:: It also deleted the run\'s own log: %logs% lives in %~dp0, so the loop wrote
+:: "Deleting file ..." into a file that was itself on the list, destroying the
+:: record of what it had just removed. The current log is now skipped by name.
+for %%P in (logs_*.txt netinfo_*.txt netprops_*.json new_OPTY.bat OPTY_healed.bat OPTY_healed.target opty_nic_list.txt) do (
+    for /f "delims=" %%f in ('dir /b /a-d "%~dp0%%P" 2^>nul') do (
+        if /i not "%~dp0%%f"=="%logs:"=%" (
+            echo %date% %time% : Deleting "%~dp0%%f"                >> %logs%
+            del /f /q "%~dp0%%f" >nul 2>&1
+        )
+    )
 )
+call :L "%cOK%" "OPTY artifacts pruned - only files OPTY itself wrote were touched"
 goto mmaint
 
 
@@ -17910,7 +17924,7 @@ goto :eof
 ::X|EN|gr.mouse.defaults.024|                    call :mousecurve and call :mouseapply.
 ::
 :: ---- mouse.smoothcurve.delete (repair) --------------------------
-::P|mouse.smoothcurve.delete|REVIEW|REVIEW|REVIEW|REVIEW|REVIEW|
+::P|mouse.smoothcurve.delete|DELETE|DELETE|DELETE|DELETE|SKIP|
 ::T|FR|mouse.smoothcurve.delete.001|SUPPRIMER LES COURBES SMOOTHMOUSE QUI NE FONT PAS EXACTEMENT 40 OCTETS
 ::T|FR|mouse.smoothcurve.delete.002|
 ::T|FR|mouse.smoothcurve.delete.003|  Ce que c est    : SmoothMouseXCurve et SmoothMouseYCurve sont les tables
@@ -37229,167 +37243,6 @@ goto :eof
 ::X|EN|cl.startupdelay.restore.018|                    ion\Explorer\Serialize /v StartupDelayInMSec /f -
 ::X|EN|cl.startupdelay.restore.019|                    OPTY.bat line 1611, in the restore-defaults pass.
 ::
-:: ---- cl.mousecurve.strip (cleanup) -------------------------------
-::P|cl.mousecurve.strip|DELETE|DELETE|DELETE|DELETE|DELETE|
-::T|FR|cl.mousecurve.strip.001|RETIRER LES COURBES D'ACCÉLÉRATION SOURIS NON CONFORMES
-::T|FR|cl.mousecurve.strip.002|
-::T|FR|cl.mousecurve.strip.003|  Ce que c est    : SmoothMouseXCurve et SmoothMouseYCurve sont des blocs
-::T|FR|cl.mousecurve.strip.004|                    binaires qui décrivent la réponse de l'accélération du
-::T|FR|cl.mousecurve.strip.005|                    pointeur à la vitesse. De vieux scripts de bidouille,
-::T|FR|cl.mousecurve.strip.006|                    celui-ci compris, en écrivaient des versions
-::T|FR|cl.mousecurve.strip.007|                    tronquées.
-::T|FR|cl.mousecurve.strip.008|
-::T|FR|cl.mousecurve.strip.009|  Effet reel      : Chaque valeur est lue par reg query et conservée
-::T|FR|cl.mousecurve.strip.010|                    seulement si sa chaîne hexadécimale fait exactement 80
-::T|FR|cl.mousecurve.strip.011|                    caractères, soit les 40 octets d'origine. Mesuré à
-::T|FR|cl.mousecurve.strip.012|                    l'instant sur cette machine : X fait 34 caractères
-::T|FR|cl.mousecurve.strip.013|                    hexadécimaux (17 octets) et Y en fait 40 (20 octets) -
-::T|FR|cl.mousecurve.strip.014|                    les deux seraient donc supprimées, ce sont bien les
-::T|FR|cl.mousecurve.strip.015|                    blocs tronqués laissés par OPTY v03.x. La paire
-::T|FR|cl.mousecurve.strip.016|                    d'origine de 40 octets est confirmée dans
-::T|FR|cl.mousecurve.strip.017|                    HKEY_USERS\.DEFAULT. L'étape s'exécute au sein de la
-::T|FR|cl.mousecurve.strip.018|                    restauration souris, qui réécrit d'abord MouseSpeed=1,
-::T|FR|cl.mousecurve.strip.019|                    MouseThreshold1=6 et MouseThreshold2=10 : elle
-::T|FR|cl.mousecurve.strip.020|                    réactive donc l'accélération, et les courbes ne
-::T|FR|cl.mousecurve.strip.021|                    comptent qu'une fois celle-ci active.
-::T|FR|cl.mousecurve.strip.022|
-::T|FR|cl.mousecurve.strip.023|  Gain            : Aucun gain mesurable en soi, et cette machine le
-::T|FR|cl.mousecurve.strip.024|                    démontre : MouseSpeed vaut 0 en ce moment,
-::T|FR|cl.mousecurve.strip.025|                    l'accélération est désactivée et les courbes ne sont
-::T|FR|cl.mousecurve.strip.026|                    pas consultées du tout. L'intérêt est l'hygiène : une
-::T|FR|cl.mousecurve.strip.027|                    courbe de 17 octets est invisible dans toutes les
-::T|FR|cl.mousecurve.strip.028|                    fenêtres de réglages et fausserait le pointeur sans
-::T|FR|cl.mousecurve.strip.029|                    prévenir dès qu'on réactive l'accélération.
-::T|FR|cl.mousecurve.strip.030|
-::T|FR|cl.mousecurve.strip.031|  Cout            : Rien de régénérable n'est perdu, et quelques dizaines
-::T|FR|cl.mousecurve.strip.032|                    d'octets de registre ne sont pas une promesse
-::T|FR|cl.mousecurve.strip.033|                    d'espace. Si vous aviez installé une courbe sur mesure
-::T|FR|cl.mousecurve.strip.034|                    volontairement, elle disparaît, sans sauvegarde ni
-::T|FR|cl.mousecurve.strip.035|                    confirmation.
-::T|FR|cl.mousecurve.strip.036|
-::T|FR|cl.mousecurve.strip.037|  Defaut Windows  : Les deux valeurs présentes, exactement 40 octets
-::T|FR|cl.mousecurve.strip.038|                    chacune - vérifié dans HKEY_USERS\.DEFAULT, le profil
-::T|FR|cl.mousecurve.strip.039|                    que Windows applique à un compte neuf.
-::T|FR|cl.mousecurve.strip.040|
-::T|FR|cl.mousecurve.strip.041|  Valeurs possibles :
-::T|FR|cl.mousecurve.strip.042|    DELETE               : Supprimer une courbe qui ne fait pas les 40
-::T|FR|cl.mousecurve.strip.043|                           octets d'origine. Sur cette machine, cela vise
-::T|FR|cl.mousecurve.strip.044|                           les deux - 17 et 20 octets, écrites par OPTY
-::T|FR|cl.mousecurve.strip.045|                           v03.x - et une courbe tronquée est une réponse
-::T|FR|cl.mousecurve.strip.046|                           d'accélération que personne ne peut voir ni
-::T|FR|cl.mousecurve.strip.047|                           diagnostiquer.
-::T|FR|cl.mousecurve.strip.048|    KEEP                 : Correct pour une courbe d'origine de 40 octets,
-::T|FR|cl.mousecurve.strip.049|                           et c'est déjà ce que fait le code : il mesure
-::T|FR|cl.mousecurve.strip.050|                           d'abord la longueur et laisse une courbe
-::T|FR|cl.mousecurve.strip.051|                           conforme en place.
-::T|FR|cl.mousecurve.strip.052|    ASK                  : Le seul cas qui mérite une question : une
-::T|FR|cl.mousecurve.strip.053|                           courbe que vous avez posée volontairement, via
-::T|FR|cl.mousecurve.strip.054|                           un utilitaire de correction de souris ou un
-::T|FR|cl.mousecurve.strip.055|                           guide de jeu compétitif. Elle est supprimée
-::T|FR|cl.mousecurve.strip.056|                           sans aucune sauvegarde.
-::X|FR|cl.mousecurve.strip.001|  Pourquoi ces profils : Cinq colonnes identiques, et inventer une
-::X|FR|cl.mousecurve.strip.002|                         distinction serait ici pire que d'admettre qu'il
-::X|FR|cl.mousecurve.strip.003|                         n'y en a pas : une courbe d'accélération
-::X|FR|cl.mousecurve.strip.004|                         malformée est aussi fausse sur un serveur que sur
-::X|FR|cl.mousecurve.strip.005|                         une machine de jeu. La colonne 5 dit DELETE
-::X|FR|cl.mousecurve.strip.006|                         plutôt que KEEP parce qu'un bloc de 17 octets
-::X|FR|cl.mousecurve.strip.007|                         n'est pas non plus l'état livré : l'état livré,
-::X|FR|cl.mousecurve.strip.008|                         c'est 40 octets ou rien.
-::X|FR|cl.mousecurve.strip.009|
-::X|FR|cl.mousecurve.strip.010|  Problemes connus : Le reg query est filtré sur REG_BINARY : une courbe
-::X|FR|cl.mousecurve.strip.011|                     stockée sous un autre type n'est jamais vue, donc
-::X|FR|cl.mousecurve.strip.012|                     jamais retirée.
-::X|FR|cl.mousecurve.strip.013|
-::X|FR|cl.mousecurve.strip.014|  Non verifie (en)  : The claim that Windows rebuilds the standard curves
-::X|FR|cl.mousecurve.strip.015|                      at the next logon is not established.
-::X|FR|cl.mousecurve.strip.016|                      HKEY_USERS\.DEFAULT does carry the stock 40-byte
-::X|FR|cl.mousecurve.strip.017|                      curves, which is how a NEW account gets them, but
-::X|FR|cl.mousecurve.strip.018|                      for an existing account the values may simply stay
-::X|FR|cl.mousecurve.strip.019|                      absent while Windows falls back to the identical
-::X|FR|cl.mousecurve.strip.020|                      built-in curve. Behaviour ends up stock either way;
-::X|FR|cl.mousecurve.strip.021|                      whether the registry values physically reappear
-::X|FR|cl.mousecurve.strip.022|                      before you touch Enhance pointer precision in Mouse
-::X|FR|cl.mousecurve.strip.023|                      properties was not tested.
-::X|FR|cl.mousecurve.strip.024|
-::X|FR|cl.mousecurve.strip.025|  Cible           : HKCU\Control Panel\Mouse, values SmoothMouseXCurve and
-::X|FR|cl.mousecurve.strip.026|                    SmoothMouseYCurve (REG_BINARY), guarded delete in
-::X|FR|cl.mousecurve.strip.027|                    :mousecurve / :curvecheck, OPTY.bat lines 2379-2392,
-::X|FR|cl.mousecurve.strip.028|                    called from :mouse_restore.
-::T|EN|cl.mousecurve.strip.001|STRIP NON-STANDARD MOUSE ACCELERATION CURVES
-::T|EN|cl.mousecurve.strip.002|
-::T|EN|cl.mousecurve.strip.003|  What it is      : SmoothMouseXCurve and SmoothMouseYCurve are binary
-::T|EN|cl.mousecurve.strip.004|                    blobs describing how pointer acceleration responds to
-::T|EN|cl.mousecurve.strip.005|                    speed. Old tweak scripts, this one included, used to
-::T|EN|cl.mousecurve.strip.006|                    write truncated versions of them.
-::T|EN|cl.mousecurve.strip.007|
-::T|EN|cl.mousecurve.strip.008|  Actual effect   : Each value is read with reg query and kept only if its
-::T|EN|cl.mousecurve.strip.009|                    hex string is exactly 80 characters, which is the
-::T|EN|cl.mousecurve.strip.010|                    stock 40 bytes. Measured right now on this machine: X
-::T|EN|cl.mousecurve.strip.011|                    is 34 hex characters (17 bytes) and Y is 40 (20
-::T|EN|cl.mousecurve.strip.012|                    bytes), so both would be deleted - they are the
-::T|EN|cl.mousecurve.strip.013|                    truncated blobs OPTY v03.x left behind. The stock
-::T|EN|cl.mousecurve.strip.014|                    40-byte pair is confirmed in HKEY_USERS\.DEFAULT. The
-::T|EN|cl.mousecurve.strip.015|                    step runs inside the mouse restore, which first
-::T|EN|cl.mousecurve.strip.016|                    rewrites MouseSpeed=1, MouseThreshold1=6 and
-::T|EN|cl.mousecurve.strip.017|                    MouseThreshold2=10 - that is, it switches pointer
-::T|EN|cl.mousecurve.strip.018|                    acceleration back on, and the curves only matter once
-::T|EN|cl.mousecurve.strip.019|                    it is on.
-::T|EN|cl.mousecurve.strip.020|
-::T|EN|cl.mousecurve.strip.021|  Gain            : No measurable gain on its own, and this machine proves
-::T|EN|cl.mousecurve.strip.022|                    it: MouseSpeed is currently 0, acceleration is off,
-::T|EN|cl.mousecurve.strip.023|                    and the curves are not consulted at all. The value is
-::T|EN|cl.mousecurve.strip.024|                    hygiene - a 17-byte curve is invisible in every
-::T|EN|cl.mousecurve.strip.025|                    settings dialog and would silently distort the pointer
-::T|EN|cl.mousecurve.strip.026|                    the moment acceleration is switched back on.
-::T|EN|cl.mousecurve.strip.027|
-::T|EN|cl.mousecurve.strip.028|  Cost            : Nothing regenerable is lost, and a few dozen bytes of
-::T|EN|cl.mousecurve.strip.029|                    registry is not a space claim. If you deliberately
-::T|EN|cl.mousecurve.strip.030|                    installed a custom curve, it goes, with no backup and
-::T|EN|cl.mousecurve.strip.031|                    no prompt.
-::T|EN|cl.mousecurve.strip.032|
-::T|EN|cl.mousecurve.strip.033|  Windows default : Both values present, exactly 40 bytes each - verified
-::T|EN|cl.mousecurve.strip.034|                    against HKEY_USERS\.DEFAULT, the profile Windows
-::T|EN|cl.mousecurve.strip.035|                    stamps onto a new account.
-::T|EN|cl.mousecurve.strip.036|
-::T|EN|cl.mousecurve.strip.037|  Possible values:
-::T|EN|cl.mousecurve.strip.038|    DELETE               : Remove a curve that is not the stock 40 bytes.
-::T|EN|cl.mousecurve.strip.039|                           On this machine that means both of them - 17
-::T|EN|cl.mousecurve.strip.040|                           and 20 bytes, written by OPTY v03.x - and a
-::T|EN|cl.mousecurve.strip.041|                           truncated curve is a response curve nobody can
-::T|EN|cl.mousecurve.strip.042|                           see or diagnose.
-::T|EN|cl.mousecurve.strip.043|    KEEP                 : Correct for a stock 40-byte curve, and the code
-::T|EN|cl.mousecurve.strip.044|                           already does exactly that: it measures the
-::T|EN|cl.mousecurve.strip.045|                           length first and leaves a proper curve alone.
-::T|EN|cl.mousecurve.strip.046|    ASK                  : The one case worth asking about: a curve you
-::T|EN|cl.mousecurve.strip.047|                           wrote on purpose, from a mouse-fix utility or a
-::T|EN|cl.mousecurve.strip.048|                           competitive-play guide. It is deleted with no
-::T|EN|cl.mousecurve.strip.049|                           backup.
-::X|EN|cl.mousecurve.strip.001|  Why these profiles : Five identical columns, and inventing a distinction
-::X|EN|cl.mousecurve.strip.002|                       here would be worse than admitting there is none: a
-::X|EN|cl.mousecurve.strip.003|                       malformed acceleration curve is wrong on a server
-::X|EN|cl.mousecurve.strip.004|                       exactly as it is wrong on a gaming rig. Profile 5
-::X|EN|cl.mousecurve.strip.005|                       is DELETE rather than KEEP because a 17-byte blob
-::X|EN|cl.mousecurve.strip.006|                       is not the shipped state either - the shipped state
-::X|EN|cl.mousecurve.strip.007|                       is 40 bytes or nothing.
-::X|EN|cl.mousecurve.strip.008|
-::X|EN|cl.mousecurve.strip.009|  Known problems  : The reg query is filtered on REG_BINARY, so a curve
-::X|EN|cl.mousecurve.strip.010|                    stored under any other type is never seen and never
-::X|EN|cl.mousecurve.strip.011|                    removed.
-::X|EN|cl.mousecurve.strip.012|
-::X|EN|cl.mousecurve.strip.013|  Unverified      : The claim that Windows rebuilds the standard curves at
-::X|EN|cl.mousecurve.strip.014|                    the next logon is not established. HKEY_USERS\.DEFAULT
-::X|EN|cl.mousecurve.strip.015|                    does carry the stock 40-byte curves, which is how a
-::X|EN|cl.mousecurve.strip.016|                    NEW account gets them, but for an existing account the
-::X|EN|cl.mousecurve.strip.017|                    values may simply stay absent while Windows falls back
-::X|EN|cl.mousecurve.strip.018|                    to the identical built-in curve. Behaviour ends up
-::X|EN|cl.mousecurve.strip.019|                    stock either way; whether the registry values
-::X|EN|cl.mousecurve.strip.020|                    physically reappear before you touch Enhance pointer
-::X|EN|cl.mousecurve.strip.021|                    precision in Mouse properties was not tested.
-::X|EN|cl.mousecurve.strip.022|
-::X|EN|cl.mousecurve.strip.023|  Target          : HKCU\Control Panel\Mouse, values SmoothMouseXCurve and
-::X|EN|cl.mousecurve.strip.024|                    SmoothMouseYCurve (REG_BINARY), guarded delete in
-::X|EN|cl.mousecurve.strip.025|                    :mousecurve / :curvecheck, OPTY.bat lines 2379-2392,
-::X|EN|cl.mousecurve.strip.026|                    called from :mouse_restore.
 ::
 :: ---- cl.optytemp.scratch (cleanup) -------------------------------
 ::P|cl.optytemp.scratch|DELETE|DELETE|DELETE|DELETE|DELETE|
