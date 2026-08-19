@@ -503,7 +503,7 @@ if /i "%choice%"=="+ani" reg add "HKEY_CURRENT_USER\Control Panel\Desktop" /v "M
 if /i "%choice%"=="-mov" reg add "HKEY_CURRENT_USER\Control Panel\Desktop" /v "DragFullWindows" /t REG_SZ /d "0" /f & echo %date% %time% : Action - Disable window content while moving (DragFullWindows=0) >> %logs% & echo  -mov & pause & goto mdisenable
 if /i "%choice%"=="+mov" reg add "HKEY_CURRENT_USER\Control Panel\Desktop" /v "DragFullWindows" /t REG_SZ /d "1" /f & echo %date% %time% : Action - Enable window content while moving (DragFullWindows=1) >> %logs% & echo  +mov & pause & goto mdisenable
 if /i "%choice%"=="-fad" fsutil behavior set disablelastaccess 1 & echo %date% %time% : Action - Disable file access date updating (disablelastaccess=1) >> %logs% & echo  -fad & pause & goto mdisenable
-if /i "%choice%"=="+fad" fsutil behavior set disablelastaccess 0 & echo %date% %time% : Action - Enable file access date updating (disablelastaccess=0) >> %logs% & echo  +fad & pause & goto mdisenable
+if /i "%choice%"=="+fad" fsutil behavior set disablelastaccess 2 & echo %date% %time% : Action - Restore last-access to the Windows default (disablelastaccess=2, System Managed) >> %logs% & echo  +fad & pause & goto mdisenable
 if /i "%choice%"=="-hbn" powercfg.exe /hibernate off & echo %date% %time% : Action - Disable hibernation (powercfg h off) >> %logs% & echo  -hbn & pause & goto mdisenable
 if /i "%choice%"=="+hbn" powercfg.exe /hibernate on & echo %date% %time% : Action - Enable hibernation (powercfg h on) >> %logs% & echo  +hbn & pause & goto mdisenable
 if /i "%choice%"=="2" goto mnetdns
@@ -1007,7 +1007,16 @@ for %%D in (%FIXEDLIST%) do if exist "%%D:\$Recycle.Bin" rd /S /Q "%%D:\$Recycle
 echo %date% %time% : Deleting icon cache (thumbnails kept)          >> %logs%
 :: thumbcache kept: Explorer visibly re-generates every thumbnail afterwards,
 :: painful in large footage folders. iconcache is cheap so it stays.
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db" 2>nul
+:: REMOVED: del of iconcache_*.db. Measured on a live machine: the five files
+:: holding the actual data - iconcache_16/32/48/256.db and iconcache_idx.db,
+:: 11.2 MB together - are open by the running explorer.exe with no sharing, so
+:: the delete NEVER touches them. The ten files it did remove are 0-byte stubs.
+:: So the line always "succeeded", logged a clean, and freed about 240 bytes.
+:: Emptying it for real means stopping explorer.exe, which closes every open
+:: Explorer window and any shell-hosted dialog - far too disruptive for an
+:: unattended pass, and a corrupt icon cache is a rare failure mode anyway.
+:: It belongs behind an explicit question. Claiming a clean that never happens
+:: is worse than not doing it at all.
 
 :: --- Windows Error Reporting reports + crash dumps ---
 echo %date% %time% : Deleting WER reports and crash dumps           >> %logs%
@@ -1837,6 +1846,19 @@ call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" "ExcludeW
 call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" "DontSearchWindowsUpdate"
 call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\Device Metadata" "PreventDeviceMetadataFromNetwork"
 
+call :L "%cInfo%" "DirectX: removing the VRR decoy value"
+:: Windows reads the VRR / AutoHDR / windowed-optimisation flags from the
+:: DirectXUserGlobalSettings REG_SZ string, and ONLY from there. Several
+:: third-party optimizers also write a standalone VRROptimizeEnable DWORD next
+:: to it, which the Settings page neither reads nor writes. The result is a
+:: machine reporting VRR ON to any tool reading the DWORD while Windows is
+:: actually running with VRR OFF. Found exactly that on the reference machine:
+:: DWORD=1 alongside "...;VRROptimizeEnable=0;" inside the string, and toggling
+:: the Settings switch fixed the string without removing the decoy.
+:: This is not a tweak, it is removing a decoy. The string itself is left alone
+:: - it is the real setting and it belongs to the owner.
+call :killkey "HKCU\Software\Microsoft\DirectX\UserGpuPreferences" "VRROptimizeEnable"
+
 call :L "%cInfo%" "Memory management back to Windows defaults"
 :: DisablePagingExecutive=1 and ClearPageFileAtShutdown=1 are classic optimizer
 :: leftovers. The first is not a default and can break kernel dumps; the second
@@ -1964,6 +1986,21 @@ call :L "%cInfo%" "Windows Update - services and policies"
 :: Verified on a live 25H2 install: CryptSvc Start=2, DoSvc Start=2 delayed=1,
 :: UsoSvc Start=2 delayed=1, mpssvc Start=2, BITS Start=3, wuauserv Start=3.
 for %%S in (wuauserv BITS TrustedInstaller msiserver InstallService AppIDSvc wlidsvc) do call :svcfixifdisabled %%S demand
+:: Services that "debloat" lists actually wreck, each with a symptom nobody
+:: traces back to a service. Repaired ONLY when found DISABLED, same contract.
+::   AppInfo=4                   -> UAC elevation silently fails for everything
+::   AppXSvc / StateRepository=4 -> every Store/packaged app refuses to launch
+::   ProfSvc=4                   -> the user cannot sign in at all
+::   nsi / BFE=4                 -> no network, or the firewall engine is dead
+::   Power=4                     -> no power management whatsoever
+::   FontCache=4                 -> font rendering stalls in GDI apps
+::   WpnService=4                -> notifications never appear
+:: NOT listed on purpose: DcomLaunch, RpcSs, BrokerInfrastructure,
+:: SystemEventsBroker and LSM are protected - sc config is refused even when
+:: elevated, the same trap already documented for WaaSMedicSvc. Reporting a
+:: repair that never happened is the failure mode this file exists to avoid.
+for %%S in (AppInfo ClipSVC TokenBroker TimeBrokerSvc FontCache WpnService) do call :svcfixifdisabled %%S demand
+for %%S in (AppXSvc StateRepository ProfSvc nsi BFE Power) do call :svcfixifdisabled %%S auto
 call :svcfixifdisabled CryptSvc auto
 call :svcfixifdisabled mpssvc   auto
 call :svcfixifdisabled DoSvc    delayed-auto
