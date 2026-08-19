@@ -172,6 +172,24 @@ echo %date% %time% : Entered :shortcut label                      >> %logs%
 if /i not "%~dp0" == "%OPTY_HOME%\" (
     echo %date% %time% : Relocating to %OPTY_HOME%                  >> %logs%
     if not exist "%OPTY_HOME%" md "%OPTY_HOME%" >nul 2>&1
+    :: Lock the folder down before anything is copied into it. A directory
+    :: created at the root of C: inherits Modify for Authenticated Users, and
+    :: this one holds a script that relaunches itself ELEVATED. Measured on the
+    :: reference machine before this line existed:
+    ::     C:\OPTY_by-YannD\OPTY.bat
+    ::         AUTORITE NT\Utilisateurs authentifies : Modify, Synchronize
+    :: Any standard account could rewrite the script and have it run as
+    :: administrator the next time somebody launched OPTY. That is a local
+    :: privilege-escalation path, created by the tool itself.
+    :: SIDs, not names: this machine reports BUILTIN\Administrateurs and
+    :: AUTORITE NT\Utilisateurs authentifies, so icacls with English names
+    :: fails outright - the same trap as parsing translated command output.
+    ::   S-1-5-32-544 Administrators   S-1-5-18 SYSTEM   S-1-5-32-545 Users
+    icacls "%OPTY_HOME%" /inheritance:r >nul 2>&1
+    icacls "%OPTY_HOME%" /grant "*S-1-5-32-544:(OI)(CI)F" >nul 2>&1
+    icacls "%OPTY_HOME%" /grant "*S-1-5-18:(OI)(CI)F"     >nul 2>&1
+    icacls "%OPTY_HOME%" /grant "*S-1-5-32-545:(OI)(CI)RX" >nul 2>&1
+    echo %date% %time% : Hardened ACL on %OPTY_HOME% (admins+SYSTEM full, users read-only) >> %logs%
     xcopy /y /q "%~dp0OPTY.bat" "%OPTY_HOME%\" >nul
     if not exist "%OPTY_HOME%\OPTY.bat" (
         echo %date% %time% : Relocation FAILED - staying put        >> %logs%
@@ -3375,7 +3393,24 @@ goto :eof
 :: whichever volume it decided to use - not only C:.
 del /F /S /Q "%~1:\DeliveryOptimization\*"                >nul 2>&1
 del /F /S /Q "%~1:\WUDownloadCache\*"                     >nul 2>&1
-del /F /S /Q "%~1:\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache\*" >nul 2>&1
+:: REMOVED: <drive>:\ProgramData\Microsoft\Windows\DeliveryOptimization\Cache
+:: Measured on 25H2: that path does not exist. The line deleted nothing on
+:: every run while the sweep still logged "Swept drive". The live store is
+:: ProgramData\Microsoft\Network\Downloader, handled below on the system
+:: drive only - a peer cache on a data drive is the root-level folder already
+:: swept two lines up.
+if /i not "%~1"=="%SystemDrive:~0,1%" goto do_done
+:: DoSvc keeps the store open. Without stopping it the delete is refused and
+:: reports success anyway, which is the same lie in a different costume.
+:: DoSvc is the PRIMARY downloader on Windows 11, so it is restarted straight
+:: after - leaving it stopped would break Windows Update itself.
+set "DOSTORE=%ProgramData%\Microsoft\Network\Downloader"
+if not exist "%DOSTORE%" goto do_done
+net stop DoSvc >nul 2>&1
+del /F /S /Q "%DOSTORE%\*" >nul 2>&1
+sc start DoSvc >nul 2>&1
+>>%logs% echo %date% %time% : Delivery Optimization store cleared (DoSvc stopped and restarted)
+:do_done
 :: A root-level .cache. The maintainer's rule is regeneration TIME, not file
 :: type: if it comes back on its own and no user data is lost, it goes. A root
 :: .cache is a tool cache - it refetches. The one case that fails his own
