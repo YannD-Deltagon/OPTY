@@ -291,6 +291,37 @@ foreach ($a in $cardIds.Keys) {
 if ($cardProblems.Count) { Fail ("card table problems:`n      " + ($cardProblems -join "`n      ")) }
 if ($cardIds.Count) { Write-Ok "$($cardIds.Count) card(s), all bilingual, $($profIds.Count) with a profile row" }
 
+# --- gate 12: every profile column must be a value the engine can write ------
+# A column is what :askreg passes to :regset. Prose there means the source
+# described the setting instead of deciding one, and :askreg refuses it - so the
+# card renders, the user answers, and nothing happens. Six cards shipped that
+# way, all six of them on/off PAIRS from the model the 5-profile scale replaced:
+# a pair cannot express "what should this be on a laptop", so every column came
+# back REVIEW or a sentence like "0 on all eight".
+# A literal value is short and has no spaces. SKIP, DELETE, KEEP, ASK, RUN,
+# RESTART, APPLY and REVIEW are the accepted keywords; REVIEW is rejected here
+# precisely because it means "not decided yet".
+$profBad = @()
+$n = 0
+foreach ($line in $lines) {
+    $n++
+    if ($line -notmatch '^::P\|([a-z0-9_.]+)\|(.+)\|\s*$') { continue }
+    $cid = $matches[1]
+    $cols = $matches[2] -split '\|'
+    if ($cols.Count -ne 5) {
+        $profBad += "line ${n}: ${cid} has $($cols.Count) profile columns, expected 5"
+        continue
+    }
+    foreach ($c in $cols) {
+        $v = $c.Trim()
+        if ($v -eq '')        { $profBad += "line ${n}: ${cid} has an empty profile column"; continue }
+        if ($v -eq 'REVIEW')  { $profBad += "line ${n}: ${cid} still says REVIEW - the value was never decided, so the question does nothing"; continue }
+        if ($v -match '\s')   { $profBad += "line ${n}: ${cid} profile column is prose, not a value: '$v'" }
+    }
+}
+if ($profBad.Count) { Fail ("unusable profile column(s):`n      " + ($profBad -join "`n      ")) }
+Write-Ok 'every profile column is a writable value'
+
 # --- gate 7: no "!" in card text ------------------------------------------
 # The ASCII fallback renders cards under `setlocal enabledelayedexpansion`,
 # where "!" is an expansion delimiter and is eaten. The UTF-8 path shows it and

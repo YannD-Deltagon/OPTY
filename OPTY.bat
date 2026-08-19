@@ -4864,7 +4864,7 @@ goto :eof
 ::X|EN|gr.telemetry.tasks.enable.023|                    DmClientOnScenarioDownload)
 ::
 :: ---- gr.recall.policy.del (preference) ------------------------------
-::P|gr.recall.policy.del|REVIEW|REVIEW|REVIEW|REVIEW|REVIEW|
+::P|gr.recall.policy.del|DELETE|DELETE|DELETE|DELETE|DELETE|
 ::T|FR|gr.recall.policy.del.001|WINDOWS RECALL, COTE RESTAURATION
 ::T|FR|gr.recall.policy.del.002|
 ::T|FR|gr.recall.policy.del.003|  Ce que c est    : Les trois valeurs de strategie WindowsAI et le type de
@@ -5068,7 +5068,7 @@ goto :eof
 ::X|EN|gr.recall.policy.del.037|                    WSAIFabricSvc start= demand (OPTY.bat lines 1637-1640)
 ::
 :: ---- gr.copilot.del (preference) ------------------------------------
-::P|gr.copilot.del|1 (HKLM and HKCU)|SKIP|DELETE|DELETE|DELETE|
+::P|gr.copilot.del|1|SKIP|DELETE|DELETE|DELETE|
 ::T|FR|gr.copilot.del.001|POINT D'ENTREE WINDOWS COPILOT, COTE RESTAURATION
 ::T|FR|gr.copilot.del.002|
 ::T|FR|gr.copilot.del.003|  Ce que c est    : Deux valeurs de strategie, machine et utilisateur, qui
@@ -5355,7 +5355,7 @@ goto :eof
 ::X|EN|gr.consumerfeatures.del.031|                    (OPTY.bat line 1643)
 ::
 :: ---- gr.widgets.restore (preference) --------------------------------
-::P|gr.widgets.restore|REVIEW|REVIEW|REVIEW|REVIEW|REVIEW|
+::P|gr.widgets.restore|DELETE|DELETE|DELETE|DELETE|DELETE|
 ::T|FR|gr.widgets.restore.001|FLUX WIDGETS ET BOUTONS DE LA BARRE, COTE RESTAURATION
 ::T|FR|gr.widgets.restore.002|
 ::T|FR|gr.widgets.restore.003|  Ce que c est    : Trois valeurs que l'ancien script deplacait ensemble :
@@ -5641,7 +5641,7 @@ goto :eof
 ::X|EN|gr.advertisingid.on.016|                    (OPTY.bat line 1677)
 ::
 :: ---- gr.cdm.suggestions.restore (preference) ------------------------
-::P|gr.cdm.suggestions.restore|0 on all eight|0 on all eight|REVIEW|0 on all eight|1 on all eight|
+::P|gr.cdm.suggestions.restore|1|1|1|1|1|
 ::T|FR|gr.cdm.suggestions.restore.001|SUGGESTIONS, CONSEILS ET INSTALLATIONS SILENCIEUSES, COTE RESTAURATION
 ::T|FR|gr.cdm.suggestions.restore.002|
 ::T|FR|gr.cdm.suggestions.restore.003|  Ce que c est    : Huit valeurs de ContentDeliveryManager sous
@@ -5989,7 +5989,7 @@ goto :eof
 ::X|EN|gr.spotlight.policy.del.033|                    (OPTY.bat line 1686)
 ::
 :: ---- db.recall.off (preference) -------------------------------------
-::P|db.recall.off|REVIEW|REVIEW|REVIEW|REVIEW|REVIEW|
+::P|db.recall.off|1|1|1|1|DELETE|
 ::T|FR|db.recall.off.001|BLOQUER WINDOWS RECALL
 ::T|FR|db.recall.off.002|
 ::T|FR|db.recall.off.003|  Ce que c est    : Recall capture regulierement l'ecran et l'indexe pour
@@ -6190,7 +6190,7 @@ goto :eof
 ::X|EN|db.recall.off.038|                    disabled (OPTY.bat lines 1710-1714)
 ::
 :: ---- db.copilot.off (preference) ------------------------------------
-::P|db.copilot.off|1 (HKLM and HKCU)|SKIP|DELETE|DELETE|DELETE|
+::P|db.copilot.off|1|SKIP|DELETE|DELETE|DELETE|
 ::T|FR|db.copilot.off.001|DESACTIVER WINDOWS COPILOT
 ::T|FR|db.copilot.off.002|
 ::T|FR|db.copilot.off.003|  Ce que c est    : Deux valeurs de strategie, machine et utilisateur, qui
@@ -6463,7 +6463,7 @@ goto :eof
 ::X|EN|db.consumerfeatures.off.033|                    REG_DWORD /d 1 /f (OPTY.bat line 1721)
 ::
 :: ---- db.widgets.off (preference) ------------------------------------
-::P|db.widgets.off|REVIEW|REVIEW|REVIEW|REVIEW|REVIEW|
+::P|db.widgets.off|0|0|DELETE|0|DELETE|
 ::T|FR|db.widgets.off.001|COUPER LE FLUX WIDGETS
 ::T|FR|db.widgets.off.002|
 ::T|FR|db.widgets.off.003|  Ce que c est    : La strategie Dsh qui commande toute la fonction
@@ -6752,7 +6752,7 @@ goto :eof
 ::X|EN|db.advertisingid.off.016|                    (OPTY.bat line 1729)
 ::
 :: ---- db.cdm.suggestions.off (preference) ----------------------------
-::P|db.cdm.suggestions.off|0 on all eight|0 on all eight|REVIEW|0 on all eight|1 on all eight|
+::P|db.cdm.suggestions.off|0|0|0|0|1|
 ::T|FR|db.cdm.suggestions.off.001|COUPER SUGGESTIONS, CONSEILS ET INSTALLATIONS SILENCIEUSES
 ::T|FR|db.cdm.suggestions.off.002|
 ::T|FR|db.cdm.suggestions.off.003|  Ce que c est    : Huit valeurs de ContentDeliveryManager pour
