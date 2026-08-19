@@ -2617,7 +2617,7 @@ set /p choice= Enter action:
 echo %date% %time% : msetup "%choice%"                            >> %logs%
 if "%choice%"=="1" goto mnetwork
 if "%choice%"=="2" goto setup_gpu
-if "%choice%"=="3" goto mregprofil
+if "%choice%"=="3" goto setup_system
 if "%choice%"=="4" goto setup_privacy
 if "%choice%"=="5" goto mreenable
 if /i "%choice%"=="P" goto setup_profile
@@ -2686,8 +2686,9 @@ goto setup_gpu_dvr
 call :L "%cInfo%" "  skipped  AMD ULPS - no AMD display adapter on this machine"
 :setup_gpu_dvr
 
-:: --- GameDVR.
-call :askreg "reg.gamedvr.enabled" 5 "HKCU\System\GameConfigStore" "GameDVR_Enabled" REG_DWORD "GameDVR capture"
+:: --- GameDVR moved to :setup_system. It was asked here AND there, so the
+:: --- user met the same question twice in one SETUP pass. Gate 13 caught it
+:: --- within minutes of being written, which is the point of writing it.
 
 call :L "%cOK%" "Display and GPU section done."
 if not defined AUTOPROFILE pause
@@ -2701,6 +2702,81 @@ goto msetup
 set "GPUAMD="
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" /v DriverDesc 2>nul | findstr /i /c:"Radeon" /c:"AMD" >nul && set "GPUAMD=1"
 goto :eof
+
+:setup_system
+:: System and gaming, driven by the card tables.
+::
+:: This is the section where the five profiles genuinely disagree, which is
+:: exactly why it needed asking instead of forcing. The old code picked the
+:: gaming answer for everyone and never said so: animations off, GameDVR off,
+:: USB selective suspend off, network throttling at 10. A laptop wants the
+:: opposite of three of those, and a server wants the opposite of the fourth.
+echo.                                                           >> %logs%
+echo ====================== :SETUP_SYSTEM ====================== >> %logs%
+echo %date% %time% : Entered :setup_system label                  >> %logs%
+cls
+call :banner "SYSTEM AND GAMING"
+echo(
+call :ti "These are the settings where the profiles really differ - a laptop" "C est ici que les profils divergent vraiment : un portable veut souvent"
+call :ti "often wants the opposite of a gaming desktop, and a server wants" "l inverse d un fixe de jeu, et un serveur veut l inverse des deux sur"
+call :ti "the opposite of both on network throttling." "la limitation reseau."
+echo(
+if not defined AUTOPROFILE pause
+
+:: --- Shell animations and window dragging. Pure preference, zero risk.
+call :askreg "reg.menuanimate" 5 "HKCU\Control Panel\Desktop" "MenuAnimate" REG_SZ "Menu animations"
+call :askreg "reg.dragfullwindows" 5 "HKCU\Control Panel\Desktop" "DragFullWindows" REG_SZ "Show window contents while dragging"
+
+:: --- Game Mode.
+call :askreg "game.mode.on" 1 "HKCU\Software\Microsoft\GameBar" "AllowAutoGameMode" REG_DWORD "Game Mode"
+
+:: --- Foreground/background CPU quantum. Every profile agrees on 2 here,
+:: --- which is the shipped value: the 26/38 figures that circulate are for
+:: --- a different quantum model and this card says so.
+call :askreg "gr.win32prioritysep" 5 "HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl" "Win32PrioritySeparation" REG_DWORD "Foreground CPU quantum"
+
+:: --- MMCSS. SystemResponsiveness is 20 everywhere; the throttling index is
+:: --- the one value a server genuinely wants different.
+call :askreg "mmcss.systemresponsiveness" 5 "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "SystemResponsiveness" REG_DWORD "MMCSS reserved CPU share"
+call :askreg "mmcss.network.throttling" 5 "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD "Network throttling index"
+
+:: --- GameDVR: two values, one question.
+call :ask "reg.gamedvr.enabled" 5
+if "%ANSWER%"=="SKIP" goto ss_usb
+call :profval "reg.gamedvr.enabled" "%ANSWER%"
+call :regset "HKCU\System\GameConfigStore" "GameDVR_Enabled" REG_DWORD "%PROFVAL%" "GameDVR capture"
+call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" REG_DWORD "%PROFVAL%" "GameDVR app capture"
+:ss_usb
+
+:: --- USB selective suspend. Gaming and server turn it off for peripheral
+:: --- responsiveness; office and laptop keep it, because on a laptop it is
+:: --- real battery life and OPTY has no way to tell the two apart.
+call :askreg "usb.selective.suspend.off" 5 "HKLM\SYSTEM\CurrentControlSet\Services\USB" "DisableSelectiveSuspend" REG_DWORD "USB selective suspend"
+
+:: --- EcoQoS override. Server keeps it at 1; everyone else deletes, because
+:: --- EcoQoS only ever throttled processes classified BACKGROUND and the
+:: --- foreground game was never affected.
+call :askreg "power.throttling.off" 5 "HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" "PowerThrottlingOff" REG_DWORD "Global power throttling override"
+
+:: --- Prefetcher, and the Superfetch value Windows ships ABSENT.
+call :askreg "mo.prefetcher" 5 "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnablePrefetcher" REG_DWORD "Prefetcher"
+call :askreg "mo.superfetch.killkey" 5 "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" "EnableSuperfetch" REG_DWORD "EnableSuperfetch (ships absent)"
+
+:: --- CPU power caps. :pwrfix only touches an override that actually exists,
+:: --- so these are asked but never create one where Windows had none.
+call :ask "rad.pwr.procfreqmax" 5
+if "%ANSWER%"=="SKIP" goto ss_done
+set "ACTSCH=" & set "SUBP=54533251-82be-4824-96c1-47b60b740d00"
+for /f "tokens=3" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes" /v ActivePowerScheme 2^>nul ^| findstr /i /c:"    ActivePowerScheme    REG_"') do set "ACTSCH=%%A"
+if not defined ACTSCH goto ss_done
+call :pwrfix 75b0ae3f-bce0-45a7-8c89-c9611c25e100 0 "Max CPU frequency cap"
+call :pwrfix bc5038f7-23e0-4960-96da-33abaf5935ec 100 "Max processor state (AC)"
+call :pwrfix 5d76a2ca-e8c0-402f-a133-2158492d58ad 0 "CPU idle states"
+:ss_done
+
+call :L "%cOK%" "System and gaming section done."
+if not defined AUTOPROFILE pause
+goto msetup
 
 :setup_privacy
 :: Privacy and debloat, driven entirely by the card tables.
