@@ -3909,6 +3909,23 @@ for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v max 2^>nul ^| finds
 for /f "tokens=3" %%M in ('reg query "%~1\Ndi\Params\%~2" /v step 2^>nul ^| findstr /i "REG_SZ"') do set "NSTEP=%%M"
 if defined NMAX call :nicclamp
 if defined NSTEP call :nicround
+:: An ENUM keyword publishes no max and no step, so the clamp and the round
+:: above are both no-ops on it and NOTHING filters the value. Writing 9 to a
+:: keyword that accepts 0-4 is accepted by the registry, ignored by the
+:: driver, and reported here as a successful write - the silent-success
+:: failure this file exists to eliminate, one layer deeper than the Wi-Fi
+:: no-op it already had.
+:: Ten cards described this check as if it already existed. It did not.
+:: Verified live on the AX210: RoamingPreferredBandType\Enum lists 0 to 4,
+:: /v 4 is found and /v 9 is not, and it behaves the same for keywords whose
+:: name starts with an asterisk.
+reg query "%~1\Ndi\Params\%~2\Enum" >nul 2>&1 && (
+    reg query "%~1\Ndi\Params\%~2\Enum" /v "%NV%" >nul 2>&1 || (
+        call :L "%cWarn%" "  refused  %~2 = %NV%   (this driver does not list that value)"
+        set /a NICSKIP+=1
+        goto :eof
+    )
+)
 :: report whether this actually repaired anything - on a fresh or OEM machine
 :: these often differ; on an already-tuned one they all say "was already
 :: correct" - the keyword being WRITTEN, because the reg add above is
@@ -38334,6 +38351,2009 @@ goto :eof
 ::X|EN|cl.allusers.fanout.007|  Target          : for /d %%U in ("%SystemDrive%\Users\*") do call
 ::X|EN|cl.allusers.fanout.008|                    :userclean "%%~fU" - OPTY.bat line 1071; the
 ::X|EN|cl.allusers.fanout.009|                    :userclean routine itself is at lines 3360-3387.
+::
+:: ---- Wi-Fi keywords. OPTY never touched any of these: :net_apply writes
+:: ---- 17 Ethernet keywords and the AX210 exposes 22 that share none of
+:: ---- them, so choosing the Wi-Fi adapter wrote zero values and reported
+:: ---- success. NICDEFAULT in a profile column means "hand the keyword back
+:: ---- to the driver via :nicdefault" - NOT DELETE, which :askreg maps to
+:: ---- :killkey and which about thirty other cards rely on for exactly that.
+::
+::
+:: ---- net.wifi.roamaggr (preference) ---------------------------------
+::P|net.wifi.roamaggr|1|1|2|2|NICDEFAULT|
+::T|FR|net.wifi.roamaggr.001|AGRESSIVITE DE L'ITINERANCE - QUAND LA CARTE ABANDONNE UN POINT D'ACCES
+::T|FR|net.wifi.roamaggr.002|
+::T|FR|net.wifi.roamaggr.003|  Ce que c est    : RoamAggressiveness fixe a quel point votre point
+::T|FR|net.wifi.roamaggr.004|                    d'acces courant doit s'affaiblir avant que la carte ne
+::T|FR|net.wifi.roamaggr.005|                    parte balayer les autres canaux a la recherche d'un
+::T|FR|net.wifi.roamaggr.006|                    meilleur point portant le meme SSID. Intel decrit
+::T|FR|net.wifi.roamaggr.007|                    clairement les deux extremes : le reglage le plus bas
+::T|FR|net.wifi.roamaggr.008|                    ne declenche un balayage d'itinerance que lorsque le
+::T|FR|net.wifi.roamaggr.009|                    signal est tres faible, le plus haut le declenche
+::T|FR|net.wifi.roamaggr.010|                    alors que le signal est encore bon. Ce reglage ne
+::T|FR|net.wifi.roamaggr.011|                    decide de quelque chose que si plusieurs points
+::T|FR|net.wifi.roamaggr.012|                    d'acces diffusent votre SSID - un maillage, un
+::T|FR|net.wifi.roamaggr.013|                    repeteur, ou un routeur plus un prolongateur.
+::T|FR|net.wifi.roamaggr.014|
+::T|FR|net.wifi.roamaggr.015|  Effet reel      : OPTY ecrit RoamAggressiveness en REG_SZ dans la cle de
+::T|FR|net.wifi.roamaggr.016|                    classe de la carte, via :nicset. Une ecriture en
+::T|FR|net.wifi.roamaggr.017|                    REG_DWORD serait acceptee par le registre et ignoree
+::T|FR|net.wifi.roamaggr.018|                    par le pilote. Ce mot-cle ne publie ni min, ni max, ni
+::T|FR|net.wifi.roamaggr.019|                    pas : l'ecretage que :nicset applique aux tailles de
+::T|FR|net.wifi.roamaggr.020|                    tampons ne fait donc strictement rien ici, et la seule
+::T|FR|net.wifi.roamaggr.021|                    chose qui empeche d'ecrire n'importe quoi est de
+::T|FR|net.wifi.roamaggr.022|                    verifier d'abord la valeur dans la sous-cle Enum. Rien
+::T|FR|net.wifi.roamaggr.023|                    ne prend effet avant le redemarrage de la carte.
+::T|FR|net.wifi.roamaggr.024|
+::T|FR|net.wifi.roamaggr.025|  Gain            : Chaque balayage d'itinerance sort votre radio du canal
+::T|FR|net.wifi.roamaggr.026|                    de travail pendant quelques dizaines de millisecondes.
+::T|FR|net.wifi.roamaggr.027|                    En abaissant le seuil, ces balayages se rarefient :
+::T|FR|net.wifi.roamaggr.028|                    sur un lien limite, vous subissez moins de micro-
+::T|FR|net.wifi.roamaggr.029|                    coupures. En le relevant, vous basculez vers un
+::T|FR|net.wifi.roamaggr.030|                    meilleur point d'acces avant que le point courant ne
+::T|FR|net.wifi.roamaggr.031|                    se degrade, au lieu d'apres. Sur un reseau a un seul
+::T|FR|net.wifi.roamaggr.032|                    point d'acces, il n'y a aucun gain mesurable dans un
+::T|FR|net.wifi.roamaggr.033|                    sens ni dans l'autre : il n'y a nulle part ou aller,
+::T|FR|net.wifi.roamaggr.034|                    et les balayages periodiques de fond qui subsistent ne
+::T|FR|net.wifi.roamaggr.035|                    sont pas commandes par ce mot-cle.
+::T|FR|net.wifi.roamaggr.036|
+::T|FR|net.wifi.roamaggr.037|  Cout            : Trop bas, la carte s'accroche a un point d'acces qui
+::T|FR|net.wifi.roamaggr.038|                    ne fonctionne plus, ce que l'utilisateur vit comme une
+::T|FR|net.wifi.roamaggr.039|                    connexion morte a cote d'un routeur en parfait etat.
+::T|FR|net.wifi.roamaggr.040|                    Trop haut, elle saute d'un point a l'autre : chaque
+::T|FR|net.wifi.roamaggr.041|                    saut est une reassociation suivie d'un echange de cles
+::T|FR|net.wifi.roamaggr.042|                    en quatre temps, et c'est une interruption reelle, pas
+::T|FR|net.wifi.roamaggr.043|                    theorique.
+::T|FR|net.wifi.roamaggr.044|
+::T|FR|net.wifi.roamaggr.045|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 2 sur une
+::T|FR|net.wifi.roamaggr.046|                    echelle de 0 a 4, que sa propre page de proprietes
+::T|FR|net.wifi.roamaggr.047|                    appelle Moyenne. OPTY lit
+::T|FR|net.wifi.roamaggr.048|                    Ndi\Params\RoamAggressiveness\default plutot que de se
+::T|FR|net.wifi.roamaggr.049|                    fier a ce chiffre, car une autre generation Intel peut
+::T|FR|net.wifi.roamaggr.050|                    en livrer un autre.
+::T|FR|net.wifi.roamaggr.051|
+::T|FR|net.wifi.roamaggr.052|  Valeurs possibles :
+::T|FR|net.wifi.roamaggr.053|    0                    : 1. Minimum. La carte ne part chercher un autre
+::T|FR|net.wifi.roamaggr.054|                           point d'acces que lorsque le point courant est
+::T|FR|net.wifi.roamaggr.055|                           presque inutilisable. C'est le reglage qui
+::T|FR|net.wifi.roamaggr.056|                           produit le moins de balayages hors canal, donc
+::T|FR|net.wifi.roamaggr.057|                           le moins de micro-coupures - et c'est aussi
+::T|FR|net.wifi.roamaggr.058|                           celui qui vous laisse accroche a un lien mort
+::T|FR|net.wifi.roamaggr.059|                           alors qu'un bon point d'acces se trouve dans la
+::T|FR|net.wifi.roamaggr.060|                           piece a cote.
+::T|FR|net.wifi.roamaggr.061|    1                    : 2. Faible. Le balayage demarre en dessous du
+::T|FR|net.wifi.roamaggr.062|                           seuil moyen. C'est le reglage d'une machine qui
+::T|FR|net.wifi.roamaggr.063|                           ne bouge pas et qui ne voit qu'un seul point
+::T|FR|net.wifi.roamaggr.064|                           d'acces : il evite que la mecanique
+::T|FR|net.wifi.roamaggr.065|                           d'itinerance se declenche sur un lien
+::T|FR|net.wifi.roamaggr.066|                           simplement imparfait.
+::T|FR|net.wifi.roamaggr.067|    2                    : 3. Moyenne. La valeur livree par le pilote de
+::T|FR|net.wifi.roamaggr.068|                           l'AX210 mesure ici. Seuils equilibres, et la
+::T|FR|net.wifi.roamaggr.069|                           bonne reponse pour tout ce qui se deplace d'une
+::T|FR|net.wifi.roamaggr.070|                           piece a l'autre.
+::T|FR|net.wifi.roamaggr.071|    3                    : 4. Elevee. Le balayage demarre alors que le
+::T|FR|net.wifi.roamaggr.072|                           signal est encore correct. Vraiment utile dans
+::T|FR|net.wifi.roamaggr.073|                           un batiment ou plusieurs points d'acces
+::T|FR|net.wifi.roamaggr.074|                           partagent un meme SSID et ou vous circulez
+::T|FR|net.wifi.roamaggr.075|                           entre eux ; sur un reseau a un seul point
+::T|FR|net.wifi.roamaggr.076|                           d'acces, cela ne fait que consommer du temps
+::T|FR|net.wifi.roamaggr.077|                           radio.
+::T|FR|net.wifi.roamaggr.078|    4                    : 5. Maximum. La carte balaie au premier indice
+::T|FR|net.wifi.roamaggr.079|                           d'un meilleur voisin. C'est la valeur qui
+::T|FR|net.wifi.roamaggr.080|                           produit le ping-pong entre points d'acces :
+::T|FR|net.wifi.roamaggr.081|                           deux points de puissance voisine, et la carte
+::T|FR|net.wifi.roamaggr.082|                           passe son temps a se reassocier et a rejouer
+::T|FR|net.wifi.roamaggr.083|                           l'echange de cles.
+::T|FR|net.wifi.roamaggr.084|    NICDEFAULT           : Rendre le mot-cle au pilote : OPTY appelle
+::T|FR|net.wifi.roamaggr.085|                           :nicdefault, qui lit
+::T|FR|net.wifi.roamaggr.086|                           Ndi\Params\RoamAggressiveness\default et
+::T|FR|net.wifi.roamaggr.087|                           reecrit cette chaine. Utilise pour le profil
+::T|FR|net.wifi.roamaggr.088|                           WINDOWS, parce qu'ecrire le chiffre 2 a la
+::T|FR|net.wifi.roamaggr.089|                           place reviendrait a coder en dur la valeur d'un
+::T|FR|net.wifi.roamaggr.090|                           seul chipset, precisement l'habitude que ce
+::T|FR|net.wifi.roamaggr.091|                           projet refuse.
+::X|FR|net.wifi.roamaggr.001|  Pourquoi ces profils : Le partage se fait entre machine fixe et machine
+::X|FR|net.wifi.roamaggr.002|                         mobile, pas entre rapide et lent. Gaming et
+::X|FR|net.wifi.roamaggr.003|                         serveur sont des tours qui ne bougent pas : elles
+::X|FR|net.wifi.roamaggr.004|                         prennent 1, pour que la mecanique d'itinerance
+::X|FR|net.wifi.roamaggr.005|                         reste silencieuse sur un lien simplement
+::X|FR|net.wifi.roamaggr.006|                         imparfait et ne vole jamais le canal en pleine
+::X|FR|net.wifi.roamaggr.007|                         partie ou en plein televersement. Bureautique et
+::X|FR|net.wifi.roamaggr.008|                         portable prennent 2, le reglage equilibre, parce
+::X|FR|net.wifi.roamaggr.009|                         que la tour de bureau n'a rien a gagner a
+::X|FR|net.wifi.roamaggr.010|                         etouffer l'itinerance et que le portable est la
+::X|FR|net.wifi.roamaggr.011|                         seule machine ici qui se deplace vraiment d'une
+::X|FR|net.wifi.roamaggr.012|                         piece a l'autre et doit donc basculer. Remarquez
+::X|FR|net.wifi.roamaggr.013|                         ce que le portable ne recoit PAS : ni 3 ni 4.
+::X|FR|net.wifi.roamaggr.014|                         Balayer, c'est du temps radio, et le temps radio
+::X|FR|net.wifi.roamaggr.015|                         c'est de la batterie ; une itinerance agressive
+::X|FR|net.wifi.roamaggr.016|                         sur un portable achete surtout du ping-pong entre
+::X|FR|net.wifi.roamaggr.017|                         deux points d'acces equivalents, pas une
+::X|FR|net.wifi.roamaggr.018|                         meilleure connexion. Si vous n'avez qu'un routeur
+::X|FR|net.wifi.roamaggr.019|                         chez vous, les quatre colonnes se ressembleront a
+::X|FR|net.wifi.roamaggr.020|                         l'usage, et c'est le resultat honnete.
+::X|FR|net.wifi.roamaggr.021|
+::X|FR|net.wifi.roamaggr.022|  Non verifie (en)  : I did not instrument an off-channel scan on this
+::X|FR|net.wifi.roamaggr.023|                      adapter. The tens-of-milliseconds figure is general
+::X|FR|net.wifi.roamaggr.024|                      802.11 scan behaviour, not an AX210 measurement. I
+::X|FR|net.wifi.roamaggr.025|                      also cannot show that 1 scans less than 2 on a link
+::X|FR|net.wifi.roamaggr.026|                      whose signal never crosses either threshold - on a
+::X|FR|net.wifi.roamaggr.027|                      strong link both settings scan about equally, which
+::X|FR|net.wifi.roamaggr.028|                      is to say almost never. Intel documents the
+::X|FR|net.wifi.roamaggr.029|                      endpoints (lowest scans only at very low signal,
+::X|FR|net.wifi.roamaggr.030|                      highest scans while signal is still good) but
+::X|FR|net.wifi.roamaggr.031|                      publishes no dBm figure for the three middle steps,
+::X|FR|net.wifi.roamaggr.032|                      so the spacing between 1, 2 and 3 is not something I
+::X|FR|net.wifi.roamaggr.033|                      can quantify.
+::X|FR|net.wifi.roamaggr.034|
+::X|FR|net.wifi.roamaggr.035|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.roamaggr.036|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.roamaggr.037|                    RoamAggressiveness /t REG_SZ, written by :nicset.
+::X|FR|net.wifi.roamaggr.038|                    Value must first be matched against
+::X|FR|net.wifi.roamaggr.039|                    Ndi\Params\RoamAggressiveness\Enum. Live only after
+::X|FR|net.wifi.roamaggr.040|                    :nicrestart (pnputil /restart-device) or a reboot.
+::T|EN|net.wifi.roamaggr.001|ROAMING AGGRESSIVENESS - WHEN THE CARD ABANDONS AN ACCESS POINT
+::T|EN|net.wifi.roamaggr.002|
+::T|EN|net.wifi.roamaggr.003|  What it is      : RoamAggressiveness sets how weak your current access
+::T|EN|net.wifi.roamaggr.004|                    point has to get before the adapter starts scanning
+::T|EN|net.wifi.roamaggr.005|                    the other channels for a better one carrying the same
+::T|EN|net.wifi.roamaggr.006|                    SSID. Intel describes the two ends plainly: the lowest
+::T|EN|net.wifi.roamaggr.007|                    setting triggers roaming scans only when signal
+::T|EN|net.wifi.roamaggr.008|                    strength is very low, the highest triggers them while
+::T|EN|net.wifi.roamaggr.009|                    signal strength is still good. It only decides
+::T|EN|net.wifi.roamaggr.010|                    anything if more than one access point advertises your
+::T|EN|net.wifi.roamaggr.011|                    SSID - a mesh, a repeater, or a router plus an
+::T|EN|net.wifi.roamaggr.012|                    extender.
+::T|EN|net.wifi.roamaggr.013|
+::T|EN|net.wifi.roamaggr.014|  Actual effect   : OPTY writes RoamAggressiveness as REG_SZ into the
+::T|EN|net.wifi.roamaggr.015|                    adapter's class key through :nicset. Writing REG_DWORD
+::T|EN|net.wifi.roamaggr.016|                    here would be accepted by the registry and ignored by
+::T|EN|net.wifi.roamaggr.017|                    the driver. The keyword publishes no min, max or step,
+::T|EN|net.wifi.roamaggr.018|                    so the clamping :nicset does for buffer counts does
+::T|EN|net.wifi.roamaggr.019|                    nothing at all here - the only thing keeping the value
+::T|EN|net.wifi.roamaggr.020|                    honest is checking it against the Enum subkey first.
+::T|EN|net.wifi.roamaggr.021|                    Nothing takes effect until the adapter is restarted.
+::T|EN|net.wifi.roamaggr.022|
+::T|EN|net.wifi.roamaggr.023|  Gain            : Each roaming scan takes your radio off the working
+::T|EN|net.wifi.roamaggr.024|                    channel for tens of milliseconds. Lower the threshold
+::T|EN|net.wifi.roamaggr.025|                    and those scans get rarer, so on a marginal link you
+::T|EN|net.wifi.roamaggr.026|                    get fewer micro-gaps. Raise it and you hand off to a
+::T|EN|net.wifi.roamaggr.027|                    better access point before the current one degrades,
+::T|EN|net.wifi.roamaggr.028|                    instead of after. On a network with a single access
+::T|EN|net.wifi.roamaggr.029|                    point there is no measurable gain in either direction:
+::T|EN|net.wifi.roamaggr.030|                    there is nowhere to roam to, and the periodic
+::T|EN|net.wifi.roamaggr.031|                    background scans that remain are not controlled by
+::T|EN|net.wifi.roamaggr.032|                    this keyword.
+::T|EN|net.wifi.roamaggr.033|
+::T|EN|net.wifi.roamaggr.034|  Cost            : Too low and the adapter clings to an access point that
+::T|EN|net.wifi.roamaggr.035|                    has stopped working, which the user experiences as a
+::T|EN|net.wifi.roamaggr.036|                    dead connection next to a perfectly good router. Too
+::T|EN|net.wifi.roamaggr.037|                    high and it hops: every hop is an association plus a
+::T|EN|net.wifi.roamaggr.038|                    four-way handshake, and that is a real interruption,
+::T|EN|net.wifi.roamaggr.039|                    not a theoretical one.
+::T|EN|net.wifi.roamaggr.040|
+::T|EN|net.wifi.roamaggr.041|  Windows default : The AX210 driver measured here ships 2 of 0 to 4,
+::T|EN|net.wifi.roamaggr.042|                    which its own property page calls Medium. OPTY reads
+::T|EN|net.wifi.roamaggr.043|                    Ndi\Params\RoamAggressiveness\default instead of
+::T|EN|net.wifi.roamaggr.044|                    trusting that number, because a different Intel
+::T|EN|net.wifi.roamaggr.045|                    generation may ship a different one.
+::T|EN|net.wifi.roamaggr.046|
+::T|EN|net.wifi.roamaggr.047|  Possible values:
+::T|EN|net.wifi.roamaggr.048|    0                    : 1. Lowest. The adapter goes looking for another
+::T|EN|net.wifi.roamaggr.049|                           access point only when the current one is close
+::T|EN|net.wifi.roamaggr.050|                           to unusable. Fewest off-channel scans, so the
+::T|EN|net.wifi.roamaggr.051|                           fewest micro-gaps in your traffic - and the
+::T|EN|net.wifi.roamaggr.052|                           setting that leaves you sitting on a dead link
+::T|EN|net.wifi.roamaggr.053|                           while a healthy access point stands one room
+::T|EN|net.wifi.roamaggr.054|                           away.
+::T|EN|net.wifi.roamaggr.055|    1                    : 2. Low. Scanning starts below the medium
+::T|EN|net.wifi.roamaggr.056|                           threshold. The setting for a machine that has
+::T|EN|net.wifi.roamaggr.057|                           one access point and is not going anywhere: it
+::T|EN|net.wifi.roamaggr.058|                           keeps the roaming machinery from firing on a
+::T|EN|net.wifi.roamaggr.059|                           link that is merely imperfect.
+::T|EN|net.wifi.roamaggr.060|    2                    : 3. Medium. The value the AX210 driver ships
+::T|EN|net.wifi.roamaggr.061|                           here. Balanced thresholds, and the right answer
+::T|EN|net.wifi.roamaggr.062|                           for anything that moves between rooms.
+::T|EN|net.wifi.roamaggr.063|    3                    : 4. High. Scanning starts while the signal is
+::T|EN|net.wifi.roamaggr.064|                           still decent. Genuinely useful in a building
+::T|EN|net.wifi.roamaggr.065|                           with several access points on one SSID that you
+::T|EN|net.wifi.roamaggr.066|                           walk between; on a single-access-point network
+::T|EN|net.wifi.roamaggr.067|                           it only spends radio time.
+::T|EN|net.wifi.roamaggr.068|    4                    : 5. Highest. Scans at the first hint of a better
+::T|EN|net.wifi.roamaggr.069|                           neighbour. This is the value that produces
+::T|EN|net.wifi.roamaggr.070|                           access-point ping-pong: two access points of
+::T|EN|net.wifi.roamaggr.071|                           similar strength and the card keeps re-
+::T|EN|net.wifi.roamaggr.072|                           associating and re-keying between them.
+::T|EN|net.wifi.roamaggr.073|    NICDEFAULT           : Hand the keyword back to the driver: OPTY calls
+::T|EN|net.wifi.roamaggr.074|                           :nicdefault, which reads
+::T|EN|net.wifi.roamaggr.075|                           Ndi\Params\RoamAggressiveness\default and
+::T|EN|net.wifi.roamaggr.076|                           writes that string back. Used for the WINDOWS
+::T|EN|net.wifi.roamaggr.077|                           profile because writing the number 2 instead
+::T|EN|net.wifi.roamaggr.078|                           would be hardcoding one chipset's default,
+::T|EN|net.wifi.roamaggr.079|                           which is exactly the habit this project
+::T|EN|net.wifi.roamaggr.080|                           refuses.
+::X|EN|net.wifi.roamaggr.001|  Why these profiles : The split is stationary against mobile, not fast
+::X|EN|net.wifi.roamaggr.002|                       against slow. Gaming and server are desktops that
+::X|EN|net.wifi.roamaggr.003|                       sit in one place: they take 1, so the roaming
+::X|EN|net.wifi.roamaggr.004|                       machinery stays quiet on a link that is merely
+::X|EN|net.wifi.roamaggr.005|                       imperfect and never steals the channel mid-match or
+::X|EN|net.wifi.roamaggr.006|                       mid-upload. Office and laptop take 2, the balanced
+::X|EN|net.wifi.roamaggr.007|                       setting, because the office desktop has nothing to
+::X|EN|net.wifi.roamaggr.008|                       gain from suppressing roaming and the laptop is the
+::X|EN|net.wifi.roamaggr.009|                       one machine here that genuinely moves between rooms
+::X|EN|net.wifi.roamaggr.010|                       and needs to hand off. Note what the laptop does
+::X|EN|net.wifi.roamaggr.011|                       NOT get: 3 or 4. Scanning is radio time, radio time
+::X|EN|net.wifi.roamaggr.012|                       is battery, and aggressive roaming on a laptop buys
+::X|EN|net.wifi.roamaggr.013|                       ping-pong between two similar access points rather
+::X|EN|net.wifi.roamaggr.014|                       than a better connection. If your home has one
+::X|EN|net.wifi.roamaggr.015|                       router, all four columns will feel identical, and
+::X|EN|net.wifi.roamaggr.016|                       that is the honest outcome.
+::X|EN|net.wifi.roamaggr.017|
+::X|EN|net.wifi.roamaggr.018|  Unverified      : I did not instrument an off-channel scan on this
+::X|EN|net.wifi.roamaggr.019|                    adapter. The tens-of-milliseconds figure is general
+::X|EN|net.wifi.roamaggr.020|                    802.11 scan behaviour, not an AX210 measurement. I
+::X|EN|net.wifi.roamaggr.021|                    also cannot show that 1 scans less than 2 on a link
+::X|EN|net.wifi.roamaggr.022|                    whose signal never crosses either threshold - on a
+::X|EN|net.wifi.roamaggr.023|                    strong link both settings scan about equally, which is
+::X|EN|net.wifi.roamaggr.024|                    to say almost never. Intel documents the endpoints
+::X|EN|net.wifi.roamaggr.025|                    (lowest scans only at very low signal, highest scans
+::X|EN|net.wifi.roamaggr.026|                    while signal is still good) but publishes no dBm
+::X|EN|net.wifi.roamaggr.027|                    figure for the three middle steps, so the spacing
+::X|EN|net.wifi.roamaggr.028|                    between 1, 2 and 3 is not something I can quantify.
+::X|EN|net.wifi.roamaggr.029|
+::X|EN|net.wifi.roamaggr.030|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.roamaggr.031|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.roamaggr.032|                    RoamAggressiveness /t REG_SZ, written by :nicset.
+::X|EN|net.wifi.roamaggr.033|                    Value must first be matched against
+::X|EN|net.wifi.roamaggr.034|                    Ndi\Params\RoamAggressiveness\Enum. Live only after
+::X|EN|net.wifi.roamaggr.035|                    :nicrestart (pnputil /restart-device) or a reboot.
+::
+:: ---- net.wifi.roamband (preference) ---------------------------------
+::P|net.wifi.roamband|4|4|0|0|NICDEFAULT|
+::T|FR|net.wifi.roamband.001|BANDE PRIVILEGIEE - 2,4 CONTRE 5 CONTRE 6 GHZ
+::T|FR|net.wifi.roamband.002|
+::T|FR|net.wifi.roamband.003|  Ce que c est    : Lorsqu'un meme SSID est diffuse sur plusieurs bandes,
+::T|FR|net.wifi.roamband.004|                    RoamingPreferredBandType indique a la carte laquelle
+::T|FR|net.wifi.roamband.005|                    viser en premier. C'est une preference appliquee au
+::T|FR|net.wifi.roamband.006|                    moment de choisir le point d'acces, pas un verrou : la
+::T|FR|net.wifi.roamband.007|                    puissance du signal garde son mot a dire, et une bande
+::T|FR|net.wifi.roamband.008|                    sur laquelle votre point d'acces n'emet pas n'existe
+::T|FR|net.wifi.roamband.009|                    tout simplement pas.
+::T|FR|net.wifi.roamband.010|
+::T|FR|net.wifi.roamband.011|  Effet reel      : OPTY ecrit RoamingPreferredBandType en REG_SZ via
+::T|FR|net.wifi.roamband.012|                    :nicset, apres avoir confirme que le nombre figure
+::T|FR|net.wifi.roamband.013|                    dans Ndi\Params\RoamingPreferredBandType\Enum. Cette
+::T|FR|net.wifi.roamband.014|                    verification constitue a elle seule tout le dispositif
+::T|FR|net.wifi.roamband.015|                    de securite de cette carte, car la valeur utile sur
+::T|FR|net.wifi.roamband.016|                    une carte 6E est 4 alors qu'une carte bibande
+::T|FR|net.wifi.roamband.017|                    n'enumere que 0 a 2. Rien ne change avant le
+::T|FR|net.wifi.roamband.018|                    redemarrage de la carte.
+::T|FR|net.wifi.roamband.019|
+::T|FR|net.wifi.roamband.020|  Gain            : Le 2,4 GHz compte trois canaux non recouvrants,
+::T|FR|net.wifi.roamband.021|                    occupes par tous les voisins, sonnettes connectees et
+::T|FR|net.wifi.roamband.022|                    souris Bluetooth du quartier. Le 5 GHz en offre bien
+::T|FR|net.wifi.roamband.023|                    davantage, et le 6 GHz est reserve par la
+::T|FR|net.wifi.roamband.024|                    reglementation au materiel Wi-Fi 6E et 7 : il est donc
+::T|FR|net.wifi.roamband.025|                    aujourd'hui pratiquement vide. S'ecarter du 2,4 GHz
+::T|FR|net.wifi.roamband.026|                    supprime une contention de temps d'antenne que vous
+::T|FR|net.wifi.roamband.027|                    n'avez pas provoquee et que vous ne voyez pas, et
+::T|FR|net.wifi.roamband.028|                    c'est cette contention qui transforme un ping de 12 ms
+::T|FR|net.wifi.roamband.029|                    en un ping occasionnel de 90 ms. Si la machine
+::T|FR|net.wifi.roamband.030|                    s'associe deja en 5 ou 6 GHz a chaque fois, ce reglage
+::T|FR|net.wifi.roamband.031|                    ne change rien de mesurable.
+::T|FR|net.wifi.roamband.032|
+::T|FR|net.wifi.roamband.033|  Cout            : Les bandes propres sont les bandes courtes. Preferer
+::T|FR|net.wifi.roamband.034|                    le 5 ou le 6 GHz depuis une piece que le routeur
+::T|FR|net.wifi.roamband.035|                    atteint a peine, c'est echanger l'encombrement contre
+::T|FR|net.wifi.roamband.036|                    un lien faible : modulations plus basses, davantage de
+::T|FR|net.wifi.roamband.037|                    retransmissions, et sur un portable davantage de
+::T|FR|net.wifi.roamband.038|                    retransmissions signifie plus de temps radio allume et
+::T|FR|net.wifi.roamband.039|                    moins d'autonomie. C'est pour cela que les deux
+::T|FR|net.wifi.roamband.040|                    profils les plus susceptibles d'etre loin du routeur
+::T|FR|net.wifi.roamband.041|                    ne recoivent aucune preference.
+::T|FR|net.wifi.roamband.042|
+::T|FR|net.wifi.roamband.043|  Defaut Windows  : L'AX210 mesuree ici livre 0, aucune preference. OPTY
+::T|FR|net.wifi.roamband.044|                    lit Ndi\Params\RoamingPreferredBandType\default plutot
+::T|FR|net.wifi.roamband.045|                    que de le supposer.
+::T|FR|net.wifi.roamband.046|
+::T|FR|net.wifi.roamband.047|  Valeurs possibles :
+::T|FR|net.wifi.roamband.048|    0                    : 1. Aucune preference. Le pilote choisit le
+::T|FR|net.wifi.roamband.049|                           point d'acces selon ses propres criteres, la
+::T|FR|net.wifi.roamband.050|                           qualite du signal d'abord. C'est la valeur
+::T|FR|net.wifi.roamband.051|                           livree, et la bonne reponse des que la machine
+::T|FR|net.wifi.roamband.052|                           peut se retrouver loin du routeur ou derriere
+::T|FR|net.wifi.roamband.053|                           des murs.
+::T|FR|net.wifi.roamband.054|    1                    : 2. Preferer la bande 2,4 GHz. Meilleure portee
+::T|FR|net.wifi.roamband.055|                           et meilleure penetration des murs, au prix
+::T|FR|net.wifi.roamband.056|                           d'une bande partagee avec tous les fours a
+::T|FR|net.wifi.roamband.057|                           micro-ondes, les appareils Bluetooth et les
+::T|FR|net.wifi.roamband.058|                           voisins a portee. On ne la choisit deliberement
+::T|FR|net.wifi.roamband.059|                           que si le 5 GHz n'atteint pas du tout la
+::T|FR|net.wifi.roamband.060|                           machine.
+::T|FR|net.wifi.roamband.061|    2                    : 3. Preferer la bande 5 GHz. Plus de spectre,
+::T|FR|net.wifi.roamband.062|                           bien moins d'encombrement qu'en 2,4 GHz, portee
+::T|FR|net.wifi.roamband.063|                           plus courte. C'est la bonne reponse sur toute
+::T|FR|net.wifi.roamband.064|                           carte depourvue de radio 6 GHz, et c'est la que
+::T|FR|net.wifi.roamband.065|                           l'enumeration s'arrete sur une AX200 ou plus
+::T|FR|net.wifi.roamband.066|                           ancienne.
+::T|FR|net.wifi.roamband.067|    3                    : 4. Preferer la bande 6 GHz. La bande la plus
+::T|FR|net.wifi.roamband.068|                           propre qui soit, puisque seul le materiel Wi-Fi
+::T|FR|net.wifi.roamband.069|                           6E et 7 y a droit - mais aussi la portee la
+::T|FR|net.wifi.roamband.070|                           plus courte, et cela ne sert a rien si votre
+::T|FR|net.wifi.roamband.071|                           point d'acces n'y emet pas. Preferer le 6 GHz
+::T|FR|net.wifi.roamband.072|                           seul signifie retomber aussi facilement en 2,4
+::T|FR|net.wifi.roamband.073|                           GHz qu'en 5 GHz des que l'on sort de portee.
+::T|FR|net.wifi.roamband.074|    4                    : 5. Preferer les bandes 5 GHz et 6 GHz ensemble.
+::T|FR|net.wifi.roamband.075|                           Les deux bandes propres passent devant le 2,4
+::T|FR|net.wifi.roamband.076|                           GHz, et le pilote continue de choisir entre
+::T|FR|net.wifi.roamband.077|                           elles selon le signal. Sur l'AX210 mesuree ici,
+::T|FR|net.wifi.roamband.078|                           c'est la valeur qui offre du spectre non
+::T|FR|net.wifi.roamband.079|                           encombre sans vous clouer a une seule bande.
+::T|FR|net.wifi.roamband.080|                           Elle n'existe pas sur une carte bibande.
+::T|FR|net.wifi.roamband.081|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.roamband.082|                           Ndi\Params\RoamingPreferredBandType\default et
+::T|FR|net.wifi.roamband.083|                           reecrit cette chaine. Utilise pour le profil
+::T|FR|net.wifi.roamband.084|                           WINDOWS afin de ne coder en dur le defaut
+::T|FR|net.wifi.roamband.085|                           d'aucun chipset.
+::X|FR|net.wifi.roamband.001|  Pourquoi ces profils : Gaming et serveur sont des machines fixes,
+::X|FR|net.wifi.roamband.002|                         proches d'un materiel connu, et toutes deux
+::X|FR|net.wifi.roamband.003|                         souffrent de la contention de temps d'antenne
+::X|FR|net.wifi.roamband.004|                         plutot que de la portee - la gigue pour l'une, le
+::X|FR|net.wifi.roamband.005|                         debit pour l'autre : elles prennent donc 4 et
+::X|FR|net.wifi.roamband.006|                         restent hors du 2,4 GHz. Bureautique et portable
+::X|FR|net.wifi.roamband.007|                         prennent 0. La tour de bureau se juge au fait que
+::X|FR|net.wifi.roamband.008|                         tout fonctionne, et fixer une bande est un bon
+::X|FR|net.wifi.roamband.009|                         moyen de degrader une piece eloignee sans rien
+::X|FR|net.wifi.roamband.010|                         gagner. Le portable prend 0 pour une raison
+::X|FR|net.wifi.roamband.011|                         d'autonomie autant que de couverture : forcer une
+::X|FR|net.wifi.roamband.012|                         bande que la machine entend a peine coute des
+::X|FR|net.wifi.roamband.013|                         retransmissions, et ces retransmissions
+::X|FR|net.wifi.roamband.014|                         consomment plus d'energie que la bande propre
+::X|FR|net.wifi.roamband.015|                         n'en economise. Si votre point d'acces est
+::X|FR|net.wifi.roamband.016|                         monobande ou si vous utilisez un SSID distinct
+::X|FR|net.wifi.roamband.017|                         par bande, ce mot-cle ne decide de rien.
+::X|FR|net.wifi.roamband.018|
+::X|FR|net.wifi.roamband.019|  Problemes connus : OPTY ne sait pas encore choisir le repli
+::X|FR|net.wifi.roamband.020|                     automatiquement. :nicenummax lit la DERNIERE ligne
+::X|FR|net.wifi.roamband.021|                     REG_SZ affichee par reg query pour une sous-cle Enum
+::X|FR|net.wifi.roamband.022|                     et la prend pour le maximum, alors que reg query
+::X|FR|net.wifi.roamband.023|                     renvoie les entrees Enum dans l'ordre du fichier INF,
+::X|FR|net.wifi.roamband.024|                     pas dans l'ordre numerique. Mesure sur cette machine
+::X|FR|net.wifi.roamband.025|                     : WirelessMode\Enum affiche 17, 0, 16, 32, 18, 34
+::X|FR|net.wifi.roamband.026|                     dans cet ordre. Le resultat est correct pour
+::X|FR|net.wifi.roamband.027|                     *NumRssQueues et pour ce mot-cle par chance
+::X|FR|net.wifi.roamband.028|                     d'ordonnancement, pas par construction. Avant que
+::X|FR|net.wifi.roamband.029|                     cette carte puisse retomber de 4 vers la preference
+::X|FR|net.wifi.roamband.030|                     la plus elevee disponible, :nicenummax doit prendre
+::X|FR|net.wifi.roamband.031|                     un maximum numerique.
+::X|FR|net.wifi.roamband.032|
+::X|FR|net.wifi.roamband.033|  Non verifie (en)  : Two things I cannot substantiate. First, I do not
+::X|FR|net.wifi.roamband.034|                      know whether value 2 (prefer 5 GHz) on a 6E adapter
+::X|FR|net.wifi.roamband.035|                      actively deprioritises 6 GHz or merely ranks 5 GHz
+::X|FR|net.wifi.roamband.036|                      above 2.4 GHz; Intel's enumeration text does not
+::X|FR|net.wifi.roamband.037|                      say, and the difference matters if 4 is unavailable
+::X|FR|net.wifi.roamband.038|                      and something falls back to 2. Second, this is a
+::X|FR|net.wifi.roamband.039|                      preference used during access-point selection, not a
+::X|FR|net.wifi.roamband.040|                      lock: I have no way to show from a script how
+::X|FR|net.wifi.roamband.041|                      strongly the driver weights it against signal
+::X|FR|net.wifi.roamband.042|                      strength, so I will not claim it forces a band.
+::X|FR|net.wifi.roamband.043|
+::X|FR|net.wifi.roamband.044|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.roamband.045|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.roamband.046|                    RoamingPreferredBandType /t REG_SZ, written by :nicset
+::X|FR|net.wifi.roamband.047|                    after an Enum check. Live only after :nicrestart or a
+::X|FR|net.wifi.roamband.048|                    reboot.
+::T|EN|net.wifi.roamband.001|PREFERRED BAND - 2.4 AGAINST 5 AGAINST 6 GHZ
+::T|EN|net.wifi.roamband.002|
+::T|EN|net.wifi.roamband.003|  What it is      : When one SSID is broadcast on several bands,
+::T|EN|net.wifi.roamband.004|                    RoamingPreferredBandType tells the adapter which one
+::T|EN|net.wifi.roamband.005|                    to reach for first. It is a preference applied during
+::T|EN|net.wifi.roamband.006|                    access-point selection, not a lock: signal strength
+::T|EN|net.wifi.roamband.007|                    still has a say, and a band your access point does not
+::T|EN|net.wifi.roamband.008|                    broadcast on simply is not there.
+::T|EN|net.wifi.roamband.009|
+::T|EN|net.wifi.roamband.010|  Actual effect   : OPTY writes RoamingPreferredBandType as REG_SZ through
+::T|EN|net.wifi.roamband.011|                    :nicset, after confirming the number appears in
+::T|EN|net.wifi.roamband.012|                    Ndi\Params\RoamingPreferredBandType\Enum. That check
+::T|EN|net.wifi.roamband.013|                    is the whole safety mechanism for this card, because
+::T|EN|net.wifi.roamband.014|                    the useful value on a 6E adapter is 4 and a dual-band
+::T|EN|net.wifi.roamband.015|                    adapter enumerates only 0 to 2. Nothing changes until
+::T|EN|net.wifi.roamband.016|                    the adapter restarts.
+::T|EN|net.wifi.roamband.017|
+::T|EN|net.wifi.roamband.018|  Gain            : 2.4 GHz has three non-overlapping channels and every
+::T|EN|net.wifi.roamband.019|                    neighbour, doorbell and Bluetooth mouse in them. 5 GHz
+::T|EN|net.wifi.roamband.020|                    has many more, and 6 GHz is restricted by regulation
+::T|EN|net.wifi.roamband.021|                    to Wi-Fi 6E and 7 equipment, so it is close to empty
+::T|EN|net.wifi.roamband.022|                    today. Steering off 2.4 GHz removes airtime contention
+::T|EN|net.wifi.roamband.023|                    you did not cause and cannot see, and contention is
+::T|EN|net.wifi.roamband.024|                    what turns a 12 ms ping into an occasional 90 ms one.
+::T|EN|net.wifi.roamband.025|                    Where the machine already associates on 5 or 6 GHz
+::T|EN|net.wifi.roamband.026|                    every time, this setting changes nothing measurable.
+::T|EN|net.wifi.roamband.027|
+::T|EN|net.wifi.roamband.028|  Cost            : The clean bands are the short ones. Prefer 5 or 6 GHz
+::T|EN|net.wifi.roamband.029|                    from a room the router barely reaches and you trade
+::T|EN|net.wifi.roamband.030|                    congestion for a weak link: lower modulation rates,
+::T|EN|net.wifi.roamband.031|                    more retries, and on a laptop more retries means more
+::T|EN|net.wifi.roamband.032|                    radio-on time and less battery. That is why the two
+::T|EN|net.wifi.roamband.033|                    profiles most likely to be far from the router do not
+::T|EN|net.wifi.roamband.034|                    get a preference at all.
+::T|EN|net.wifi.roamband.035|
+::T|EN|net.wifi.roamband.036|  Windows default : The AX210 measured here ships 0, no preference. OPTY
+::T|EN|net.wifi.roamband.037|                    reads Ndi\Params\RoamingPreferredBandType\default
+::T|EN|net.wifi.roamband.038|                    rather than assuming it.
+::T|EN|net.wifi.roamband.039|
+::T|EN|net.wifi.roamband.040|  Possible values:
+::T|EN|net.wifi.roamband.041|    0                    : 1. No preference. The driver picks the access
+::T|EN|net.wifi.roamband.042|                           point on its own criteria, signal quality
+::T|EN|net.wifi.roamband.043|                           first. The shipped default, and the right
+::T|EN|net.wifi.roamband.044|                           answer whenever the machine may be far from the
+::T|EN|net.wifi.roamband.045|                           router or behind walls.
+::T|EN|net.wifi.roamband.046|    1                    : 2. Prefer the 2.4 GHz band. Longer range and
+::T|EN|net.wifi.roamband.047|                           better wall penetration, at the cost of a band
+::T|EN|net.wifi.roamband.048|                           shared with every microwave, Bluetooth device
+::T|EN|net.wifi.roamband.049|                           and neighbour within reach. Chosen deliberately
+::T|EN|net.wifi.roamband.050|                           only when 5 GHz does not reach the machine at
+::T|EN|net.wifi.roamband.051|                           all.
+::T|EN|net.wifi.roamband.052|    2                    : 3. Prefer the 5 GHz band. More spectrum, far
+::T|EN|net.wifi.roamband.053|                           less congestion than 2.4 GHz, shorter range.
+::T|EN|net.wifi.roamband.054|                           The correct answer on any adapter without a 6
+::T|EN|net.wifi.roamband.055|                           GHz radio, which is where the enumeration stops
+::T|EN|net.wifi.roamband.056|                           on an AX200 or older.
+::T|EN|net.wifi.roamband.057|    3                    : 4. Prefer the 6 GHz band. The cleanest band
+::T|EN|net.wifi.roamband.058|                           there is, because only Wi-Fi 6E and 7 equipment
+::T|EN|net.wifi.roamband.059|                           is allowed in it - but also the shortest range,
+::T|EN|net.wifi.roamband.060|                           and useless unless your access point actually
+::T|EN|net.wifi.roamband.061|                           broadcasts there. Preferring 6 GHz alone means
+::T|EN|net.wifi.roamband.062|                           falling back to 2.4 GHz as readily as to 5 GHz
+::T|EN|net.wifi.roamband.063|                           once you walk out of range.
+::T|EN|net.wifi.roamband.064|    4                    : 5. Prefer 5 GHz and 6 GHz together. Both clean
+::T|EN|net.wifi.roamband.065|                           bands rank above 2.4 GHz, and the driver still
+::T|EN|net.wifi.roamband.066|                           chooses between them on signal. On the AX210
+::T|EN|net.wifi.roamband.067|                           measured here this is the value that buys
+::T|EN|net.wifi.roamband.068|                           uncongested spectrum without pinning you to a
+::T|EN|net.wifi.roamband.069|                           single band. It does not exist on a dual-band
+::T|EN|net.wifi.roamband.070|                           adapter.
+::T|EN|net.wifi.roamband.071|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.roamband.072|                           :nicdefault reads
+::T|EN|net.wifi.roamband.073|                           Ndi\Params\RoamingPreferredBandType\default and
+::T|EN|net.wifi.roamband.074|                           writes that string back. Used for the WINDOWS
+::T|EN|net.wifi.roamband.075|                           profile so no chipset's default is hardcoded.
+::X|EN|net.wifi.roamband.001|  Why these profiles : Gaming and server are stationary machines close to
+::X|EN|net.wifi.roamband.002|                       known equipment, and both are hurt by airtime
+::X|EN|net.wifi.roamband.003|                       contention rather than by range - jitter for one,
+::X|EN|net.wifi.roamband.004|                       throughput for the other - so both take 4 and stay
+::X|EN|net.wifi.roamband.005|                       out of 2.4 GHz. Office and laptop take 0. The
+::X|EN|net.wifi.roamband.006|                       office desktop is judged on everything working, and
+::X|EN|net.wifi.roamband.007|                       pinning a band is a way to make a far room worse
+::X|EN|net.wifi.roamband.008|                       for no gain. The laptop takes 0 for a battery
+::X|EN|net.wifi.roamband.009|                       reason as much as a coverage one: forcing a band
+::X|EN|net.wifi.roamband.010|                       the machine can barely hear costs retransmissions,
+::X|EN|net.wifi.roamband.011|                       and retransmissions cost more power than the
+::X|EN|net.wifi.roamband.012|                       cleaner band saves. If your access point is single-
+::X|EN|net.wifi.roamband.013|                       band or you use separate SSIDs per band, this
+::X|EN|net.wifi.roamband.014|                       keyword decides nothing at all.
+::X|EN|net.wifi.roamband.015|
+::X|EN|net.wifi.roamband.016|  Known problems  : OPTY cannot pick the fallback automatically today.
+::X|EN|net.wifi.roamband.017|                    :nicenummax reads the LAST REG_SZ line that reg query
+::X|EN|net.wifi.roamband.018|                    prints for an Enum subkey and calls it the maximum,
+::X|EN|net.wifi.roamband.019|                    but reg query returns Enum entries in INF order, not
+::X|EN|net.wifi.roamband.020|                    numeric order. Measured on this machine:
+::X|EN|net.wifi.roamband.021|                    WirelessMode\Enum prints 17, 0, 16, 32, 18, 34 in that
+::X|EN|net.wifi.roamband.022|                    order. It gives the right answer for *NumRssQueues and
+::X|EN|net.wifi.roamband.023|                    for this keyword by luck of ordering, not by
+::X|EN|net.wifi.roamband.024|                    construction. Before this card can fall back from 4 to
+::X|EN|net.wifi.roamband.025|                    the highest available preference, :nicenummax has to
+::X|EN|net.wifi.roamband.026|                    take a numeric maximum.
+::X|EN|net.wifi.roamband.027|
+::X|EN|net.wifi.roamband.028|  Unverified      : Two things I cannot substantiate. First, I do not know
+::X|EN|net.wifi.roamband.029|                    whether value 2 (prefer 5 GHz) on a 6E adapter
+::X|EN|net.wifi.roamband.030|                    actively deprioritises 6 GHz or merely ranks 5 GHz
+::X|EN|net.wifi.roamband.031|                    above 2.4 GHz; Intel's enumeration text does not say,
+::X|EN|net.wifi.roamband.032|                    and the difference matters if 4 is unavailable and
+::X|EN|net.wifi.roamband.033|                    something falls back to 2. Second, this is a
+::X|EN|net.wifi.roamband.034|                    preference used during access-point selection, not a
+::X|EN|net.wifi.roamband.035|                    lock: I have no way to show from a script how strongly
+::X|EN|net.wifi.roamband.036|                    the driver weights it against signal strength, so I
+::X|EN|net.wifi.roamband.037|                    will not claim it forces a band.
+::X|EN|net.wifi.roamband.038|
+::X|EN|net.wifi.roamband.039|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.roamband.040|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.roamband.041|                    RoamingPreferredBandType /t REG_SZ, written by :nicset
+::X|EN|net.wifi.roamband.042|                    after an Enum check. Live only after :nicrestart or a
+::X|EN|net.wifi.roamband.043|                    reboot.
+::
+:: ---- net.wifi.mimops (preference) -----------------------------------
+::P|net.wifi.mimops|3|3|0|0|NICDEFAULT|
+::T|FR|net.wifi.mimops.001|ECONOMIE D'ENERGIE MIMO - METTRE DES ANTENNES EN VEILLE
+::T|FR|net.wifi.mimops.002|
+::T|FR|net.wifi.mimops.003|  Ce que c est    : L'economie d'energie MIMO, ou SMPS, est le mecanisme
+::T|FR|net.wifi.mimops.004|                    802.11 qui permet a un client de garder une seule
+::T|FR|net.wifi.mimops.005|                    chaine de reception eveillee et de mettre les autres
+::T|FR|net.wifi.mimops.006|                    au repos, en signalant au point d'acces qu'il ne peut
+::T|FR|net.wifi.mimops.007|                    recevoir que des trames a flux unique pour l'instant.
+::T|FR|net.wifi.mimops.008|                    C'est une fonction d'economie avec un prix en debit,
+::T|FR|net.wifi.mimops.009|                    et les quatre valeurs different sur qui decide et sur
+::T|FR|net.wifi.mimops.010|                    la maniere dont les chaines se reveillent.
+::T|FR|net.wifi.mimops.011|
+::T|FR|net.wifi.mimops.012|  Effet reel      : OPTY ecrit MIMOPowerSaveMode en REG_SZ via :nicset une
+::T|FR|net.wifi.mimops.013|                    fois le nombre confirme present dans
+::T|FR|net.wifi.mimops.014|                    Ndi\Params\MIMOPowerSaveMode\Enum. Le mot-cle n'a ni
+::T|FR|net.wifi.mimops.015|                    max ni pas : il n'existe donc aucun ecretage numerique
+::T|FR|net.wifi.mimops.016|                    de secours. L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.mimops.017|
+::T|FR|net.wifi.mimops.018|  Gain            : La valeur 3 supprime purement et simplement le
+::T|FR|net.wifi.mimops.019|                    mecanisme : aucune chaine n'est jamais mise en veille,
+::T|FR|net.wifi.mimops.020|                    donc aucune trame multiflux n'a jamais a attendre un
+::T|FR|net.wifi.mimops.021|                    echange RTS puis CTS pour en reveiller une. Sur une
+::T|FR|net.wifi.mimops.022|                    tour branchee au secteur et occupee, c'est le seul
+::T|FR|net.wifi.mimops.023|                    moyen propre d'etre certain que la carte ne se
+::T|FR|net.wifi.mimops.024|                    retrouve jamais a la moitie de sa largeur de reception
+::T|FR|net.wifi.mimops.025|                    pendant une partie ou un transfert. Attention
+::T|FR|net.wifi.mimops.026|                    toutefois : sur une machine sur secteur, le mode Auto
+::T|FR|net.wifi.mimops.027|                    garde peut-etre deja toutes les chaines actives,
+::T|FR|net.wifi.mimops.028|                    auquel cas l'ecart mesure entre 0 et 3 est nul.
+::T|FR|net.wifi.mimops.029|
+::T|FR|net.wifi.mimops.030|  Cout            : Sur batterie, c'est l'inverse, et le cout est reel et
+::T|FR|net.wifi.mimops.031|                    non theorique : 3 interdit a la carte de couper une
+::T|FR|net.wifi.mimops.032|                    chaine de reception, or les chaines de reception font
+::T|FR|net.wifi.mimops.033|                    partie des rares elements d'une carte Wi-Fi qui
+::T|FR|net.wifi.mimops.034|                    consomment en continu. Rien d'autre dans Windows ne
+::T|FR|net.wifi.mimops.035|                    reactivera l'economie a votre place - le mot-cle prime
+::T|FR|net.wifi.mimops.036|                    sur la situation.
+::T|FR|net.wifi.mimops.037|
+::T|FR|net.wifi.mimops.038|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 0, SMPS auto.
+::T|FR|net.wifi.mimops.039|                    OPTY lit Ndi\Params\MIMOPowerSaveMode\default au lieu
+::T|FR|net.wifi.mimops.040|                    de coder cela en dur.
+::T|FR|net.wifi.mimops.041|
+::T|FR|net.wifi.mimops.042|  Valeurs possibles :
+::T|FR|net.wifi.mimops.043|    0                    : SMPS auto. Le pilote decide lui-meme quand
+::T|FR|net.wifi.mimops.044|                           mettre une chaine de reception en veille, selon
+::T|FR|net.wifi.mimops.045|                           des conditions qu'il n'expose pas. C'est la
+::T|FR|net.wifi.mimops.046|                           valeur livree, et la seule qui laisse la carte
+::T|FR|net.wifi.mimops.047|                           s'adapter au passage sur batterie.
+::T|FR|net.wifi.mimops.048|    1                    : SMPS statique. Une seule chaine de reception
+::T|FR|net.wifi.mimops.049|                           reste active et l'on informe le point d'acces
+::T|FR|net.wifi.mimops.050|                           qu'il ne doit jamais envoyer de trames
+::T|FR|net.wifi.mimops.051|                           multiflux a ce client. Consommation minimale,
+::T|FR|net.wifi.mimops.052|                           et plafonnement dur du debit en reception : un
+::T|FR|net.wifi.mimops.053|                           lien a deux flux devient un lien a un flux tant
+::T|FR|net.wifi.mimops.054|                           que ce reglage est en place.
+::T|FR|net.wifi.mimops.055|    2                    : SMPS dynamique. Une seule chaine active, mais
+::T|FR|net.wifi.mimops.056|                           le point d'acces peut reveiller les autres par
+::T|FR|net.wifi.mimops.057|                           une trame RTS avant d'envoyer une rafale
+::T|FR|net.wifi.mimops.058|                           multiflux. On conserve l'essentiel du debit, au
+::T|FR|net.wifi.mimops.059|                           prix d'un echange RTS puis CTS avant chaque
+::T|FR|net.wifi.mimops.060|                           rafale - une petite latence repetee que le mode
+::T|FR|net.wifi.mimops.061|                           statique n'a pas, puisqu'il ne fait jamais de
+::T|FR|net.wifi.mimops.062|                           rafales.
+::T|FR|net.wifi.mimops.063|    3                    : SMPS desactive. Toutes les chaines de reception
+::T|FR|net.wifi.mimops.064|                           restent alimentees en permanence et le point
+::T|FR|net.wifi.mimops.065|                           d'acces peut envoyer des trames multiflux quand
+::T|FR|net.wifi.mimops.066|                           il le souhaite. Aucune mise en veille, aucune
+::T|FR|net.wifi.mimops.067|                           negociation de reveil, et donc aucune economie
+::T|FR|net.wifi.mimops.068|                           d'energie par ce mecanisme.
+::T|FR|net.wifi.mimops.069|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.mimops.070|                           Ndi\Params\MIMOPowerSaveMode\default et reecrit
+::T|FR|net.wifi.mimops.071|                           cette chaine.
+::X|FR|net.wifi.mimops.001|  Pourquoi ces profils : Gaming et serveur prennent 3 parce que ce sont
+::X|FR|net.wifi.mimops.002|                         des tours sur secteur : il n'y a rien a
+::X|FR|net.wifi.mimops.003|                         economiser, et il y a un mecanisme reel, quoique
+::X|FR|net.wifi.mimops.004|                         modeste, a supprimer - la negociation de reveil
+::X|FR|net.wifi.mimops.005|                         du SMPS dynamique juste avant une rafale
+::X|FR|net.wifi.mimops.006|                         entrante. Bureautique et portable prennent 0 et
+::X|FR|net.wifi.mimops.007|                         conservent le mode Auto. Bureautique est une tour
+::X|FR|net.wifi.mimops.008|                         silencieuse et sobre, et tout l'interet du profil
+::X|FR|net.wifi.mimops.009|                         est de ne pas depenser des watts pour des effets
+::X|FR|net.wifi.mimops.010|                         que l'utilisateur ne verra jamais. Le portable
+::X|FR|net.wifi.mimops.011|                         garde Auto pour la raison qui gouverne toute
+::X|FR|net.wifi.mimops.012|                         cette carte : le SMPS EST l'economie d'energie
+::X|FR|net.wifi.mimops.013|                         des antennes sur la carte Wi-Fi d'un portable, et
+::X|FR|net.wifi.mimops.014|                         mettre 3 pour gagner une negociation avant une
+::X|FR|net.wifi.mimops.015|                         rafale, c'est acheter des microsecondes avec des
+::X|FR|net.wifi.mimops.016|                         minutes de batterie. Ce reglage-la, aucun
+::X|FR|net.wifi.mimops.017|                         portable ne devrait s'en laisser priver.
+::X|FR|net.wifi.mimops.018|
+::X|FR|net.wifi.mimops.019|  Non verifie (en)  : I cannot show how often Auto SMPS actually parks a
+::X|FR|net.wifi.mimops.020|                      chain on a mains-powered desktop. The powercfg
+::X|FR|net.wifi.mimops.021|                      Wireless Adapter Settings Power Saving Mode index on
+::X|FR|net.wifi.mimops.022|                      this machine reads 0 (Maximum Performance) on both
+::X|FR|net.wifi.mimops.023|                      AC and DC, and I believe that is the master switch
+::X|FR|net.wifi.mimops.024|                      the driver consults before engaging any 802.11 power
+::X|FR|net.wifi.mimops.025|                      save, but I did not instrument the driver to prove
+::X|FR|net.wifi.mimops.026|                      that MIMOPowerSaveMode is subordinate to it. If it
+::X|FR|net.wifi.mimops.027|                      is, then writing 3 on a desktop measures as zero
+::X|FR|net.wifi.mimops.028|                      change, and the card should be read as insurance
+::X|FR|net.wifi.mimops.029|                      rather than as a gain.
+::X|FR|net.wifi.mimops.030|
+::X|FR|net.wifi.mimops.031|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.mimops.032|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.mimops.033|                    MIMOPowerSaveMode /t REG_SZ, written by :nicset after
+::X|FR|net.wifi.mimops.034|                    an Enum check. Live only after :nicrestart or a
+::X|FR|net.wifi.mimops.035|                    reboot.
+::T|EN|net.wifi.mimops.001|MIMO POWER SAVE - PARKING ANTENNAS TO SAVE POWER
+::T|EN|net.wifi.mimops.002|
+::T|EN|net.wifi.mimops.003|  What it is      : MIMO Power Save, or SMPS, is the 802.11 mechanism that
+::T|EN|net.wifi.mimops.004|                    lets a client keep one receive chain awake and put the
+::T|EN|net.wifi.mimops.005|                    others in an idle state, telling the access point it
+::T|EN|net.wifi.mimops.006|                    can only take single-stream frames for now. It is a
+::T|EN|net.wifi.mimops.007|                    power feature with a throughput price, and the four
+::T|EN|net.wifi.mimops.008|                    values differ in who gets to decide and how the chains
+::T|EN|net.wifi.mimops.009|                    come back.
+::T|EN|net.wifi.mimops.010|
+::T|EN|net.wifi.mimops.011|  Actual effect   : OPTY writes MIMOPowerSaveMode as REG_SZ through
+::T|EN|net.wifi.mimops.012|                    :nicset once the number is confirmed present in
+::T|EN|net.wifi.mimops.013|                    Ndi\Params\MIMOPowerSaveMode\Enum. The keyword has no
+::T|EN|net.wifi.mimops.014|                    max and no step, so there is no numeric clamp to fall
+::T|EN|net.wifi.mimops.015|                    back on. It takes effect on adapter restart.
+::T|EN|net.wifi.mimops.016|
+::T|EN|net.wifi.mimops.017|  Gain            : Setting 3 removes the mechanism entirely: no chain is
+::T|EN|net.wifi.mimops.018|                    ever parked, so no multi-stream frame ever has to wait
+::T|EN|net.wifi.mimops.019|                    for an RTS and CTS handshake to wake one back up. On a
+::T|EN|net.wifi.mimops.020|                    desktop that is plugged in and busy, that is the only
+::T|EN|net.wifi.mimops.021|                    clean way to be certain the adapter is never sitting
+::T|EN|net.wifi.mimops.022|                    at half its receive width during a match or a
+::T|EN|net.wifi.mimops.023|                    transfer. Be warned that on a mains-powered machine
+::T|EN|net.wifi.mimops.024|                    Auto may already keep every chain up, in which case
+::T|EN|net.wifi.mimops.025|                    the measured difference between 0 and 3 is zero.
+::T|EN|net.wifi.mimops.026|
+::T|EN|net.wifi.mimops.027|  Cost            : On battery it is the reverse and the cost is real, not
+::T|EN|net.wifi.mimops.028|                    theoretical: 3 forbids the adapter from ever powering
+::T|EN|net.wifi.mimops.029|                    down a receive chain, and receive chains are among the
+::T|EN|net.wifi.mimops.030|                    few things on a Wi-Fi card that draw continuously.
+::T|EN|net.wifi.mimops.031|                    Nothing else in Windows will re-enable the saving for
+::T|EN|net.wifi.mimops.032|                    you - the keyword outranks the situation.
+::T|EN|net.wifi.mimops.033|
+::T|EN|net.wifi.mimops.034|  Windows default : The AX210 driver measured here ships 0, Auto SMPS.
+::T|EN|net.wifi.mimops.035|                    OPTY reads Ndi\Params\MIMOPowerSaveMode\default
+::T|EN|net.wifi.mimops.036|                    instead of hardcoding that.
+::T|EN|net.wifi.mimops.037|
+::T|EN|net.wifi.mimops.038|  Possible values:
+::T|EN|net.wifi.mimops.039|    0                    : Auto SMPS. The driver decides for itself when
+::T|EN|net.wifi.mimops.040|                           to park a receive chain, based on conditions it
+::T|EN|net.wifi.mimops.041|                           does not expose. The shipped default and the
+::T|EN|net.wifi.mimops.042|                           only value that lets the adapter adapt to being
+::T|EN|net.wifi.mimops.043|                           unplugged.
+::T|EN|net.wifi.mimops.044|    1                    : Static SMPS. One receive chain stays active and
+::T|EN|net.wifi.mimops.045|                           the access point is told never to send multi-
+::T|EN|net.wifi.mimops.046|                           stream frames to this client at all. Lowest
+::T|EN|net.wifi.mimops.047|                           power, and a hard cap on receive rate - a two-
+::T|EN|net.wifi.mimops.048|                           stream link becomes a one-stream link for as
+::T|EN|net.wifi.mimops.049|                           long as it is set.
+::T|EN|net.wifi.mimops.050|    2                    : Dynamic SMPS. One chain active, but the access
+::T|EN|net.wifi.mimops.051|                           point may wake the others with an RTS frame
+::T|EN|net.wifi.mimops.052|                           before sending a multi-stream burst. Keeps most
+::T|EN|net.wifi.mimops.053|                           of the throughput, at the price of an RTS and
+::T|EN|net.wifi.mimops.054|                           CTS exchange before each burst - a small,
+::T|EN|net.wifi.mimops.055|                           repeated latency the static mode does not have
+::T|EN|net.wifi.mimops.056|                           because it never bursts.
+::T|EN|net.wifi.mimops.057|    3                    : SMPS disabled. Every receive chain stays
+::T|EN|net.wifi.mimops.058|                           powered at all times and the access point may
+::T|EN|net.wifi.mimops.059|                           send multi-stream frames whenever it likes. No
+::T|EN|net.wifi.mimops.060|                           parking, no wake-up handshake, and no power
+::T|EN|net.wifi.mimops.061|                           saving from this mechanism at all.
+::T|EN|net.wifi.mimops.062|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.mimops.063|                           :nicdefault reads
+::T|EN|net.wifi.mimops.064|                           Ndi\Params\MIMOPowerSaveMode\default and writes
+::T|EN|net.wifi.mimops.065|                           that string back.
+::X|EN|net.wifi.mimops.001|  Why these profiles : Gaming and server take 3 because both are desktops
+::X|EN|net.wifi.mimops.002|                       on mains power where there is nothing to save and a
+::X|EN|net.wifi.mimops.003|                       real, if small, mechanism to remove: a dynamic-SMPS
+::X|EN|net.wifi.mimops.004|                       wake-up handshake in front of an incoming burst.
+::X|EN|net.wifi.mimops.005|                       Office and laptop take 0 and keep Auto. Office is a
+::X|EN|net.wifi.mimops.006|                       quiet, low-power desktop and the whole point of the
+::X|EN|net.wifi.mimops.007|                       profile is not to spend watts for effects the user
+::X|EN|net.wifi.mimops.008|                       will never see. The laptop keeps Auto for the
+::X|EN|net.wifi.mimops.009|                       reason that governs this whole card: SMPS is the
+::X|EN|net.wifi.mimops.010|                       antenna power saving on a laptop's Wi-Fi card, and
+::X|EN|net.wifi.mimops.011|                       setting 3 to shave a handshake off a burst is
+::X|EN|net.wifi.mimops.012|                       buying microseconds with battery minutes. This is
+::X|EN|net.wifi.mimops.013|                       not a setting any laptop should be talked out of.
+::X|EN|net.wifi.mimops.014|
+::X|EN|net.wifi.mimops.015|  Unverified      : I cannot show how often Auto SMPS actually parks a
+::X|EN|net.wifi.mimops.016|                    chain on a mains-powered desktop. The powercfg
+::X|EN|net.wifi.mimops.017|                    Wireless Adapter Settings Power Saving Mode index on
+::X|EN|net.wifi.mimops.018|                    this machine reads 0 (Maximum Performance) on both AC
+::X|EN|net.wifi.mimops.019|                    and DC, and I believe that is the master switch the
+::X|EN|net.wifi.mimops.020|                    driver consults before engaging any 802.11 power save,
+::X|EN|net.wifi.mimops.021|                    but I did not instrument the driver to prove that
+::X|EN|net.wifi.mimops.022|                    MIMOPowerSaveMode is subordinate to it. If it is, then
+::X|EN|net.wifi.mimops.023|                    writing 3 on a desktop measures as zero change, and
+::X|EN|net.wifi.mimops.024|                    the card should be read as insurance rather than as a
+::X|EN|net.wifi.mimops.025|                    gain.
+::X|EN|net.wifi.mimops.026|
+::X|EN|net.wifi.mimops.027|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.mimops.028|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.mimops.029|                    MIMOPowerSaveMode /t REG_SZ, written by :nicset after
+::X|EN|net.wifi.mimops.030|                    an Enum check. Live only after :nicrestart or a
+::X|EN|net.wifi.mimops.031|                    reboot.
+::
+:: ---- net.wifi.uapsd (preference) ------------------------------------
+::P|net.wifi.uapsd|0|0|0|1|NICDEFAULT|
+::T|FR|net.wifi.uapsd.001|U-APSD - ECONOMIE D'ENERGIE WMM ENTRE VOUS ET LE POINT D'ACCES
+::T|FR|net.wifi.uapsd.002|
+::T|FR|net.wifi.uapsd.003|  Ce que c est    : L'U-APSD, aussi appele economie d'energie WMM, permet
+::T|FR|net.wifi.uapsd.004|                    au client de dormir entre ses propres emissions au
+::T|FR|net.wifi.uapsd.005|                    lieu de rester eveille pour chaque balise. Une trame
+::T|FR|net.wifi.uapsd.006|                    envoyee par le client sert de declencheur, et le point
+::T|FR|net.wifi.uapsd.007|                    d'acces repond en lui livrant tout ce qu'il avait mis
+::T|FR|net.wifi.uapsd.008|                    en tampon. Le mecanisme a ete concu pour le trafic
+::T|FR|net.wifi.uapsd.009|                    periodique sensible a la latence, ou l'appareil emet
+::T|FR|net.wifi.uapsd.010|                    de toute facon regulierement - la voix sur IP en est
+::T|FR|net.wifi.uapsd.011|                    l'exemple canonique.
+::T|FR|net.wifi.uapsd.012|
+::T|FR|net.wifi.uapsd.013|  Effet reel      : OPTY ecrit uAPSDSupport en REG_SZ via :nicset une fois
+::T|FR|net.wifi.uapsd.014|                    le nombre confirme present dans
+::T|FR|net.wifi.uapsd.015|                    Ndi\Params\uAPSDSupport\Enum. L'effet arrive au
+::T|FR|net.wifi.uapsd.016|                    redemarrage de la carte. Notez que cela indique
+::T|FR|net.wifi.uapsd.017|                    seulement ce que le client accepte de negocier : le
+::T|FR|net.wifi.uapsd.018|                    point d'acces doit lui aussi le prendre en charge, et
+::T|FR|net.wifi.uapsd.019|                    chacun des deux peut refuser.
+::T|FR|net.wifi.uapsd.020|
+::T|FR|net.wifi.uapsd.021|  Gain            : Sur batterie, une economie d'energie reelle, et
+::T|FR|net.wifi.uapsd.022|                    precisement sur le schema de trafic ou l'economie
+::T|FR|net.wifi.uapsd.023|                    d'energie ordinaire fait mal : la radio sommeille
+::T|FR|net.wifi.uapsd.024|                    entre les paquets mais les donnees arrivent quand meme
+::T|FR|net.wifi.uapsd.025|                    sans delai, puisque c'est votre propre paquet sortant
+::T|FR|net.wifi.uapsd.026|                    qui va les chercher. Desactive, comme le dit Intel,
+::T|FR|net.wifi.uapsd.027|                    les economies d'energie ne sont tout simplement pas
+::T|FR|net.wifi.uapsd.028|                    realisees. Sur une tour, il n'y a pratiquement aucun
+::T|FR|net.wifi.uapsd.029|                    gain : il n'y a pas de batterie a economiser, et le
+::T|FR|net.wifi.uapsd.030|                    mode de gestion de l'alimentation de cette machine
+::T|FR|net.wifi.uapsd.031|                    demande deja a la carte des performances maximales,
+::T|FR|net.wifi.uapsd.032|                    aussi bien sur secteur que sur batterie.
+::T|FR|net.wifi.uapsd.033|
+::T|FR|net.wifi.uapsd.034|  Cout            : Intel publie une note technique (article 000005615)
+::T|FR|net.wifi.uapsd.035|                    sur l'interoperabilite avec les points d'acces : avec
+::T|FR|net.wifi.uapsd.036|                    certains d'entre eux, l'usage de l'U-APSD conduit le
+::T|FR|net.wifi.uapsd.037|                    point d'acces a cesser d'agreger dans le sens
+::T|FR|net.wifi.uapsd.038|                    descendant, et le debit en reception s'effondre - leur
+::T|FR|net.wifi.uapsd.039|                    exemple mesure donne environ 30 Mbit/s au lieu de
+::T|FR|net.wifi.uapsd.040|                    jusqu'a 100 Mbit/s sur un canal 802.11n de 20 MHz. Ce
+::T|FR|net.wifi.uapsd.041|                    n'est ni une rumeur ni un detail. Si l'activer puis
+::T|FR|net.wifi.uapsd.042|                    redemarrer la carte degrade vos telechargements, c'est
+::T|FR|net.wifi.uapsd.043|                    de la que cela vient, et le remede est le
+::T|FR|net.wifi.uapsd.044|                    micrologiciel de votre point d'acces, ou ce reglage
+::T|FR|net.wifi.uapsd.045|                    remis a 0.
+::T|FR|net.wifi.uapsd.046|
+::T|FR|net.wifi.uapsd.047|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 0, desactive.
+::T|FR|net.wifi.uapsd.048|                    C'est le choix prudent d'Intel, motive par le probleme
+::T|FR|net.wifi.uapsd.049|                    d'interoperabilite ci-dessus, et non par une inutilite
+::T|FR|net.wifi.uapsd.050|                    de la fonction. OPTY lit
+::T|FR|net.wifi.uapsd.051|                    Ndi\Params\uAPSDSupport\default plutot que de le
+::T|FR|net.wifi.uapsd.052|                    supposer.
+::T|FR|net.wifi.uapsd.053|
+::T|FR|net.wifi.uapsd.054|  Valeurs possibles :
+::T|FR|net.wifi.uapsd.055|    0                    : Desactive. Le client ne negocie jamais
+::T|FR|net.wifi.uapsd.056|                           l'economie d'energie WMM avec le point d'acces.
+::T|FR|net.wifi.uapsd.057|                           Aucune fenetre de sommeil, aucune trame de
+::T|FR|net.wifi.uapsd.058|                           declenchement, et aucune exposition au probleme
+::T|FR|net.wifi.uapsd.059|                           d'interoperabilite documente par Intel. Mais
+::T|FR|net.wifi.uapsd.060|                           aucune economie d'energie non plus par ce
+::T|FR|net.wifi.uapsd.061|                           mecanisme. C'est ce que livre le pilote de
+::T|FR|net.wifi.uapsd.062|                           l'AX210.
+::T|FR|net.wifi.uapsd.063|    1                    : Active. Le client annonce la prise en charge de
+::T|FR|net.wifi.uapsd.064|                           l'U-APSD et peut sommeiller entre ses propres
+::T|FR|net.wifi.uapsd.065|                           emissions, une trame qu'il envoie servant de
+::T|FR|net.wifi.uapsd.066|                           declencheur pour que le point d'acces lui livre
+::T|FR|net.wifi.uapsd.067|                           ce qu'il a mis en tampon. Concu pour le trafic
+::T|FR|net.wifi.uapsd.068|                           periodique sensible a la latence - les appels
+::T|FR|net.wifi.uapsd.069|                           voix et video en sont le cas d'ecole. Sur un
+::T|FR|net.wifi.uapsd.070|                           point d'acces atteint du defaut de
+::T|FR|net.wifi.uapsd.071|                           micrologiciel connu, c'est aussi le reglage qui
+::T|FR|net.wifi.uapsd.072|                           vous coute du debit descendant.
+::T|FR|net.wifi.uapsd.073|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.uapsd.074|                           Ndi\Params\uAPSDSupport\default et reecrit
+::T|FR|net.wifi.uapsd.075|                           cette chaine.
+::X|FR|net.wifi.uapsd.001|  Pourquoi ces profils : Trois profils disent 0 et un seul dit 1, et celui
+::X|FR|net.wifi.uapsd.002|                         qui differe est le seul a fonctionner sur
+::X|FR|net.wifi.uapsd.003|                         batterie. Gaming, serveur et bureautique sont des
+::X|FR|net.wifi.uapsd.004|                         tours sur secteur : l'U-APSD n'y a rien a
+::X|FR|net.wifi.uapsd.005|                         economiser, il ne peut donc que les exposer a une
+::X|FR|net.wifi.uapsd.006|                         regression de debit documentee, et le gain
+::X|FR|net.wifi.uapsd.007|                         attendu honnete y est nul. Le portable prend 1
+::X|FR|net.wifi.uapsd.008|                         parce que c'est exactement le mecanisme qui rend
+::X|FR|net.wifi.uapsd.009|                         une carte Wi-Fi econome pendant un appel video,
+::X|FR|net.wifi.uapsd.010|                         et qu'un profil portable qui le couperait pour
+::X|FR|net.wifi.uapsd.011|                         grappiller de la latence de livraison paierait de
+::X|FR|net.wifi.uapsd.012|                         la batterie pour quelque chose que l'utilisateur
+::X|FR|net.wifi.uapsd.013|                         ne peut pas percevoir. Si votre debit chute apres
+::X|FR|net.wifi.uapsd.014|                         l'activation, c'est le defaut connu du point
+::X|FR|net.wifi.uapsd.015|                         d'acces et la bonne reponse est 0 - pas le signe
+::X|FR|net.wifi.uapsd.016|                         que le profil avait tort.
+::X|FR|net.wifi.uapsd.017|
+::X|FR|net.wifi.uapsd.018|  Non verifie (en)  : Whether U-APSD ever engages while the machine is on
+::X|FR|net.wifi.uapsd.019|                      mains power is not something I proved. The powercfg
+::X|FR|net.wifi.uapsd.020|                      Wireless Adapter Settings Power Saving Mode index
+::X|FR|net.wifi.uapsd.021|                      reads 0 (Maximum Performance) on both AC and DC on
+::X|FR|net.wifi.uapsd.022|                      this machine's active plan, and I expect that
+::X|FR|net.wifi.uapsd.023|                      suppresses 802.11 power save regardless of this
+::X|FR|net.wifi.uapsd.024|                      keyword - which would make 0 and 1 indistinguishable
+::X|FR|net.wifi.uapsd.025|                      on a desktop. I also cannot tell you in advance
+::X|FR|net.wifi.uapsd.026|                      whether your own access point is one of the affected
+::X|FR|net.wifi.uapsd.027|                      models; Intel does not publish the list.
+::X|FR|net.wifi.uapsd.028|
+::X|FR|net.wifi.uapsd.029|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.uapsd.030|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v uAPSDSupport /t
+::X|FR|net.wifi.uapsd.031|                    REG_SZ, written by :nicset after an Enum check. Live
+::X|FR|net.wifi.uapsd.032|                    only after :nicrestart or a reboot.
+::T|EN|net.wifi.uapsd.001|U-APSD - WMM POWER SAVE BETWEEN YOU AND THE ACCESS POINT
+::T|EN|net.wifi.uapsd.002|
+::T|EN|net.wifi.uapsd.003|  What it is      : U-APSD, also called WMM Power Save, lets the client
+::T|EN|net.wifi.uapsd.004|                    sleep between its own transmissions instead of staying
+::T|EN|net.wifi.uapsd.005|                    awake for every beacon. A frame the client sends acts
+::T|EN|net.wifi.uapsd.006|                    as a trigger, and the access point answers by
+::T|EN|net.wifi.uapsd.007|                    delivering everything it has buffered for it. It was
+::T|EN|net.wifi.uapsd.008|                    built for periodic, latency-sensitive traffic where a
+::T|EN|net.wifi.uapsd.009|                    device transmits regularly anyway - voice over IP is
+::T|EN|net.wifi.uapsd.010|                    the canonical example.
+::T|EN|net.wifi.uapsd.011|
+::T|EN|net.wifi.uapsd.012|  Actual effect   : OPTY writes uAPSDSupport as REG_SZ through :nicset
+::T|EN|net.wifi.uapsd.013|                    once the number is confirmed present in
+::T|EN|net.wifi.uapsd.014|                    Ndi\Params\uAPSDSupport\Enum. It takes effect on
+::T|EN|net.wifi.uapsd.015|                    adapter restart. Note that this only says what the
+::T|EN|net.wifi.uapsd.016|                    client is willing to negotiate; the access point has
+::T|EN|net.wifi.uapsd.017|                    to support it too, and either side can decline.
+::T|EN|net.wifi.uapsd.018|
+::T|EN|net.wifi.uapsd.019|  Gain            : On battery, real power saving on exactly the traffic
+::T|EN|net.wifi.uapsd.020|                    pattern where ordinary power save hurts: the radio
+::T|EN|net.wifi.uapsd.021|                    dozes between packets but data still arrives promptly,
+::T|EN|net.wifi.uapsd.022|                    because your own outgoing packet is what fetches it.
+::T|EN|net.wifi.uapsd.023|                    Disabled, as Intel puts it, the power savings are
+::T|EN|net.wifi.uapsd.024|                    simply not realised. On a desktop there is no gain to
+::T|EN|net.wifi.uapsd.025|                    speak of, because there is no battery to save and the
+::T|EN|net.wifi.uapsd.026|                    Windows power plan on this machine already asks the
+::T|EN|net.wifi.uapsd.027|                    adapter for maximum performance on AC and DC alike.
+::T|EN|net.wifi.uapsd.028|
+::T|EN|net.wifi.uapsd.029|  Cost            : Intel publishes a TechNote (article 000005615) about
+::T|EN|net.wifi.uapsd.030|                    access-point interoperability: with certain access
+::T|EN|net.wifi.uapsd.031|                    points, exercising U-APSD makes the access point stop
+::T|EN|net.wifi.uapsd.032|                    aggregating on the downlink, and receive throughput
+::T|EN|net.wifi.uapsd.033|                    collapses - their measured example is about 30 Mbit/s
+::T|EN|net.wifi.uapsd.034|                    instead of up to 100 Mbit/s on an 802.11n 20 MHz
+::T|EN|net.wifi.uapsd.035|                    channel. That is not a rumour and it is not small. If
+::T|EN|net.wifi.uapsd.036|                    enabling it and restarting the adapter makes your
+::T|EN|net.wifi.uapsd.037|                    downloads worse, this is why, and the fix is your
+::T|EN|net.wifi.uapsd.038|                    access point's firmware or this setting back to 0.
+::T|EN|net.wifi.uapsd.039|
+::T|EN|net.wifi.uapsd.040|  Windows default : The AX210 driver measured here ships 0, disabled. That
+::T|EN|net.wifi.uapsd.041|                    is Intel's own conservative choice, made because of
+::T|EN|net.wifi.uapsd.042|                    the interoperability problem above, not because the
+::T|EN|net.wifi.uapsd.043|                    feature is useless. OPTY reads
+::T|EN|net.wifi.uapsd.044|                    Ndi\Params\uAPSDSupport\default rather than assuming
+::T|EN|net.wifi.uapsd.045|                    it.
+::T|EN|net.wifi.uapsd.046|
+::T|EN|net.wifi.uapsd.047|  Possible values:
+::T|EN|net.wifi.uapsd.048|    0                    : Disabled. The client never negotiates WMM power
+::T|EN|net.wifi.uapsd.049|                           save with the access point. No sleep windows,
+::T|EN|net.wifi.uapsd.050|                           no trigger frames, and no exposure to the
+::T|EN|net.wifi.uapsd.051|                           access-point interoperability problem Intel
+::T|EN|net.wifi.uapsd.052|                           documents. Also no power saving from this
+::T|EN|net.wifi.uapsd.053|                           mechanism. This is what the AX210 driver ships.
+::T|EN|net.wifi.uapsd.054|    1                    : Enabled. The client advertises U-APSD and may
+::T|EN|net.wifi.uapsd.055|                           doze between its own transmissions, using a
+::T|EN|net.wifi.uapsd.056|                           frame it sends as the trigger for the access
+::T|EN|net.wifi.uapsd.057|                           point to deliver whatever it has buffered.
+::T|EN|net.wifi.uapsd.058|                           Designed for periodic latency-sensitive traffic
+::T|EN|net.wifi.uapsd.059|                           - voice and video calls are the textbook case.
+::T|EN|net.wifi.uapsd.060|                           On an access point with the known firmware
+::T|EN|net.wifi.uapsd.061|                           defect this is also the setting that costs you
+::T|EN|net.wifi.uapsd.062|                           downlink throughput.
+::T|EN|net.wifi.uapsd.063|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.uapsd.064|                           :nicdefault reads
+::T|EN|net.wifi.uapsd.065|                           Ndi\Params\uAPSDSupport\default and writes that
+::T|EN|net.wifi.uapsd.066|                           string back.
+::X|EN|net.wifi.uapsd.001|  Why these profiles : Three profiles say 0 and one says 1, and the one
+::X|EN|net.wifi.uapsd.002|                       that differs is the only one running on a battery.
+::X|EN|net.wifi.uapsd.003|                       Gaming, server and office are mains-powered
+::X|EN|net.wifi.uapsd.004|                       desktops: there is nothing for U-APSD to save
+::X|EN|net.wifi.uapsd.005|                       there, so all it can do is expose them to a
+::X|EN|net.wifi.uapsd.006|                       documented throughput regression, and the honest
+::X|EN|net.wifi.uapsd.007|                       expected gain is zero. The laptop takes 1 because
+::X|EN|net.wifi.uapsd.008|                       this is precisely the mechanism that makes a Wi-Fi
+::X|EN|net.wifi.uapsd.009|                       card cheap during a video call, and a laptop
+::X|EN|net.wifi.uapsd.010|                       profile that turned it off to shave delivery
+::X|EN|net.wifi.uapsd.011|                       latency would be paying battery for something the
+::X|EN|net.wifi.uapsd.012|                       user cannot feel. If your throughput drops after
+::X|EN|net.wifi.uapsd.013|                       enabling it, that is the known access-point defect
+::X|EN|net.wifi.uapsd.014|                       and 0 is the correct response - not a sign the
+::X|EN|net.wifi.uapsd.015|                       profile was wrong.
+::X|EN|net.wifi.uapsd.016|
+::X|EN|net.wifi.uapsd.017|  Unverified      : Whether U-APSD ever engages while the machine is on
+::X|EN|net.wifi.uapsd.018|                    mains power is not something I proved. The powercfg
+::X|EN|net.wifi.uapsd.019|                    Wireless Adapter Settings Power Saving Mode index
+::X|EN|net.wifi.uapsd.020|                    reads 0 (Maximum Performance) on both AC and DC on
+::X|EN|net.wifi.uapsd.021|                    this machine's active plan, and I expect that
+::X|EN|net.wifi.uapsd.022|                    suppresses 802.11 power save regardless of this
+::X|EN|net.wifi.uapsd.023|                    keyword - which would make 0 and 1 indistinguishable
+::X|EN|net.wifi.uapsd.024|                    on a desktop. I also cannot tell you in advance
+::X|EN|net.wifi.uapsd.025|                    whether your own access point is one of the affected
+::X|EN|net.wifi.uapsd.026|                    models; Intel does not publish the list.
+::X|EN|net.wifi.uapsd.027|
+::X|EN|net.wifi.uapsd.028|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.uapsd.029|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v uAPSDSupport /t
+::X|EN|net.wifi.uapsd.030|                    REG_SZ, written by :nicset after an Enum check. Live
+::X|EN|net.wifi.uapsd.031|                    only after :nicrestart or a reboot.
+::
+:: ---- net.wifi.tputboost (preference) --------------------------------
+::P|net.wifi.tputboost|0|1|0|0|NICDEFAULT|
+::T|FR|net.wifi.tputboost.001|MULTIPLICATEUR DE DEBIT - RAFALES DE PAQUETS SUR LE LIEN MONTANT
+::T|FR|net.wifi.tputboost.002|
+::T|FR|net.wifi.tputboost.003|  Ce que c est    : Le multiplicateur de debit d'Intel, ce sont des
+::T|FR|net.wifi.tputboost.004|                    rafales de paquets. Lorsque le client a suffisamment
+::T|FR|net.wifi.tputboost.005|                    de donnees en file, il conserve le medium radio plus
+::T|FR|net.wifi.tputboost.006|                    longtemps que les regles de contention normales ne le
+::T|FR|net.wifi.tputboost.007|                    lui accorderaient, et pousse davantage de trames par
+::T|FR|net.wifi.tputboost.008|                    tour vers le point d'acces. La description d'Intel est
+::T|FR|net.wifi.tputboost.009|                    franche sur la consequence : lorsque cette option est
+::T|FR|net.wifi.tputboost.010|                    active, la carte ne laisse pas les autres ordinateurs
+::T|FR|net.wifi.tputboost.011|                    de votre reseau acceder au reseau sans fil a egalite.
+::T|FR|net.wifi.tputboost.012|
+::T|FR|net.wifi.tputboost.013|  Effet reel      : OPTY ecrit ThroughputBoosterEnabled en REG_SZ via
+::T|FR|net.wifi.tputboost.014|                    :nicset une fois le nombre confirme present dans
+::T|FR|net.wifi.tputboost.015|                    Ndi\Params\ThroughputBoosterEnabled\Enum. C'est un
+::T|FR|net.wifi.tputboost.016|                    mot-cle Intel sans asterisque : il n'existe que sur
+::T|FR|net.wifi.tputboost.017|                    les cartes sans fil Intel, et OPTY le saute simplement
+::T|FR|net.wifi.tputboost.018|                    ailleurs. L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.tputboost.019|
+::T|FR|net.wifi.tputboost.020|  Gain            : Le debit montant, et rien d'autre. Cela aide lorsque
+::T|FR|net.wifi.tputboost.021|                    beaucoup de donnees attendent en file et que vous
+::T|FR|net.wifi.tputboost.022|                    voulez les sortir vite : gros televersements, partage
+::T|FR|net.wifi.tputboost.023|                    de torrents, diffusion sortante. Les telechargements
+::T|FR|net.wifi.tputboost.024|                    ne sont pas concernes, puisque la rafale vous
+::T|FR|net.wifi.tputboost.025|                    appartient et non au point d'acces. Le trafic de jeu
+::T|FR|net.wifi.tputboost.026|                    n'y gagne strictement rien : il est petit, frequent,
+::T|FR|net.wifi.tputboost.027|                    et n'a jamais assez de donnees en attente pour former
+::T|FR|net.wifi.tputboost.028|                    une rafale ; aucun mecanisme ne permet donc a ce
+::T|FR|net.wifi.tputboost.029|                    reglage d'ameliorer une partie.
+::T|FR|net.wifi.tputboost.030|
+::T|FR|net.wifi.tputboost.031|  Cout            : Le temps d'antenne se partage, et prendre un tour plus
+::T|FR|net.wifi.tputboost.032|                    long signifie que tous les autres attendent. Sur un
+::T|FR|net.wifi.tputboost.033|                    reseau sans fil avec un seul appareil actif, cela ne
+::T|FR|net.wifi.tputboost.034|                    coute rien ; sur le point d'acces d'un foyer, cela
+::T|FR|net.wifi.tputboost.035|                    veut dire que votre televersement affame la tablette,
+::T|FR|net.wifi.tputboost.036|                    la television et le telephone pendant toute sa duree.
+::T|FR|net.wifi.tputboost.037|                    Sur un portable, cela signifie aussi des periodes
+::T|FR|net.wifi.tputboost.038|                    d'emission continues plus longues, l'etat le plus
+::T|FR|net.wifi.tputboost.039|                    couteux pour une radio Wi-Fi.
+::T|FR|net.wifi.tputboost.040|
+::T|FR|net.wifi.tputboost.041|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 0, desactive.
+::T|FR|net.wifi.tputboost.042|                    OPTY lit Ndi\Params\ThroughputBoosterEnabled\default
+::T|FR|net.wifi.tputboost.043|                    plutot que de le supposer.
+::T|FR|net.wifi.tputboost.044|
+::T|FR|net.wifi.tputboost.045|  Valeurs possibles :
+::T|FR|net.wifi.tputboost.046|    0                    : Desactive. La carte se dispute l'antenne selon
+::T|FR|net.wifi.tputboost.047|                           les regles WMM ordinaires et rend le medium
+::T|FR|net.wifi.tputboost.048|                           entre les trames comme tout le monde. C'est la
+::T|FR|net.wifi.tputboost.049|                           valeur livree, et c'est le reglage qui garde le
+::T|FR|net.wifi.tputboost.050|                           reste du foyer utilisable.
+::T|FR|net.wifi.tputboost.051|    1                    : Active. Rafales de paquets : des que le client
+::T|FR|net.wifi.tputboost.052|                           a suffisamment de donnees en tampon, il
+::T|FR|net.wifi.tputboost.053|                           conserve le medium plus longtemps qu'il ne le
+::T|FR|net.wifi.tputboost.054|                           ferait normalement pour les pousser vers le
+::T|FR|net.wifi.tputboost.055|                           point d'acces. Cela ne releve que le debit
+::T|FR|net.wifi.tputboost.056|                           montant, et cela se fait en prenant du temps
+::T|FR|net.wifi.tputboost.057|                           d'antenne que les autres clients du meme point
+::T|FR|net.wifi.tputboost.058|                           d'acces auraient eu autrement.
+::T|FR|net.wifi.tputboost.059|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.tputboost.060|                           Ndi\Params\ThroughputBoosterEnabled\default et
+::T|FR|net.wifi.tputboost.061|                           reecrit cette chaine.
+::X|FR|net.wifi.tputboost.001|  Pourquoi ces profils : Un profil le prend, quatre ne le prennent pas, et
+::X|FR|net.wifi.tputboost.002|                         le partage suit la forme du trafic plutot que la
+::X|FR|net.wifi.tputboost.003|                         puissance de la machine. Le profil serveur
+::X|FR|net.wifi.tputboost.004|                         heberge torrents, Plex et serveurs de jeu : c'est
+::X|FR|net.wifi.tputboost.005|                         le seul dont la charge de travail caracteristique
+::X|FR|net.wifi.tputboost.006|                         est un televersement soutenu, la seule chose que
+::X|FR|net.wifi.tputboost.007|                         ce mot-cle ameliore. Il prend donc 1 et accepte
+::X|FR|net.wifi.tputboost.008|                         d'etre le voisin bruyant de son propre point
+::X|FR|net.wifi.tputboost.009|                         d'acces. Gaming prend 0 parce que le trafic de
+::X|FR|net.wifi.tputboost.010|                         jeu n'accumule jamais assez pour former une
+::X|FR|net.wifi.tputboost.011|                         rafale : l'activer pour une partie serait une
+::X|FR|net.wifi.tputboost.012|                         affirmation sans mecanisme derriere. Bureautique
+::X|FR|net.wifi.tputboost.013|                         prend 0 parce qu'une tour silencieuse qui affame
+::X|FR|net.wifi.tputboost.014|                         les autres appareils du foyer est un mauvais
+::X|FR|net.wifi.tputboost.015|                         marche. Le portable prend 0 pour ces deux
+::X|FR|net.wifi.tputboost.016|                         raisons, plus une troisieme : des rafales
+::X|FR|net.wifi.tputboost.017|                         d'emission plus longues, c'est plus de temps
+::X|FR|net.wifi.tputboost.018|                         radio, et donc de la batterie.
+::X|FR|net.wifi.tputboost.019|
+::X|FR|net.wifi.tputboost.020|  Non verifie (en)  : I have no measurement of how much upstream
+::X|FR|net.wifi.tputboost.021|                      throughput this actually buys on the AX210, and
+::X|FR|net.wifi.tputboost.022|                      Intel publishes no figure. The mechanism (holding
+::X|FR|net.wifi.tputboost.023|                      the medium longer once enough data is buffered) is
+::X|FR|net.wifi.tputboost.024|                      documented; the size of the effect is not. I also
+::X|FR|net.wifi.tputboost.025|                      cannot tell you how badly it degrades the other
+::X|FR|net.wifi.tputboost.026|                      clients on your access point - that depends on how
+::X|FR|net.wifi.tputboost.027|                      much you are uploading and how many other devices
+::X|FR|net.wifi.tputboost.028|                      are contending, and no script can see either.
+::X|FR|net.wifi.tputboost.029|
+::X|FR|net.wifi.tputboost.030|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.tputboost.031|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.tputboost.032|                    ThroughputBoosterEnabled /t REG_SZ, written by :nicset
+::X|FR|net.wifi.tputboost.033|                    after an Enum check. Live only after :nicrestart or a
+::X|FR|net.wifi.tputboost.034|                    reboot.
+::T|EN|net.wifi.tputboost.001|THROUGHPUT BOOSTER - PACKET BURSTING ON THE UPLINK
+::T|EN|net.wifi.tputboost.002|
+::T|EN|net.wifi.tputboost.003|  What it is      : Intel's Throughput Booster is packet bursting. When
+::T|EN|net.wifi.tputboost.004|                    the client has enough data queued, it keeps possession
+::T|EN|net.wifi.tputboost.005|                    of the air medium for longer than the normal
+::T|EN|net.wifi.tputboost.006|                    contention rules would give it, and pushes more frames
+::T|EN|net.wifi.tputboost.007|                    per turn toward the access point. Intel's own
+::T|EN|net.wifi.tputboost.008|                    description is blunt about the consequence: with this
+::T|EN|net.wifi.tputboost.009|                    on, the adapter does not let other computers on your
+::T|EN|net.wifi.tputboost.010|                    network have equal access to the wireless network.
+::T|EN|net.wifi.tputboost.011|
+::T|EN|net.wifi.tputboost.012|  Actual effect   : OPTY writes ThroughputBoosterEnabled as REG_SZ through
+::T|EN|net.wifi.tputboost.013|                    :nicset once the number is confirmed present in
+::T|EN|net.wifi.tputboost.014|                    Ndi\Params\ThroughputBoosterEnabled\Enum. This is an
+::T|EN|net.wifi.tputboost.015|                    Intel keyword with no leading asterisk, so it exists
+::T|EN|net.wifi.tputboost.016|                    only on Intel wireless adapters and OPTY simply skips
+::T|EN|net.wifi.tputboost.017|                    it elsewhere. It takes effect on adapter restart.
+::T|EN|net.wifi.tputboost.018|
+::T|EN|net.wifi.tputboost.019|  Gain            : Upload throughput, and only upload throughput. It
+::T|EN|net.wifi.tputboost.020|                    helps the case where you have a lot of data queued and
+::T|EN|net.wifi.tputboost.021|                    want it out fast: large file uploads, seeding, pushing
+::T|EN|net.wifi.tputboost.022|                    a stream out of the house. Downloads are unaffected
+::T|EN|net.wifi.tputboost.023|                    because the burst is yours to send, not the access
+::T|EN|net.wifi.tputboost.024|                    point's. Game traffic gets nothing at all - it is
+::T|EN|net.wifi.tputboost.025|                    small, frequent and never has enough queued to burst,
+::T|EN|net.wifi.tputboost.026|                    so there is no mechanism by which this improves a
+::T|EN|net.wifi.tputboost.027|                    match.
+::T|EN|net.wifi.tputboost.028|
+::T|EN|net.wifi.tputboost.029|  Cost            : Airtime is shared, and taking a longer turn means
+::T|EN|net.wifi.tputboost.030|                    everyone else waits. On a wireless network with one
+::T|EN|net.wifi.tputboost.031|                    active device that costs nothing; on a household
+::T|EN|net.wifi.tputboost.032|                    access point it means your upload starves the tablet,
+::T|EN|net.wifi.tputboost.033|                    the TV and the phone while it runs. On a laptop it
+::T|EN|net.wifi.tputboost.034|                    also means longer continuous transmit periods, which
+::T|EN|net.wifi.tputboost.035|                    is the expensive state for a Wi-Fi radio.
+::T|EN|net.wifi.tputboost.036|
+::T|EN|net.wifi.tputboost.037|  Windows default : The AX210 driver measured here ships 0, disabled. OPTY
+::T|EN|net.wifi.tputboost.038|                    reads Ndi\Params\ThroughputBoosterEnabled\default
+::T|EN|net.wifi.tputboost.039|                    rather than assuming that.
+::T|EN|net.wifi.tputboost.040|
+::T|EN|net.wifi.tputboost.041|  Possible values:
+::T|EN|net.wifi.tputboost.042|    0                    : Disabled. The adapter contends for the air on
+::T|EN|net.wifi.tputboost.043|                           the ordinary WMM terms and gives the medium up
+::T|EN|net.wifi.tputboost.044|                           between frames like everyone else. The shipped
+::T|EN|net.wifi.tputboost.045|                           default, and the setting that keeps the rest of
+::T|EN|net.wifi.tputboost.046|                           your household usable.
+::T|EN|net.wifi.tputboost.047|    1                    : Enabled. Packet bursting: once the client has
+::T|EN|net.wifi.tputboost.048|                           enough data buffered, it holds the medium
+::T|EN|net.wifi.tputboost.049|                           longer than it normally would to push that data
+::T|EN|net.wifi.tputboost.050|                           to the access point. This lifts upload
+::T|EN|net.wifi.tputboost.051|                           throughput only, and it does so by taking
+::T|EN|net.wifi.tputboost.052|                           airtime the other clients on the same access
+::T|EN|net.wifi.tputboost.053|                           point would otherwise have had.
+::T|EN|net.wifi.tputboost.054|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.tputboost.055|                           :nicdefault reads
+::T|EN|net.wifi.tputboost.056|                           Ndi\Params\ThroughputBoosterEnabled\default and
+::T|EN|net.wifi.tputboost.057|                           writes that string back.
+::X|EN|net.wifi.tputboost.001|  Why these profiles : One profile takes it and four do not, and the split
+::X|EN|net.wifi.tputboost.002|                       follows the traffic shape rather than the machine's
+::X|EN|net.wifi.tputboost.003|                       speed. The server profile hosts torrent, Plex and
+::X|EN|net.wifi.tputboost.004|                       game servers - it is the only one whose defining
+::X|EN|net.wifi.tputboost.005|                       workload is a sustained upload, which is the only
+::X|EN|net.wifi.tputboost.006|                       thing this keyword improves - so it takes 1 and
+::X|EN|net.wifi.tputboost.007|                       accepts being the loud neighbour on its own access
+::X|EN|net.wifi.tputboost.008|                       point. Gaming takes 0 because game traffic never
+::X|EN|net.wifi.tputboost.009|                       queues enough to burst: turning this on for a match
+::X|EN|net.wifi.tputboost.010|                       would be a claim with no mechanism behind it.
+::X|EN|net.wifi.tputboost.011|                       Office takes 0 because a quiet desktop that starves
+::X|EN|net.wifi.tputboost.012|                       the household's other devices is a bad trade. The
+::X|EN|net.wifi.tputboost.013|                       laptop takes 0 for both reasons plus a third:
+::X|EN|net.wifi.tputboost.014|                       longer transmit bursts are more radio time, and
+::X|EN|net.wifi.tputboost.015|                       that is battery.
+::X|EN|net.wifi.tputboost.016|
+::X|EN|net.wifi.tputboost.017|  Unverified      : I have no measurement of how much upstream throughput
+::X|EN|net.wifi.tputboost.018|                    this actually buys on the AX210, and Intel publishes
+::X|EN|net.wifi.tputboost.019|                    no figure. The mechanism (holding the medium longer
+::X|EN|net.wifi.tputboost.020|                    once enough data is buffered) is documented; the size
+::X|EN|net.wifi.tputboost.021|                    of the effect is not. I also cannot tell you how badly
+::X|EN|net.wifi.tputboost.022|                    it degrades the other clients on your access point -
+::X|EN|net.wifi.tputboost.023|                    that depends on how much you are uploading and how
+::X|EN|net.wifi.tputboost.024|                    many other devices are contending, and no script can
+::X|EN|net.wifi.tputboost.025|                    see either.
+::X|EN|net.wifi.tputboost.026|
+::X|EN|net.wifi.tputboost.027|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.tputboost.028|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.tputboost.029|                    ThroughputBoosterEnabled /t REG_SZ, written by :nicset
+::X|EN|net.wifi.tputboost.030|                    after an Enum check. Live only after :nicrestart or a
+::X|EN|net.wifi.tputboost.031|                    reboot.
+::
+:: ---- net.wifi.pktcoal (repair) ----------------------------------
+::P|net.wifi.pktcoal|1|1|1|1|NICDEFAULT|
+::T|FR|net.wifi.pktcoal.001|FUSION DES PAQUETS - PAS LE REGLAGE DE LATENCE QU'ON VOUS VEND
+::T|FR|net.wifi.pktcoal.002|
+::T|FR|net.wifi.pktcoal.003|  Ce que c est    : La fusion de paquets NDIS, apparue avec NDIS 6.30,
+::T|FR|net.wifi.pktcoal.004|                    permet a la carte d'installer des filtres de reception
+::T|FR|net.wifi.pktcoal.005|                    afin de regrouper le trafic de diffusion et de
+::T|FR|net.wifi.pktcoal.006|                    multidiffusion aleatoire, au lieu d'interrompre l'hote
+::T|FR|net.wifi.pktcoal.007|                    pour chaque trame. La description de l'objectif par
+::T|FR|net.wifi.pktcoal.008|                    Microsoft elle-meme est la reduction de la charge de
+::T|FR|net.wifi.pktcoal.009|                    traitement et de la consommation d'energie de l'hote
+::T|FR|net.wifi.pktcoal.010|                    dues a la reception de paquets de diffusion ou de
+::T|FR|net.wifi.pktcoal.011|                    multidiffusion aleatoires. C'est une fonction
+::T|FR|net.wifi.pktcoal.012|                    d'economie d'energie visant le bruit de fond, et c'est
+::T|FR|net.wifi.pktcoal.013|                    son nom qui pousse les gens a la basculer.
+::T|FR|net.wifi.pktcoal.014|
+::T|FR|net.wifi.pktcoal.015|  Effet reel      : OPTY ecrit *PacketCoalescing en REG_SZ via :nicset une
+::T|FR|net.wifi.pktcoal.016|                    fois le nombre confirme present dans
+::T|FR|net.wifi.pktcoal.017|                    Ndi\Params\*PacketCoalescing\Enum, et reaffirme la
+::T|FR|net.wifi.pktcoal.018|                    valeur 1. Si le mot-cle vaut zero, le pilote miniport
+::T|FR|net.wifi.pktcoal.019|                    a l'obligation de n'annoncer aucune capacite de fusion
+::T|FR|net.wifi.pktcoal.020|                    de paquets : c'est un arret net, pas une molette de
+::T|FR|net.wifi.pktcoal.021|                    reglage. L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.pktcoal.022|
+::T|FR|net.wifi.pktcoal.023|  Gain            : Ecrire 1 est une reparation, pas une amelioration. Sur
+::T|FR|net.wifi.pktcoal.024|                    une machine intacte, la valeur est deja 1 et rien ne
+::T|FR|net.wifi.pktcoal.025|                    change. Si cette carte existe, c'est parce que les
+::T|FR|net.wifi.pktcoal.026|                    scripts d'optimisation et les guides de forum ecrivent
+::T|FR|net.wifi.pktcoal.027|                    0, persuades que tout ce qui porte le mot fusion
+::T|FR|net.wifi.pktcoal.028|                    retarde les paquets comme le fait la moderation
+::T|FR|net.wifi.pktcoal.029|                    d'interruptions. C'est faux : les filtres de fusion
+::T|FR|net.wifi.pktcoal.030|                    s'appliquent a la diffusion et a la multidiffusion,
+::T|FR|net.wifi.pktcoal.031|                    vos propres connexions sont en unicast, et aucun
+::T|FR|net.wifi.pktcoal.032|                    mecanisme ne permet a cette desactivation de baisser
+::T|FR|net.wifi.pktcoal.033|                    votre ping. La remettre a 1 supprime une penalite de
+::T|FR|net.wifi.pktcoal.034|                    consommation et de processeur au repos qui n'achetait
+::T|FR|net.wifi.pktcoal.035|                    rien.
+::T|FR|net.wifi.pktcoal.036|
+::T|FR|net.wifi.pktcoal.037|  Cout            : Aucun que je puisse identifier. Active est la valeur
+::T|FR|net.wifi.pktcoal.038|                    par defaut normalisee, le mecanisme ne touche pas a
+::T|FR|net.wifi.pktcoal.039|                    votre propre trafic, et la seule chose qu'il change
+::T|FR|net.wifi.pktcoal.040|                    est de savoir si le bruit de diffusion parasite a le
+::T|FR|net.wifi.pktcoal.041|                    droit de reveiller le processeur de l'hote.
+::T|FR|net.wifi.pktcoal.042|
+::T|FR|net.wifi.pktcoal.043|  Defaut Windows  : Le tableau des mots-cles normalises de Microsoft donne
+::T|FR|net.wifi.pktcoal.044|                    1 (Active) comme valeur par defaut, et le pilote de
+::T|FR|net.wifi.pktcoal.045|                    l'AX210 mesure ici livre lui aussi 1. OPTY lit malgre
+::T|FR|net.wifi.pktcoal.046|                    tout Ndi\Params\*PacketCoalescing\default plutot que
+::T|FR|net.wifi.pktcoal.047|                    de se reposer sur cette concordance.
+::T|FR|net.wifi.pktcoal.048|
+::T|FR|net.wifi.pktcoal.049|  Valeurs possibles :
+::T|FR|net.wifi.pktcoal.050|    0                    : Desactive. Le pilote miniport a l'obligation de
+::T|FR|net.wifi.pktcoal.051|                           n'annoncer aucune capacite de fusion de paquets
+::T|FR|net.wifi.pktcoal.052|                           : les filtres de reception ne sont donc jamais
+::T|FR|net.wifi.pktcoal.053|                           installes et chaque trame de diffusion ou de
+::T|FR|net.wifi.pktcoal.054|                           multidiffusion parasite remonte jusqu'a l'hote.
+::T|FR|net.wifi.pktcoal.055|                           Cela coute du processeur et de l'energie au
+::T|FR|net.wifi.pktcoal.056|                           repos, et n'apporte rien nulle part.
+::T|FR|net.wifi.pktcoal.057|    1                    : Active. La valeur par defaut normalisee. La
+::T|FR|net.wifi.pktcoal.058|                           carte peut installer des filtres de reception
+::T|FR|net.wifi.pktcoal.059|                           qui regroupent le trafic de diffusion et de
+::T|FR|net.wifi.pktcoal.060|                           multidiffusion aleatoire au lieu d'interrompre
+::T|FR|net.wifi.pktcoal.061|                           l'hote pour chaque trame, ce qui permet au
+::T|FR|net.wifi.pktcoal.062|                           processeur de rester plus longtemps dans un
+::T|FR|net.wifi.pktcoal.063|                           etat de faible consommation. Cela ne touche, ne
+::T|FR|net.wifi.pktcoal.064|                           retarde et ne regroupe jamais votre propre
+::T|FR|net.wifi.pktcoal.065|                           trafic unicast.
+::T|FR|net.wifi.pktcoal.066|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.pktcoal.067|                           Ndi\Params\*PacketCoalescing\default et reecrit
+::T|FR|net.wifi.pktcoal.068|                           cette chaine. Reserve au profil WINDOWS.
+::X|FR|net.wifi.pktcoal.001|  Pourquoi ces profils : Quatre colonnes identiques, et c'est la bonne
+::X|FR|net.wifi.pktcoal.002|                         reponse, pas une lacune. Aucun profil ne gagne a
+::X|FR|net.wifi.pktcoal.003|                         desactiver la fusion de paquets : gaming n'y
+::X|FR|net.wifi.pktcoal.004|                         gagne aucune latence puisque l'unicast n'est pas
+::X|FR|net.wifi.pktcoal.005|                         touche, le serveur n'y gagne aucun debit pour la
+::X|FR|net.wifi.pktcoal.006|                         meme raison, bureautique n'y gagne rien et paie
+::X|FR|net.wifi.pktcoal.007|                         de la consommation au repos, et le portable paie
+::X|FR|net.wifi.pktcoal.008|                         cette meme consommation au repos sur batterie.
+::X|FR|net.wifi.pktcoal.009|                         Inventer une difference entre ces quatre profils
+::X|FR|net.wifi.pktcoal.010|                         reviendrait a fabriquer un arbitrage qui n'existe
+::X|FR|net.wifi.pktcoal.011|                         pas. La colonne WINDOWS ne differe que par le
+::X|FR|net.wifi.pktcoal.012|                         mecanisme - elle restaure le defaut publie par le
+::X|FR|net.wifi.pktcoal.013|                         pilote au lieu d'affirmer 1 - et sur tous les
+::X|FR|net.wifi.pktcoal.014|                         pilotes que j'ai vus elle aboutit a la meme
+::X|FR|net.wifi.pktcoal.015|                         valeur.
+::X|FR|net.wifi.pktcoal.016|
+::X|FR|net.wifi.pktcoal.017|  Non verifie (en)  : I did not measure the idle power difference between
+::X|FR|net.wifi.pktcoal.018|                      0 and 1 on this adapter, and Microsoft publishes no
+::X|FR|net.wifi.pktcoal.019|                      figure either - the documentation states the purpose
+::X|FR|net.wifi.pktcoal.020|                      (reducing processing overhead and power consumption
+::X|FR|net.wifi.pktcoal.021|                      caused by random broadcast and multicast reception)
+::X|FR|net.wifi.pktcoal.022|                      without quantifying it. What I am confident about is
+::X|FR|net.wifi.pktcoal.023|                      the direction: there is no path by which disabling
+::X|FR|net.wifi.pktcoal.024|                      it lowers latency on your own traffic.
+::X|FR|net.wifi.pktcoal.025|
+::X|FR|net.wifi.pktcoal.026|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.pktcoal.027|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.pktcoal.028|                    *PacketCoalescing /t REG_SZ, written by :nicset after
+::X|FR|net.wifi.pktcoal.029|                    an Enum check. Live only after :nicrestart or a
+::X|FR|net.wifi.pktcoal.030|                    reboot.
+::T|EN|net.wifi.pktcoal.001|PACKET COALESCING - NOT THE LATENCY SETTING IT IS SOLD AS
+::T|EN|net.wifi.pktcoal.002|
+::T|EN|net.wifi.pktcoal.003|  What it is      : NDIS packet coalescing, added in NDIS 6.30, lets the
+::T|EN|net.wifi.pktcoal.004|                    adapter install receive filters so that random
+::T|EN|net.wifi.pktcoal.005|                    broadcast and multicast traffic can be grouped rather
+::T|EN|net.wifi.pktcoal.006|                    than interrupting the host for every single frame.
+::T|EN|net.wifi.pktcoal.007|                    Microsoft's own description of the purpose is reducing
+::T|EN|net.wifi.pktcoal.008|                    processing overhead and power consumption on the host
+::T|EN|net.wifi.pktcoal.009|                    caused by the reception of random broadcast or
+::T|EN|net.wifi.pktcoal.010|                    multicast packets. It is a power feature aimed at
+::T|EN|net.wifi.pktcoal.011|                    background noise, and the name is what makes people
+::T|EN|net.wifi.pktcoal.012|                    flip it.
+::T|EN|net.wifi.pktcoal.013|
+::T|EN|net.wifi.pktcoal.014|  Actual effect   : OPTY writes *PacketCoalescing as REG_SZ through
+::T|EN|net.wifi.pktcoal.015|                    :nicset once the number is confirmed present in
+::T|EN|net.wifi.pktcoal.016|                    Ndi\Params\*PacketCoalescing\Enum, and re-asserts 1.
+::T|EN|net.wifi.pktcoal.017|                    If the keyword is set to zero, the miniport driver is
+::T|EN|net.wifi.pktcoal.018|                    required not to advertise support for any packet
+::T|EN|net.wifi.pktcoal.019|                    coalescing capability at all - it is a hard off, not a
+::T|EN|net.wifi.pktcoal.020|                    tuning dial. Takes effect on adapter restart.
+::T|EN|net.wifi.pktcoal.021|
+::T|EN|net.wifi.pktcoal.022|  Gain            : Setting it to 1 is a repair, not an improvement. On an
+::T|EN|net.wifi.pktcoal.023|                    untouched machine it is already 1 and nothing changes.
+::T|EN|net.wifi.pktcoal.024|                    The reason the card exists is that optimiser scripts
+::T|EN|net.wifi.pktcoal.025|                    and forum guides write 0, on the belief that anything
+::T|EN|net.wifi.pktcoal.026|                    with coalescing in the name delays packets the way
+::T|EN|net.wifi.pktcoal.027|                    interrupt moderation does. It does not: coalescing
+::T|EN|net.wifi.pktcoal.028|                    filters apply to broadcast and multicast, your own
+::T|EN|net.wifi.pktcoal.029|                    connections are unicast, and there is no mechanism by
+::T|EN|net.wifi.pktcoal.030|                    which turning this off lowers your ping. Turning it
+::T|EN|net.wifi.pktcoal.031|                    back on removes an idle-power and idle-CPU penalty
+::T|EN|net.wifi.pktcoal.032|                    that bought nothing.
+::T|EN|net.wifi.pktcoal.033|
+::T|EN|net.wifi.pktcoal.034|  Cost            : None that I can find. Enabled is the standardized
+::T|EN|net.wifi.pktcoal.035|                    default, the mechanism does not touch your own
+::T|EN|net.wifi.pktcoal.036|                    traffic, and the only thing it changes is whether
+::T|EN|net.wifi.pktcoal.037|                    stray broadcast noise gets to wake the host processor.
+::T|EN|net.wifi.pktcoal.038|
+::T|EN|net.wifi.pktcoal.039|  Windows default : Microsoft's standardized keyword table gives 1
+::T|EN|net.wifi.pktcoal.040|                    (Enabled) as the default, and the AX210 driver
+::T|EN|net.wifi.pktcoal.041|                    measured here also ships 1. OPTY still reads
+::T|EN|net.wifi.pktcoal.042|                    Ndi\Params\*PacketCoalescing\default rather than
+::T|EN|net.wifi.pktcoal.043|                    relying on both agreeing.
+::T|EN|net.wifi.pktcoal.044|
+::T|EN|net.wifi.pktcoal.045|  Possible values:
+::T|EN|net.wifi.pktcoal.046|    0                    : Disabled. The miniport is required not to
+::T|EN|net.wifi.pktcoal.047|                           advertise any packet coalescing capability at
+::T|EN|net.wifi.pktcoal.048|                           all, so the receive filters are never installed
+::T|EN|net.wifi.pktcoal.049|                           and every stray broadcast and multicast frame
+::T|EN|net.wifi.pktcoal.050|                           reaches the host. Costs idle CPU and power, and
+::T|EN|net.wifi.pktcoal.051|                           buys nothing anywhere.
+::T|EN|net.wifi.pktcoal.052|    1                    : Enabled. The standardized default. The adapter
+::T|EN|net.wifi.pktcoal.053|                           may install receive filters that group random
+::T|EN|net.wifi.pktcoal.054|                           broadcast and multicast traffic instead of
+::T|EN|net.wifi.pktcoal.055|                           interrupting the host for each frame, which is
+::T|EN|net.wifi.pktcoal.056|                           what lets the processor stay in a low-power
+::T|EN|net.wifi.pktcoal.057|                           state longer. It does not touch, delay or batch
+::T|EN|net.wifi.pktcoal.058|                           your own unicast traffic.
+::T|EN|net.wifi.pktcoal.059|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.pktcoal.060|                           :nicdefault reads
+::T|EN|net.wifi.pktcoal.061|                           Ndi\Params\*PacketCoalescing\default and writes
+::T|EN|net.wifi.pktcoal.062|                           that string back. Reserved for the WINDOWS
+::T|EN|net.wifi.pktcoal.063|                           profile.
+::X|EN|net.wifi.pktcoal.001|  Why these profiles : Four identical columns, and that is the correct
+::X|EN|net.wifi.pktcoal.002|                       answer rather than a gap. There is no profile on
+::X|EN|net.wifi.pktcoal.003|                       which disabling packet coalescing helps: gaming
+::X|EN|net.wifi.pktcoal.004|                       gains no latency because unicast is untouched, the
+::X|EN|net.wifi.pktcoal.005|                       server gains no throughput for the same reason,
+::X|EN|net.wifi.pktcoal.006|                       office gains nothing and pays idle power, and the
+::X|EN|net.wifi.pktcoal.007|                       laptop pays the same idle power on a battery.
+::X|EN|net.wifi.pktcoal.008|                       Inventing a difference between the four here would
+::X|EN|net.wifi.pktcoal.009|                       be fabricating a trade-off that does not exist. The
+::X|EN|net.wifi.pktcoal.010|                       WINDOWS column differs only in mechanism - it
+::X|EN|net.wifi.pktcoal.011|                       restores the driver's published default instead of
+::X|EN|net.wifi.pktcoal.012|                       asserting 1 - and on every driver I have seen it
+::X|EN|net.wifi.pktcoal.013|                       lands on the same value.
+::X|EN|net.wifi.pktcoal.014|
+::X|EN|net.wifi.pktcoal.015|  Unverified      : I did not measure the idle power difference between 0
+::X|EN|net.wifi.pktcoal.016|                    and 1 on this adapter, and Microsoft publishes no
+::X|EN|net.wifi.pktcoal.017|                    figure either - the documentation states the purpose
+::X|EN|net.wifi.pktcoal.018|                    (reducing processing overhead and power consumption
+::X|EN|net.wifi.pktcoal.019|                    caused by random broadcast and multicast reception)
+::X|EN|net.wifi.pktcoal.020|                    without quantifying it. What I am confident about is
+::X|EN|net.wifi.pktcoal.021|                    the direction: there is no path by which disabling it
+::X|EN|net.wifi.pktcoal.022|                    lowers latency on your own traffic.
+::X|EN|net.wifi.pktcoal.023|
+::X|EN|net.wifi.pktcoal.024|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.pktcoal.025|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.pktcoal.026|                    *PacketCoalescing /t REG_SZ, written by :nicset after
+::X|EN|net.wifi.pktcoal.027|                    an Enum check. Live only after :nicrestart or a
+::X|EN|net.wifi.pktcoal.028|                    reboot.
+::
+:: ---- net.wifi.sleepdisc (repair) --------------------------------
+::P|net.wifi.sleepdisc|NICDEFAULT|NICDEFAULT|NICDEFAULT|NICDEFAULT|NICDEFAULT|
+::T|FR|net.wifi.sleepdisc.001|VEILLE A LA DECONNEXION - RESTAUREE, PAS DECIDEE
+::T|FR|net.wifi.sleepdisc.002|
+::T|FR|net.wifi.sleepdisc.003|  Ce que c est    : *DeviceSleepOnDisconnect indique si la carte a le
+::T|FR|net.wifi.sleepdisc.004|                    droit de se mettre dans un etat de faible consommation
+::T|FR|net.wifi.sleepdisc.005|                    lorsque le media est deconnecte, puis de revenir a
+::T|FR|net.wifi.sleepdisc.006|                    pleine puissance lorsqu'il se reconnecte. En Wi-Fi,
+::T|FR|net.wifi.sleepdisc.007|                    cela vise la fenetre pendant laquelle la radio n'est
+::T|FR|net.wifi.sleepdisc.008|                    associee a rien : entre deux reseaux, hors de portee,
+::T|FR|net.wifi.sleepdisc.009|                    ou pendant le redemarrage du routeur.
+::T|FR|net.wifi.sleepdisc.010|
+::T|FR|net.wifi.sleepdisc.011|  Effet reel      : Tous les profils passent ici par :nicdefault plutot
+::T|FR|net.wifi.sleepdisc.012|                    que par :nicset. :nicdefault lit
+::T|FR|net.wifi.sleepdisc.013|                    Ndi\Params\*DeviceSleepOnDisconnect\default et reecrit
+::T|FR|net.wifi.sleepdisc.014|                    cette chaine en REG_SZ : la machine se retrouve donc
+::T|FR|net.wifi.sleepdisc.015|                    sur ce que son propre pilote livre, et toute valeur
+::T|FR|net.wifi.sleepdisc.016|                    imposee est effacee. L'effet arrive au redemarrage de
+::T|FR|net.wifi.sleepdisc.017|                    la carte.
+::T|FR|net.wifi.sleepdisc.018|
+::T|FR|net.wifi.sleepdisc.019|  Gain            : Restaurer le defaut du fabricant supprime une valeur
+::T|FR|net.wifi.sleepdisc.020|                    ecrite par un autre outil et que vous n'avez jamais
+::T|FR|net.wifi.sleepdisc.021|                    choisie. Au-dela de cela, cette carte ne revendique
+::T|FR|net.wifi.sleepdisc.022|                    aucun gain, et elle ne le doit pas : le reglage n'agit
+::T|FR|net.wifi.sleepdisc.023|                    que pendant que la machine n'a pas de reseau, ce qui
+::T|FR|net.wifi.sleepdisc.024|                    represente une tranche courte et improductive de la
+::T|FR|net.wifi.sleepdisc.025|                    vie de chacune de ces machines. Aucun mecanisme ne
+::T|FR|net.wifi.sleepdisc.026|                    permet a l'une ou l'autre valeur d'ameliorer la
+::T|FR|net.wifi.sleepdisc.027|                    latence, le debit ou la fiabilite pendant que vous
+::T|FR|net.wifi.sleepdisc.028|                    etes connecte.
+::T|FR|net.wifi.sleepdisc.029|
+::T|FR|net.wifi.sleepdisc.030|  Cout            : Aucun du fait de la restauration elle-meme. Si l'on
+::T|FR|net.wifi.sleepdisc.031|                    restaure au lieu de decider, c'est parce que les deux
+::T|FR|net.wifi.sleepdisc.032|                    valeurs par defaut publiees se contredisent, et que
+::T|FR|net.wifi.sleepdisc.033|                    choisir l'un des deux chiffres a l'aveugle aurait un
+::T|FR|net.wifi.sleepdisc.034|                    cout reel sur la moitie du materiel en circulation.
+::T|FR|net.wifi.sleepdisc.035|
+::T|FR|net.wifi.sleepdisc.036|  Defaut Windows  : C'est la le point interessant. Le tableau des mots-
+::T|FR|net.wifi.sleepdisc.037|                    cles normalises de gestion de l'alimentation de
+::T|FR|net.wifi.sleepdisc.038|                    Microsoft donne 1 (Active) comme defaut de
+::T|FR|net.wifi.sleepdisc.039|                    *DeviceSleepOnDisconnect. Le pilote Intel AX210 de
+::T|FR|net.wifi.sleepdisc.040|                    cette machine publie 0 dans son propre defaut
+::T|FR|net.wifi.sleepdisc.041|                    Ndi\Params. Les deux sont a jour, les deux font
+::T|FR|net.wifi.sleepdisc.042|                    autorite dans leur perimetre, et ils se contredisent -
+::T|FR|net.wifi.sleepdisc.043|                    raison precise pour laquelle rien ici ne code un
+::T|FR|net.wifi.sleepdisc.044|                    chiffre en dur.
+::T|FR|net.wifi.sleepdisc.045|
+::T|FR|net.wifi.sleepdisc.046|  Valeurs possibles :
+::T|FR|net.wifi.sleepdisc.047|    0                    : Desactive. La radio reste en pleine puissance
+::T|FR|net.wifi.sleepdisc.048|                           meme lorsqu'elle n'est associee a rien, et se
+::T|FR|net.wifi.sleepdisc.049|                           trouve donc immediatement prete des qu'un
+::T|FR|net.wifi.sleepdisc.050|                           reseau apparait. C'est la valeur livree par le
+::T|FR|net.wifi.sleepdisc.051|                           pilote de l'AX210 mesure ici - et ce n'est PAS
+::T|FR|net.wifi.sleepdisc.052|                           celle que le tableau normalise de Microsoft
+::T|FR|net.wifi.sleepdisc.053|                           donne comme defaut. OPTY n'ecrit pas ce
+::T|FR|net.wifi.sleepdisc.054|                           chiffre, car l'ecrire sur un pilote qui livre 1
+::T|FR|net.wifi.sleepdisc.055|                           desactiverait en silence une fonction
+::T|FR|net.wifi.sleepdisc.056|                           d'economie d'energie, ce qui, sur un portable,
+::T|FR|net.wifi.sleepdisc.057|                           est exactement le mauvais sens.
+::T|FR|net.wifi.sleepdisc.058|    1                    : Active. L'appareil est autorise a passer dans
+::T|FR|net.wifi.sleepdisc.059|                           un etat de faible consommation lorsque le media
+::T|FR|net.wifi.sleepdisc.060|                           est deconnecte, et revient a pleine puissance
+::T|FR|net.wifi.sleepdisc.061|                           des qu'il se reconnecte. Cela economise de
+::T|FR|net.wifi.sleepdisc.062|                           l'energie pendant la fenetre ou la machine n'a
+::T|FR|net.wifi.sleepdisc.063|                           pas de reseau - un portable dans un sac, une
+::T|FR|net.wifi.sleepdisc.064|                           tour entre deux redemarrages du routeur. OPTY
+::T|FR|net.wifi.sleepdisc.065|                           n'ecrit pas non plus ce chiffre, pour la raison
+::T|FR|net.wifi.sleepdisc.066|                           symetrique.
+::T|FR|net.wifi.sleepdisc.067|    NICDEFAULT           : Restaurer ce que le pilote publie lui-meme :
+::T|FR|net.wifi.sleepdisc.068|                           :nicdefault lit
+::T|FR|net.wifi.sleepdisc.069|                           Ndi\Params\*DeviceSleepOnDisconnect\default et
+::T|FR|net.wifi.sleepdisc.070|                           reecrit exactement cette chaine en REG_SZ.
+::T|FR|net.wifi.sleepdisc.071|                           C'est ce que font les cinq profils. Cela defait
+::T|FR|net.wifi.sleepdisc.072|                           une valeur imposee par un script d'optimisation
+::T|FR|net.wifi.sleepdisc.073|                           ou par une session passee du Gestionnaire de
+::T|FR|net.wifi.sleepdisc.074|                           peripheriques, sans qu'OPTY ait a decider quel
+::T|FR|net.wifi.sleepdisc.075|                           chiffre convient a un pilote qu'il n'a jamais
+::T|FR|net.wifi.sleepdisc.076|                           vu.
+::X|FR|net.wifi.sleepdisc.001|  Pourquoi ces profils : Cinq colonnes identiques, et c'est delibere.
+::X|FR|net.wifi.sleepdisc.002|                         Ecrire 0 partout desactiverait une fonction
+::X|FR|net.wifi.sleepdisc.003|                         d'economie d'energie sur le portable au profit
+::X|FR|net.wifi.sleepdisc.004|                         d'un benefice qu'aucun profil ne sait designer.
+::X|FR|net.wifi.sleepdisc.005|                         Ecrire 1 partout activerait, sur du materiel ou
+::X|FR|net.wifi.sleepdisc.006|                         le fabricant la livre volontairement coupee, une
+::X|FR|net.wifi.sleepdisc.007|                         fonction associee a des reconnexions lentes ou
+::X|FR|net.wifi.sleepdisc.008|                         manquees apres la veille. Aucun des deux chiffres
+::X|FR|net.wifi.sleepdisc.009|                         n'est defendable pour un pilote qu'OPTY n'a pas
+::X|FR|net.wifi.sleepdisc.010|                         vu, et aucun profil n'a une charge de travail qui
+::X|FR|net.wifi.sleepdisc.011|                         rende le choix determinant : les cinq restaurent
+::X|FR|net.wifi.sleepdisc.012|                         donc la valeur publiee par le pilote, et la carte
+::X|FR|net.wifi.sleepdisc.013|                         le dit franchement au lieu de fabriquer une
+::X|FR|net.wifi.sleepdisc.014|                         divergence.
+::X|FR|net.wifi.sleepdisc.015|
+::X|FR|net.wifi.sleepdisc.016|  Non verifie (en)  : I could not measure the battery difference between 0
+::X|FR|net.wifi.sleepdisc.017|                      and 1 on a laptop, and I found no vendor figure for
+::X|FR|net.wifi.sleepdisc.018|                      it. The widely repeated association between this
+::X|FR|net.wifi.sleepdisc.019|                      keyword and Wi-Fi failing to return after sleep is
+::X|FR|net.wifi.sleepdisc.020|                      plausible given what the keyword does, but I did not
+::X|FR|net.wifi.sleepdisc.021|                      reproduce it and I am not going to present it as
+::X|FR|net.wifi.sleepdisc.022|                      established. The one thing I did establish is the
+::X|FR|net.wifi.sleepdisc.023|                      disagreement between the two published defaults,
+::X|FR|net.wifi.sleepdisc.024|                      which is the whole reason this card refuses to
+::X|FR|net.wifi.sleepdisc.025|                      assert a number.
+::X|FR|net.wifi.sleepdisc.026|
+::X|FR|net.wifi.sleepdisc.027|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.sleepdisc.028|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|FR|net.wifi.sleepdisc.029|                    *DeviceSleepOnDisconnect. Every profile restores the
+::X|FR|net.wifi.sleepdisc.030|                    driver's published default through :nicdefault, which
+::X|FR|net.wifi.sleepdisc.031|                    reads Ndi\Params\*DeviceSleepOnDisconnect\default and
+::X|FR|net.wifi.sleepdisc.032|                    writes it back as REG_SZ. Live only after :nicrestart
+::X|FR|net.wifi.sleepdisc.033|                    or a reboot.
+::T|EN|net.wifi.sleepdisc.001|SLEEP ON DISCONNECT - RESTORED, NOT DECIDED
+::T|EN|net.wifi.sleepdisc.002|
+::T|EN|net.wifi.sleepdisc.003|  What it is      : *DeviceSleepOnDisconnect describes whether the adapter
+::T|EN|net.wifi.sleepdisc.004|                    may put itself into a low-power state when the media
+::T|EN|net.wifi.sleepdisc.005|                    is disconnected and come back to full power when it
+::T|EN|net.wifi.sleepdisc.006|                    reconnects. On Wi-Fi that means the window where the
+::T|EN|net.wifi.sleepdisc.007|                    radio is not associated with anything: between
+::T|EN|net.wifi.sleepdisc.008|                    networks, out of range, or while the router reboots.
+::T|EN|net.wifi.sleepdisc.009|
+::T|EN|net.wifi.sleepdisc.010|  Actual effect   : Every profile routes this through :nicdefault rather
+::T|EN|net.wifi.sleepdisc.011|                    than :nicset. :nicdefault reads
+::T|EN|net.wifi.sleepdisc.012|                    Ndi\Params\*DeviceSleepOnDisconnect\default and writes
+::T|EN|net.wifi.sleepdisc.013|                    that string back as REG_SZ, so the machine ends up on
+::T|EN|net.wifi.sleepdisc.014|                    whatever its own driver ships and any override is
+::T|EN|net.wifi.sleepdisc.015|                    cleared. Takes effect on adapter restart.
+::T|EN|net.wifi.sleepdisc.016|
+::T|EN|net.wifi.sleepdisc.017|  Gain            : Restoring the vendor default removes a value that some
+::T|EN|net.wifi.sleepdisc.018|                    other tool wrote and that you never chose. Beyond
+::T|EN|net.wifi.sleepdisc.019|                    that, this card claims no gain, and it should not: the
+::T|EN|net.wifi.sleepdisc.020|                    setting only does anything while the machine has no
+::T|EN|net.wifi.sleepdisc.021|                    network, which is a small and unproductive slice of
+::T|EN|net.wifi.sleepdisc.022|                    any of these machines' lives. There is no mechanism by
+::T|EN|net.wifi.sleepdisc.023|                    which either value improves latency, throughput or
+::T|EN|net.wifi.sleepdisc.024|                    reliability while you are connected.
+::T|EN|net.wifi.sleepdisc.025|
+::T|EN|net.wifi.sleepdisc.026|  Cost            : None from the restore itself. The reason for restoring
+::T|EN|net.wifi.sleepdisc.027|                    rather than deciding is that the two published
+::T|EN|net.wifi.sleepdisc.028|                    defaults disagree, and picking either number blind
+::T|EN|net.wifi.sleepdisc.029|                    would be a real cost on half the hardware out there.
+::T|EN|net.wifi.sleepdisc.030|
+::T|EN|net.wifi.sleepdisc.031|  Windows default : This is the interesting part. Microsoft's standardized
+::T|EN|net.wifi.sleepdisc.032|                    power-management keyword table lists 1 (Enabled) as
+::T|EN|net.wifi.sleepdisc.033|                    the default for *DeviceSleepOnDisconnect. The Intel
+::T|EN|net.wifi.sleepdisc.034|                    AX210 driver on this machine publishes 0 in its own
+::T|EN|net.wifi.sleepdisc.035|                    Ndi\Params default. Both are current, both are
+::T|EN|net.wifi.sleepdisc.036|                    authoritative for their scope, and they contradict
+::T|EN|net.wifi.sleepdisc.037|                    each other - which is precisely why nothing here
+::T|EN|net.wifi.sleepdisc.038|                    hardcodes a number.
+::T|EN|net.wifi.sleepdisc.039|
+::T|EN|net.wifi.sleepdisc.040|  Possible values:
+::T|EN|net.wifi.sleepdisc.041|    0                    : Disabled. The radio stays in a full-power state
+::T|EN|net.wifi.sleepdisc.042|                           even when it is not associated with anything,
+::T|EN|net.wifi.sleepdisc.043|                           so it is instantly ready when a network
+::T|EN|net.wifi.sleepdisc.044|                           appears. This is the value the AX210 driver
+::T|EN|net.wifi.sleepdisc.045|                           measured here ships - and it is NOT what
+::T|EN|net.wifi.sleepdisc.046|                           Microsoft's standardized table gives as the
+::T|EN|net.wifi.sleepdisc.047|                           default. OPTY does not write this number,
+::T|EN|net.wifi.sleepdisc.048|                           because writing it on a driver that ships 1
+::T|EN|net.wifi.sleepdisc.049|                           would silently disable a power feature, which
+::T|EN|net.wifi.sleepdisc.050|                           on a laptop is exactly the wrong direction.
+::T|EN|net.wifi.sleepdisc.051|    1                    : Enabled. The device is allowed to drop into a
+::T|EN|net.wifi.sleepdisc.052|                           low-power state when the media is disconnected,
+::T|EN|net.wifi.sleepdisc.053|                           and returns to full power when it connects
+::T|EN|net.wifi.sleepdisc.054|                           again. Saves power in the window where the
+::T|EN|net.wifi.sleepdisc.055|                           machine has no network - a laptop in a bag, a
+::T|EN|net.wifi.sleepdisc.056|                           desktop between reboots of the router. OPTY
+::T|EN|net.wifi.sleepdisc.057|                           does not write this number either, for the
+::T|EN|net.wifi.sleepdisc.058|                           mirror-image reason.
+::T|EN|net.wifi.sleepdisc.059|    NICDEFAULT           : Restore whatever the driver itself publishes:
+::T|EN|net.wifi.sleepdisc.060|                           :nicdefault reads
+::T|EN|net.wifi.sleepdisc.061|                           Ndi\Params\*DeviceSleepOnDisconnect\default and
+::T|EN|net.wifi.sleepdisc.062|                           writes that exact string back as REG_SZ. This
+::T|EN|net.wifi.sleepdisc.063|                           is what all five profiles do. It undoes an
+::T|EN|net.wifi.sleepdisc.064|                           override written by an optimiser script or by a
+::T|EN|net.wifi.sleepdisc.065|                           past Device Manager session without OPTY having
+::T|EN|net.wifi.sleepdisc.066|                           to decide which number is right for a driver it
+::T|EN|net.wifi.sleepdisc.067|                           has never seen.
+::X|EN|net.wifi.sleepdisc.001|  Why these profiles : Five identical columns, deliberately. Writing 0
+::X|EN|net.wifi.sleepdisc.002|                       everywhere would disable a power feature on the
+::X|EN|net.wifi.sleepdisc.003|                       laptop for a benefit no profile can point to.
+::X|EN|net.wifi.sleepdisc.004|                       Writing 1 everywhere would enable, on hardware
+::X|EN|net.wifi.sleepdisc.005|                       where the vendor deliberately ships it off, a
+::X|EN|net.wifi.sleepdisc.006|                       feature associated with slow or failed reconnects
+::X|EN|net.wifi.sleepdisc.007|                       after sleep. Neither number is defensible for a
+::X|EN|net.wifi.sleepdisc.008|                       driver OPTY has not seen, and no profile has a
+::X|EN|net.wifi.sleepdisc.009|                       workload that makes the choice matter, so all five
+::X|EN|net.wifi.sleepdisc.010|                       restore the driver's own published value and the
+::X|EN|net.wifi.sleepdisc.011|                       card says so plainly instead of manufacturing a
+::X|EN|net.wifi.sleepdisc.012|                       split.
+::X|EN|net.wifi.sleepdisc.013|
+::X|EN|net.wifi.sleepdisc.014|  Unverified      : I could not measure the battery difference between 0
+::X|EN|net.wifi.sleepdisc.015|                    and 1 on a laptop, and I found no vendor figure for
+::X|EN|net.wifi.sleepdisc.016|                    it. The widely repeated association between this
+::X|EN|net.wifi.sleepdisc.017|                    keyword and Wi-Fi failing to return after sleep is
+::X|EN|net.wifi.sleepdisc.018|                    plausible given what the keyword does, but I did not
+::X|EN|net.wifi.sleepdisc.019|                    reproduce it and I am not going to present it as
+::X|EN|net.wifi.sleepdisc.020|                    established. The one thing I did establish is the
+::X|EN|net.wifi.sleepdisc.021|                    disagreement between the two published defaults, which
+::X|EN|net.wifi.sleepdisc.022|                    is the whole reason this card refuses to assert a
+::X|EN|net.wifi.sleepdisc.023|                    number.
+::X|EN|net.wifi.sleepdisc.024|
+::X|EN|net.wifi.sleepdisc.025|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.sleepdisc.026|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v
+::X|EN|net.wifi.sleepdisc.027|                    *DeviceSleepOnDisconnect. Every profile restores the
+::X|EN|net.wifi.sleepdisc.028|                    driver's published default through :nicdefault, which
+::X|EN|net.wifi.sleepdisc.029|                    reads Ndi\Params\*DeviceSleepOnDisconnect\default and
+::X|EN|net.wifi.sleepdisc.030|                    writes it back as REG_SZ. Live only after :nicrestart
+::X|EN|net.wifi.sleepdisc.031|                    or a reboot.
+::
+:: ---- net.wifi.chwidth24 (repair) --------------------------------
+::P|net.wifi.chwidth24|1|1|1|1|NICDEFAULT|
+::T|FR|net.wifi.chwidth24.001|LARGEUR DE CANAL 2,4 GHZ - LE REGLAGE QUI EST SUR LE MAUVAIS APPAREIL
+::T|FR|net.wifi.chwidth24.002|
+::T|FR|net.wifi.chwidth24.003|  Ce que c est    : ChannelWidth24 determine si votre client fonctionnera
+::T|FR|net.wifi.chwidth24.004|                    sur un canal large de 40 MHz dans la bande 2,4 GHz, ou
+::T|FR|net.wifi.chwidth24.005|                    s'il se limitera a 20 MHz. C'est une acceptation cote
+::T|FR|net.wifi.chwidth24.006|                    client, pas une politique de bande : le point d'acces
+::T|FR|net.wifi.chwidth24.007|                    choisit la largeur de fonctionnement, et ce mot-cle
+::T|FR|net.wifi.chwidth24.008|                    decide seulement si vous le suivez.
+::T|FR|net.wifi.chwidth24.009|
+::T|FR|net.wifi.chwidth24.010|  Effet reel      : OPTY ecrit ChannelWidth24 en REG_SZ via :nicset une
+::T|FR|net.wifi.chwidth24.011|                    fois le nombre confirme present dans
+::T|FR|net.wifi.chwidth24.012|                    Ndi\Params\ChannelWidth24\Enum, et reaffirme la valeur
+::T|FR|net.wifi.chwidth24.013|                    1 (Auto). L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.chwidth24.014|
+::T|FR|net.wifi.chwidth24.015|  Gain            : Aucun que ce mot-cle puisse apporter, et c'est tout
+::T|FR|net.wifi.chwidth24.016|                    l'objet de cette carte. Le conseil classique
+::T|FR|net.wifi.chwidth24.017|                    d'utiliser 20 MHz en 2,4 GHz est un bon conseil -
+::T|FR|net.wifi.chwidth24.018|                    adresse au routeur. Un canal de 40 MHz occupe la
+::T|FR|net.wifi.chwidth24.019|                    majeure partie d'une bande qui ne compte que trois
+::T|FR|net.wifi.chwidth24.020|                    canaux de 20 MHz non recouvrants : un routeur
+::T|FR|net.wifi.chwidth24.021|                    configure ainsi pose un vrai probleme. Mais regler
+::T|FR|net.wifi.chwidth24.022|                    votre client sur 20 MHz ne reconfigure pas le routeur
+::T|FR|net.wifi.chwidth24.023|                    : cela refuse une largeur que le point d'acces avait
+::T|FR|net.wifi.chwidth24.024|                    deja decide d'accorder, pendant que tous les autres
+::T|FR|net.wifi.chwidth24.025|                    appareils du foyer continuent de l'utiliser. Les deux
+::T|FR|net.wifi.chwidth24.026|                    mots-cles cote client qui atteignent reellement la
+::T|FR|net.wifi.chwidth24.027|                    bande sont FatChannelIntolerant, qui demande aux
+::T|FR|net.wifi.chwidth24.028|                    points d'acces a portee de cesser d'utiliser 40 MHz
+::T|FR|net.wifi.chwidth24.029|                    pour tout le monde, et celui-ci, qui n'agit que sur
+::T|FR|net.wifi.chwidth24.030|                    votre propre lien.
+::T|FR|net.wifi.chwidth24.031|
+::T|FR|net.wifi.chwidth24.032|  Cout            : La ou votre point d'acces fait tourner un canal 40 MHz
+::T|FR|net.wifi.chwidth24.033|                    propre en 2,4 GHz, forcer 20 MHz divise par deux votre
+::T|FR|net.wifi.chwidth24.034|                    debit maximal sur la seule bande qui atteint les
+::T|FR|net.wifi.chwidth24.035|                    pieces eloignees. Pour une machine qui bascule
+::T|FR|net.wifi.chwidth24.036|                    justement en 2,4 GHz parce qu'elle est loin, c'est du
+::T|FR|net.wifi.chwidth24.037|                    debit retire au lien qui en avait le plus besoin.
+::T|FR|net.wifi.chwidth24.038|
+::T|FR|net.wifi.chwidth24.039|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 1, Auto, pour
+::T|FR|net.wifi.chwidth24.040|                    les trois mots-cles de largeur de canal. OPTY lit
+::T|FR|net.wifi.chwidth24.041|                    Ndi\Params\ChannelWidth24\default plutot que de le
+::T|FR|net.wifi.chwidth24.042|                    supposer.
+::T|FR|net.wifi.chwidth24.043|
+::T|FR|net.wifi.chwidth24.044|  Valeurs possibles :
+::T|FR|net.wifi.chwidth24.045|    0                    : 20 MHz uniquement. Le client refuse le
+::T|FR|net.wifi.chwidth24.046|                           fonctionnement en 40 MHz dans la bande 2,4 GHz,
+::T|FR|net.wifi.chwidth24.047|                           meme la ou le point d'acces le propose. Cela
+::T|FR|net.wifi.chwidth24.048|                           divise par deux votre debit maximal en 2,4 GHz.
+::T|FR|net.wifi.chwidth24.049|                           Cela n'empeche pas votre point d'acces
+::T|FR|net.wifi.chwidth24.050|                           d'utiliser 40 MHz avec ses autres clients, et
+::T|FR|net.wifi.chwidth24.051|                           cela ne libere de spectre pour personne.
+::T|FR|net.wifi.chwidth24.052|    1                    : Auto. Le client accepte la largeur que le point
+::T|FR|net.wifi.chwidth24.053|                           d'acces propose reellement, 20 ou 40 MHz. C'est
+::T|FR|net.wifi.chwidth24.054|                           la valeur livree. Notez que les regles de
+::T|FR|net.wifi.chwidth24.055|                           coexistence 802.11 ramenent deja un point
+::T|FR|net.wifi.chwidth24.056|                           d'acces a 20 MHz des qu'une station ancienne ou
+::T|FR|net.wifi.chwidth24.057|                           incompatible est presente : Auto ne signifie
+::T|FR|net.wifi.chwidth24.058|                           donc pas 40 MHz en permanence, mais 40 MHz
+::T|FR|net.wifi.chwidth24.059|                           lorsque les conditions de la bande le
+::T|FR|net.wifi.chwidth24.060|                           permettent.
+::T|FR|net.wifi.chwidth24.061|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.chwidth24.062|                           Ndi\Params\ChannelWidth24\default et reecrit
+::T|FR|net.wifi.chwidth24.063|                           cette chaine.
+::X|FR|net.wifi.chwidth24.001|  Pourquoi ces profils : Quatre colonnes identiques sur Auto, et c'est une
+::X|FR|net.wifi.chwidth24.002|                         decision, pas un oubli. Aucun profil ne gagne a
+::X|FR|net.wifi.chwidth24.003|                         refuser une largeur que le point d'acces a deja
+::X|FR|net.wifi.chwidth24.004|                         accordee : gaming et serveur perdraient du debit
+::X|FR|net.wifi.chwidth24.005|                         sur leur bande de repli sans reduire aucune
+::X|FR|net.wifi.chwidth24.006|                         interference, bureautique degraderait les pieces
+::X|FR|net.wifi.chwidth24.007|                         eloignees, et le portable - la machine la plus
+::X|FR|net.wifi.chwidth24.008|                         susceptible de se retrouver en 2,4 GHz - y
+::X|FR|net.wifi.chwidth24.009|                         perdrait le plus. Cette carte existe pour
+::X|FR|net.wifi.chwidth24.010|                         reaffirmer Auto apres le passage d'un script
+::X|FR|net.wifi.chwidth24.011|                         d'optimisation qui aurait ecrit 20 MHz
+::X|FR|net.wifi.chwidth24.012|                         uniquement, et pour dire ou se trouve le vrai
+::X|FR|net.wifi.chwidth24.013|                         correctif du 2,4 GHz : dans la page de
+::X|FR|net.wifi.chwidth24.014|                         configuration du routeur.
+::X|FR|net.wifi.chwidth24.015|
+::X|FR|net.wifi.chwidth24.016|  Non verifie (en)  : I did not measure a 2.4 GHz link at 20 MHz against
+::X|FR|net.wifi.chwidth24.017|                      the same link at 40 MHz on this machine. The claim
+::X|FR|net.wifi.chwidth24.018|                      that forcing the client to 20 MHz does not clean up
+::X|FR|net.wifi.chwidth24.019|                      the band is a reading of where the decision sits
+::X|FR|net.wifi.chwidth24.020|                      (the access point picks the operating width, the
+::X|FR|net.wifi.chwidth24.021|                      client accepts or declines), not a measurement of
+::X|FR|net.wifi.chwidth24.022|                      interference. If your access point genuinely runs 40
+::X|FR|net.wifi.chwidth24.023|                      MHz in 2.4 GHz and your neighbours suffer for it,
+::X|FR|net.wifi.chwidth24.024|                      the fix is on the access point.
+::X|FR|net.wifi.chwidth24.025|
+::X|FR|net.wifi.chwidth24.026|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.chwidth24.027|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth24
+::X|FR|net.wifi.chwidth24.028|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|FR|net.wifi.chwidth24.029|                    Live only after :nicrestart or a reboot.
+::T|EN|net.wifi.chwidth24.001|CHANNEL WIDTH 2.4 GHZ - THE SETTING THAT IS ON THE WRONG DEVICE
+::T|EN|net.wifi.chwidth24.002|
+::T|EN|net.wifi.chwidth24.003|  What it is      : ChannelWidth24 decides whether your client will
+::T|EN|net.wifi.chwidth24.004|                    operate on a 40 MHz wide channel in the 2.4 GHz band,
+::T|EN|net.wifi.chwidth24.005|                    or restrict itself to 20 MHz. It is a client-side
+::T|EN|net.wifi.chwidth24.006|                    acceptance, not a band policy: the access point
+::T|EN|net.wifi.chwidth24.007|                    chooses the operating width, and this keyword only
+::T|EN|net.wifi.chwidth24.008|                    decides whether you go along with it.
+::T|EN|net.wifi.chwidth24.009|
+::T|EN|net.wifi.chwidth24.010|  Actual effect   : OPTY writes ChannelWidth24 as REG_SZ through :nicset
+::T|EN|net.wifi.chwidth24.011|                    once the number is confirmed present in
+::T|EN|net.wifi.chwidth24.012|                    Ndi\Params\ChannelWidth24\Enum, and re-asserts 1
+::T|EN|net.wifi.chwidth24.013|                    (Auto). Takes effect on adapter restart.
+::T|EN|net.wifi.chwidth24.014|
+::T|EN|net.wifi.chwidth24.015|  Gain            : None that this keyword can deliver, and that is the
+::T|EN|net.wifi.chwidth24.016|                    point of the card. The standard advice to use 20 MHz
+::T|EN|net.wifi.chwidth24.017|                    in 2.4 GHz is sound advice - aimed at the router. A 40
+::T|EN|net.wifi.chwidth24.018|                    MHz channel occupies most of a band that has only
+::T|EN|net.wifi.chwidth24.019|                    three non-overlapping 20 MHz channels, so a router
+::T|EN|net.wifi.chwidth24.020|                    configured that way is a genuine problem. But setting
+::T|EN|net.wifi.chwidth24.021|                    your client to 20 MHz does not reconfigure the router:
+::T|EN|net.wifi.chwidth24.022|                    it declines bandwidth the access point already decided
+::T|EN|net.wifi.chwidth24.023|                    to grant, while every other device in the house keeps
+::T|EN|net.wifi.chwidth24.024|                    using it. The two client-side keywords that do reach
+::T|EN|net.wifi.chwidth24.025|                    the band are FatChannelIntolerant, which asks access
+::T|EN|net.wifi.chwidth24.026|                    points in range to stop using 40 MHz for everybody,
+::T|EN|net.wifi.chwidth24.027|                    and this one, which only affects your own link.
+::T|EN|net.wifi.chwidth24.028|
+::T|EN|net.wifi.chwidth24.029|  Cost            : Where your access point does run a clean 40 MHz
+::T|EN|net.wifi.chwidth24.030|                    channel in 2.4 GHz, forcing 20 halves your best-case
+::T|EN|net.wifi.chwidth24.031|                    rate on the only band that reaches the far rooms. For
+::T|EN|net.wifi.chwidth24.032|                    a machine that falls back to 2.4 GHz precisely because
+::T|EN|net.wifi.chwidth24.033|                    it is far away, that is throughput removed from the
+::T|EN|net.wifi.chwidth24.034|                    link that needed it most.
+::T|EN|net.wifi.chwidth24.035|
+::T|EN|net.wifi.chwidth24.036|  Windows default : The AX210 driver measured here ships 1, Auto, for all
+::T|EN|net.wifi.chwidth24.037|                    three channel-width keywords. OPTY reads
+::T|EN|net.wifi.chwidth24.038|                    Ndi\Params\ChannelWidth24\default rather than assuming
+::T|EN|net.wifi.chwidth24.039|                    it.
+::T|EN|net.wifi.chwidth24.040|
+::T|EN|net.wifi.chwidth24.041|  Possible values:
+::T|EN|net.wifi.chwidth24.042|    0                    : 20 MHz only. The client refuses 40 MHz
+::T|EN|net.wifi.chwidth24.043|                           operation in the 2.4 GHz band even where the
+::T|EN|net.wifi.chwidth24.044|                           access point offers it. Halves your best-case
+::T|EN|net.wifi.chwidth24.045|                           2.4 GHz rate. It does not stop your access
+::T|EN|net.wifi.chwidth24.046|                           point from using 40 MHz with its other clients,
+::T|EN|net.wifi.chwidth24.047|                           and it does not free spectrum for anyone.
+::T|EN|net.wifi.chwidth24.048|    1                    : Auto. The client accepts whatever width the
+::T|EN|net.wifi.chwidth24.049|                           access point actually offers, 20 or 40 MHz. The
+::T|EN|net.wifi.chwidth24.050|                           shipped default. Note that 802.11 coexistence
+::T|EN|net.wifi.chwidth24.051|                           rules already force an access point back to 20
+::T|EN|net.wifi.chwidth24.052|                           MHz whenever a legacy or intolerant station is
+::T|EN|net.wifi.chwidth24.053|                           present, so Auto does not mean 40 MHz all the
+::T|EN|net.wifi.chwidth24.054|                           time - it means 40 MHz when the band conditions
+::T|EN|net.wifi.chwidth24.055|                           allow it.
+::T|EN|net.wifi.chwidth24.056|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.chwidth24.057|                           :nicdefault reads
+::T|EN|net.wifi.chwidth24.058|                           Ndi\Params\ChannelWidth24\default and writes
+::T|EN|net.wifi.chwidth24.059|                           that string back.
+::X|EN|net.wifi.chwidth24.001|  Why these profiles : Four identical columns at Auto, and that is a
+::X|EN|net.wifi.chwidth24.002|                       decision rather than an omission. No profile gains
+::X|EN|net.wifi.chwidth24.003|                       from declining a width the access point already
+::X|EN|net.wifi.chwidth24.004|                       granted: gaming and server would lose throughput on
+::X|EN|net.wifi.chwidth24.005|                       their fallback band for no reduction in
+::X|EN|net.wifi.chwidth24.006|                       interference, office would make far rooms worse,
+::X|EN|net.wifi.chwidth24.007|                       and the laptop - the machine most likely to end up
+::X|EN|net.wifi.chwidth24.008|                       on 2.4 GHz in the first place - would lose the
+::X|EN|net.wifi.chwidth24.009|                       most. The card exists to re-assert Auto after an
+::X|EN|net.wifi.chwidth24.010|                       optimiser script has written 20 MHz only, and to
+::X|EN|net.wifi.chwidth24.011|                       say where the real 2.4 GHz fix lives: in the
+::X|EN|net.wifi.chwidth24.012|                       router's configuration page.
+::X|EN|net.wifi.chwidth24.013|
+::X|EN|net.wifi.chwidth24.014|  Unverified      : I did not measure a 2.4 GHz link at 20 MHz against the
+::X|EN|net.wifi.chwidth24.015|                    same link at 40 MHz on this machine. The claim that
+::X|EN|net.wifi.chwidth24.016|                    forcing the client to 20 MHz does not clean up the
+::X|EN|net.wifi.chwidth24.017|                    band is a reading of where the decision sits (the
+::X|EN|net.wifi.chwidth24.018|                    access point picks the operating width, the client
+::X|EN|net.wifi.chwidth24.019|                    accepts or declines), not a measurement of
+::X|EN|net.wifi.chwidth24.020|                    interference. If your access point genuinely runs 40
+::X|EN|net.wifi.chwidth24.021|                    MHz in 2.4 GHz and your neighbours suffer for it, the
+::X|EN|net.wifi.chwidth24.022|                    fix is on the access point.
+::X|EN|net.wifi.chwidth24.023|
+::X|EN|net.wifi.chwidth24.024|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.chwidth24.025|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth24
+::X|EN|net.wifi.chwidth24.026|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|EN|net.wifi.chwidth24.027|                    Live only after :nicrestart or a reboot.
+::
+:: ---- net.wifi.chwidth52 (repair) --------------------------------
+::P|net.wifi.chwidth52|1|1|1|1|NICDEFAULT|
+::T|FR|net.wifi.chwidth52.001|LARGEUR DE CANAL 5 GHZ - A LAISSER SUR AUTO
+::T|FR|net.wifi.chwidth52.002|
+::T|FR|net.wifi.chwidth52.003|  Ce que c est    : ChannelWidth52 determine si votre client accepte les
+::T|FR|net.wifi.chwidth52.004|                    canaux larges utilises par le point d'acces dans la
+::T|FR|net.wifi.chwidth52.005|                    bande 5 GHz, ou s'il se limite a un unique canal de 20
+::T|FR|net.wifi.chwidth52.006|                    MHz. Comme en 2,4 GHz, c'est le point d'acces qui
+::T|FR|net.wifi.chwidth52.007|                    choisit la largeur ; ce reglage represente seulement
+::T|FR|net.wifi.chwidth52.008|                    votre accord.
+::T|FR|net.wifi.chwidth52.009|
+::T|FR|net.wifi.chwidth52.010|  Effet reel      : OPTY ecrit ChannelWidth52 en REG_SZ via :nicset une
+::T|FR|net.wifi.chwidth52.011|                    fois le nombre confirme present dans
+::T|FR|net.wifi.chwidth52.012|                    Ndi\Params\ChannelWidth52\Enum, et reaffirme la valeur
+::T|FR|net.wifi.chwidth52.013|                    1 (Auto). L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.chwidth52.014|
+::T|FR|net.wifi.chwidth52.015|  Gain            : Aucun a le modifier, et une perte importante a le
+::T|FR|net.wifi.chwidth52.016|                    restreindre. Sur ce pilote, la seule solution de
+::T|FR|net.wifi.chwidth52.017|                    rechange a Auto est 20 MHz uniquement - il n'existe
+::T|FR|net.wifi.chwidth52.018|                    pas de palier intermediaire a 40 MHz - le choix se
+::T|FR|net.wifi.chwidth52.019|                    fait donc entre la largeur negociee par votre point
+::T|FR|net.wifi.chwidth52.020|                    d'acces et un cinquieme ou un huitieme de celle-ci. La
+::T|FR|net.wifi.chwidth52.021|                    bande 5 GHz compte assez de canaux non recouvrants
+::T|FR|net.wifi.chwidth52.022|                    pour qu'un canal large n'y soit pas le probleme
+::T|FR|net.wifi.chwidth52.023|                    d'encombrement qu'il represente en 2,4 GHz.
+::T|FR|net.wifi.chwidth52.024|
+::T|FR|net.wifi.chwidth52.025|  Cout            : Mettre 0 vous coute la plus grande partie de votre
+::T|FR|net.wifi.chwidth52.026|                    debit 5 GHz pendant toute la duree du reglage, et
+::T|FR|net.wifi.chwidth52.027|                    c'est typiquement un reglage que l'on oublie avoir
+::T|FR|net.wifi.chwidth52.028|                    change. C'est aussi la premiere cause de perplexite
+::T|FR|net.wifi.chwidth52.029|                    devant un portable Wi-Fi 6 qui plafonne autour de 100
+::T|FR|net.wifi.chwidth52.030|                    Mbit/s a cote du routeur.
+::T|FR|net.wifi.chwidth52.031|
+::T|FR|net.wifi.chwidth52.032|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 1, Auto. OPTY
+::T|FR|net.wifi.chwidth52.033|                    lit Ndi\Params\ChannelWidth52\default plutot que de le
+::T|FR|net.wifi.chwidth52.034|                    supposer.
+::T|FR|net.wifi.chwidth52.035|
+::T|FR|net.wifi.chwidth52.036|  Valeurs possibles :
+::T|FR|net.wifi.chwidth52.037|    0                    : 20 MHz uniquement. Le client fonctionne sur un
+::T|FR|net.wifi.chwidth52.038|                           unique canal de 20 MHz dans la bande 5 GHz,
+::T|FR|net.wifi.chwidth52.039|                           quelle que soit l'offre du point d'acces. Sur
+::T|FR|net.wifi.chwidth52.040|                           une carte qui negocierait autrement 80 ou 160
+::T|FR|net.wifi.chwidth52.041|                           MHz, cela ramene le debit du lien a une petite
+::T|FR|net.wifi.chwidth52.042|                           fraction de ce dont le materiel est capable.
+::T|FR|net.wifi.chwidth52.043|                           Legitime uniquement comme diagnostic, lorsque
+::T|FR|net.wifi.chwidth52.044|                           vous soupconnez qu'un canal large tombe sur un
+::T|FR|net.wifi.chwidth52.045|                           probleme de radar ou d'interference.
+::T|FR|net.wifi.chwidth52.046|    1                    : Auto. Le client accepte la largeur utilisee par
+::T|FR|net.wifi.chwidth52.047|                           le point d'acces : 20, 40, 80 ou 160 MHz selon
+::T|FR|net.wifi.chwidth52.048|                           le point d'acces et selon les conditions
+::T|FR|net.wifi.chwidth52.049|                           reglementaires du canal. C'est la valeur
+::T|FR|net.wifi.chwidth52.050|                           livree, et celle qui permet a un lien Wi-Fi 6
+::T|FR|net.wifi.chwidth52.051|                           de tenir ses promesses.
+::T|FR|net.wifi.chwidth52.052|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.chwidth52.053|                           Ndi\Params\ChannelWidth52\default et reecrit
+::T|FR|net.wifi.chwidth52.054|                           cette chaine.
+::X|FR|net.wifi.chwidth52.001|  Pourquoi ces profils : Quatre colonnes identiques sur Auto. Aucun profil
+::X|FR|net.wifi.chwidth52.002|                         ici ne souhaite un cinquieme de son debit 5 GHz :
+::X|FR|net.wifi.chwidth52.003|                         gaming ne gagne aucune latence sur un canal
+::X|FR|net.wifi.chwidth52.004|                         etroit, le serveur perd le debit meme qui
+::X|FR|net.wifi.chwidth52.005|                         justifie son existence, bureautique perd de la
+::X|FR|net.wifi.chwidth52.006|                         vitesse sans benefice visible, et le portable
+::X|FR|net.wifi.chwidth52.007|                         termine ses transferts plus lentement, ce qui,
+::X|FR|net.wifi.chwidth52.008|                         sur batterie, signifie une radio allumee plus
+::X|FR|net.wifi.chwidth52.009|                         longtemps. Cette carte est la pour remettre Auto
+::X|FR|net.wifi.chwidth52.010|                         apres qu'un script d'optimisation ou une session
+::X|FR|net.wifi.chwidth52.011|                         de depannage a laisse la carte figee sur 20 MHz.
+::X|FR|net.wifi.chwidth52.012|
+::X|FR|net.wifi.chwidth52.013|  Non verifie (en)  : The case for a narrower 5 GHz channel in a dense
+::X|FR|net.wifi.chwidth52.014|                      apartment is real in principle - an 80 MHz channel
+::X|FR|net.wifi.chwidth52.015|                      overlaps more neighbours than a 40 MHz one, and
+::X|FR|net.wifi.chwidth52.016|                      overlap costs retries - but this driver offers no 40
+::X|FR|net.wifi.chwidth52.017|                      MHz middle step, only 20 MHz or Auto. I did not test
+::X|FR|net.wifi.chwidth52.018|                      whether dropping to 20 MHz ever beats Auto on a
+::X|FR|net.wifi.chwidth52.019|                      congested 5 GHz band, and with the loss being that
+::X|FR|net.wifi.chwidth52.020|                      large I am not going to recommend it on theory.
+::X|FR|net.wifi.chwidth52.021|
+::X|FR|net.wifi.chwidth52.022|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.chwidth52.023|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth52
+::X|FR|net.wifi.chwidth52.024|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|FR|net.wifi.chwidth52.025|                    Live only after :nicrestart or a reboot.
+::T|EN|net.wifi.chwidth52.001|CHANNEL WIDTH 5 GHZ - LEAVE IT ON AUTO
+::T|EN|net.wifi.chwidth52.002|
+::T|EN|net.wifi.chwidth52.003|  What it is      : ChannelWidth52 decides whether your client accepts the
+::T|EN|net.wifi.chwidth52.004|                    wide channels the access point operates in the 5 GHz
+::T|EN|net.wifi.chwidth52.005|                    band, or restricts itself to a single 20 MHz channel.
+::T|EN|net.wifi.chwidth52.006|                    As with 2.4 GHz, the access point chooses the width;
+::T|EN|net.wifi.chwidth52.007|                    this is only your side agreeing to it.
+::T|EN|net.wifi.chwidth52.008|
+::T|EN|net.wifi.chwidth52.009|  Actual effect   : OPTY writes ChannelWidth52 as REG_SZ through :nicset
+::T|EN|net.wifi.chwidth52.010|                    once the number is confirmed present in
+::T|EN|net.wifi.chwidth52.011|                    Ndi\Params\ChannelWidth52\Enum, and re-asserts 1
+::T|EN|net.wifi.chwidth52.012|                    (Auto). Takes effect on adapter restart.
+::T|EN|net.wifi.chwidth52.013|
+::T|EN|net.wifi.chwidth52.014|  Gain            : None from changing it, and a large loss from
+::T|EN|net.wifi.chwidth52.015|                    restricting it. On this driver the only alternative to
+::T|EN|net.wifi.chwidth52.016|                    Auto is 20 MHz only - there is no 40 MHz middle
+::T|EN|net.wifi.chwidth52.017|                    setting - so the choice is between the width your
+::T|EN|net.wifi.chwidth52.018|                    access point negotiated and a fifth or an eighth of
+::T|EN|net.wifi.chwidth52.019|                    it. The 5 GHz band has enough non-overlapping channels
+::T|EN|net.wifi.chwidth52.020|                    that a wide channel is not the crowding problem it is
+::T|EN|net.wifi.chwidth52.021|                    at 2.4 GHz.
+::T|EN|net.wifi.chwidth52.022|
+::T|EN|net.wifi.chwidth52.023|  Cost            : Setting 0 costs you most of your 5 GHz link rate for
+::T|EN|net.wifi.chwidth52.024|                    the entire time it is set, and it is a setting people
+::T|EN|net.wifi.chwidth52.025|                    forget they changed. It is also the single most common
+::T|EN|net.wifi.chwidth52.026|                    way to end up puzzled about why a Wi-Fi 6 laptop tops
+::T|EN|net.wifi.chwidth52.027|                    out around 100 Mbit/s next to the router.
+::T|EN|net.wifi.chwidth52.028|
+::T|EN|net.wifi.chwidth52.029|  Windows default : The AX210 driver measured here ships 1, Auto. OPTY
+::T|EN|net.wifi.chwidth52.030|                    reads Ndi\Params\ChannelWidth52\default rather than
+::T|EN|net.wifi.chwidth52.031|                    assuming it.
+::T|EN|net.wifi.chwidth52.032|
+::T|EN|net.wifi.chwidth52.033|  Possible values:
+::T|EN|net.wifi.chwidth52.034|    0                    : 20 MHz only. The client operates on a single 20
+::T|EN|net.wifi.chwidth52.035|                           MHz channel in the 5 GHz band regardless of
+::T|EN|net.wifi.chwidth52.036|                           what the access point offers. On an adapter
+::T|EN|net.wifi.chwidth52.037|                           that would otherwise negotiate 80 or 160 MHz
+::T|EN|net.wifi.chwidth52.038|                           this cuts the link rate to a small fraction of
+::T|EN|net.wifi.chwidth52.039|                           what the hardware can do. Legitimate only as a
+::T|EN|net.wifi.chwidth52.040|                           diagnostic, when you suspect a wide channel is
+::T|EN|net.wifi.chwidth52.041|                           landing on a radar or interference problem.
+::T|EN|net.wifi.chwidth52.042|    1                    : Auto. The client accepts the width the access
+::T|EN|net.wifi.chwidth52.043|                           point operates, 20, 40, 80 or 160 MHz depending
+::T|EN|net.wifi.chwidth52.044|                           on the access point and on regulatory
+::T|EN|net.wifi.chwidth52.045|                           conditions in the channel. The shipped default
+::T|EN|net.wifi.chwidth52.046|                           and the value that lets a Wi-Fi 6 link perform
+::T|EN|net.wifi.chwidth52.047|                           as sold.
+::T|EN|net.wifi.chwidth52.048|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.chwidth52.049|                           :nicdefault reads
+::T|EN|net.wifi.chwidth52.050|                           Ndi\Params\ChannelWidth52\default and writes
+::T|EN|net.wifi.chwidth52.051|                           that string back.
+::X|EN|net.wifi.chwidth52.001|  Why these profiles : Four identical columns at Auto. There is no profile
+::X|EN|net.wifi.chwidth52.002|                       here that wants a fifth of its 5 GHz throughput:
+::X|EN|net.wifi.chwidth52.003|                       gaming does not gain latency from a narrow channel,
+::X|EN|net.wifi.chwidth52.004|                       the server loses the throughput it exists for,
+::X|EN|net.wifi.chwidth52.005|                       office loses speed for no visible benefit, and the
+::X|EN|net.wifi.chwidth52.006|                       laptop finishes transfers more slowly, which on a
+::X|EN|net.wifi.chwidth52.007|                       battery means the radio is on longer. The card is
+::X|EN|net.wifi.chwidth52.008|                       here to put Auto back after an optimiser script or
+::X|EN|net.wifi.chwidth52.009|                       a troubleshooting session left the adapter pinned
+::X|EN|net.wifi.chwidth52.010|                       at 20 MHz.
+::X|EN|net.wifi.chwidth52.011|
+::X|EN|net.wifi.chwidth52.012|  Unverified      : The case for a narrower 5 GHz channel in a dense
+::X|EN|net.wifi.chwidth52.013|                    apartment is real in principle - an 80 MHz channel
+::X|EN|net.wifi.chwidth52.014|                    overlaps more neighbours than a 40 MHz one, and
+::X|EN|net.wifi.chwidth52.015|                    overlap costs retries - but this driver offers no 40
+::X|EN|net.wifi.chwidth52.016|                    MHz middle step, only 20 MHz or Auto. I did not test
+::X|EN|net.wifi.chwidth52.017|                    whether dropping to 20 MHz ever beats Auto on a
+::X|EN|net.wifi.chwidth52.018|                    congested 5 GHz band, and with the loss being that
+::X|EN|net.wifi.chwidth52.019|                    large I am not going to recommend it on theory.
+::X|EN|net.wifi.chwidth52.020|
+::X|EN|net.wifi.chwidth52.021|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.chwidth52.022|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth52
+::X|EN|net.wifi.chwidth52.023|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|EN|net.wifi.chwidth52.024|                    Live only after :nicrestart or a reboot.
+::
+:: ---- net.wifi.chwidth6 (repair) ---------------------------------
+::P|net.wifi.chwidth6|1|1|1|1|NICDEFAULT|
+::T|FR|net.wifi.chwidth6.001|LARGEUR DE CANAL 6 GHZ - A LAISSER SUR AUTO
+::T|FR|net.wifi.chwidth6.002|
+::T|FR|net.wifi.chwidth6.003|  Ce que c est    : ChannelWidth6 determine si votre client accepte les
+::T|FR|net.wifi.chwidth6.004|                    canaux larges utilises par un point d'acces dans la
+::T|FR|net.wifi.chwidth6.005|                    bande 6 GHz, ou s'il se limite a 20 MHz. Ce mot-cle
+::T|FR|net.wifi.chwidth6.006|                    n'existe que sur les cartes dotees d'une radio 6 GHz,
+::T|FR|net.wifi.chwidth6.007|                    et ne compte que si vous possedez reellement un point
+::T|FR|net.wifi.chwidth6.008|                    d'acces Wi-Fi 6E ou Wi-Fi 7.
+::T|FR|net.wifi.chwidth6.009|
+::T|FR|net.wifi.chwidth6.010|  Effet reel      : OPTY ecrit ChannelWidth6 en REG_SZ via :nicset une
+::T|FR|net.wifi.chwidth6.011|                    fois le nombre confirme present dans
+::T|FR|net.wifi.chwidth6.012|                    Ndi\Params\ChannelWidth6\Enum, et reaffirme la valeur
+::T|FR|net.wifi.chwidth6.013|                    1 (Auto). Sur toute carte depourvue de radio 6 GHz, la
+::T|FR|net.wifi.chwidth6.014|                    sous-cle Ndi\Params est absente, :nicset ressort sans
+::T|FR|net.wifi.chwidth6.015|                    rien ecrire, et l'etape doit signaler qu'elle n'a rien
+::T|FR|net.wifi.chwidth6.016|                    fait plutot que d'afficher une ligne de succes.
+::T|FR|net.wifi.chwidth6.017|                    L'effet arrive au redemarrage de la carte.
+::T|FR|net.wifi.chwidth6.018|
+::T|FR|net.wifi.chwidth6.019|  Gain            : Aucun a le modifier. La bande 6 GHz est reservee par
+::T|FR|net.wifi.chwidth6.020|                    la reglementation au materiel Wi-Fi 6E et ulterieur :
+::T|FR|net.wifi.chwidth6.021|                    elle transporte donc beaucoup moins de trafic etranger
+::T|FR|net.wifi.chwidth6.022|                    que le 5 GHz, et la raison meme d'y aller est la
+::T|FR|net.wifi.chwidth6.023|                    largeur. Retrecir le canal abandonne tout l'interet de
+::T|FR|net.wifi.chwidth6.024|                    la bande tout en conservant sa portee reduite.
+::T|FR|net.wifi.chwidth6.025|
+::T|FR|net.wifi.chwidth6.026|  Cout            : Mettre 0 vous coute l'essentiel du debit sur la bande
+::T|FR|net.wifi.chwidth6.027|                    pour laquelle vous avez achete une carte 6E. Cela
+::T|FR|net.wifi.chwidth6.028|                    donne aussi de la bande une image plus mauvaise que la
+::T|FR|net.wifi.chwidth6.029|                    realite, ce qui conduit a conclure a tort que le 6 GHz
+::T|FR|net.wifi.chwidth6.030|                    ne vaut pas la peine.
+::T|FR|net.wifi.chwidth6.031|
+::T|FR|net.wifi.chwidth6.032|  Defaut Windows  : Le pilote de l'AX210 mesure ici livre 1, Auto. OPTY
+::T|FR|net.wifi.chwidth6.033|                    lit Ndi\Params\ChannelWidth6\default plutot que de le
+::T|FR|net.wifi.chwidth6.034|                    supposer.
+::T|FR|net.wifi.chwidth6.035|
+::T|FR|net.wifi.chwidth6.036|  Valeurs possibles :
+::T|FR|net.wifi.chwidth6.037|    0                    : 20 MHz uniquement. Le client fonctionne sur un
+::T|FR|net.wifi.chwidth6.038|                           unique canal de 20 MHz dans la bande 6 GHz.
+::T|FR|net.wifi.chwidth6.039|                           Cela sacrifie le seul avantage de cette bande -
+::T|FR|net.wifi.chwidth6.040|                           la place pour des canaux tres larges dans un
+::T|FR|net.wifi.chwidth6.041|                           spectre que presque personne n'utilise encore -
+::T|FR|net.wifi.chwidth6.042|                           et vous laisse un lien de courte portee sur une
+::T|FR|net.wifi.chwidth6.043|                           largeur etroite, soit le pire des deux mondes.
+::T|FR|net.wifi.chwidth6.044|    1                    : Auto. Le client accepte la largeur utilisee par
+::T|FR|net.wifi.chwidth6.045|                           le point d'acces en 6 GHz. C'est la valeur
+::T|FR|net.wifi.chwidth6.046|                           livree, et celle sous laquelle un lien Wi-Fi 6E
+::T|FR|net.wifi.chwidth6.047|                           se comporte comme un lien Wi-Fi 6E.
+::T|FR|net.wifi.chwidth6.048|    NICDEFAULT           : Rendre le mot-cle au pilote : :nicdefault lit
+::T|FR|net.wifi.chwidth6.049|                           Ndi\Params\ChannelWidth6\default et reecrit
+::T|FR|net.wifi.chwidth6.050|                           cette chaine.
+::X|FR|net.wifi.chwidth6.001|  Pourquoi ces profils : Quatre colonnes identiques sur Auto, pour la meme
+::X|FR|net.wifi.chwidth6.002|                         raison que la carte 5 GHz, et davantage encore.
+::X|FR|net.wifi.chwidth6.003|                         Aucun profil ici ne gagne a un canal 6 GHz etroit
+::X|FR|net.wifi.chwidth6.004|                         : il n'y a pas d'encombrement a soulager dans une
+::X|FR|net.wifi.chwidth6.005|                         bande quasiment vide, et le seul effet de 0 est
+::X|FR|net.wifi.chwidth6.006|                         du debit perdu. Le portable ne fait pas exception
+::X|FR|net.wifi.chwidth6.007|                         - un transfert plus lent maintient la radio
+::X|FR|net.wifi.chwidth6.008|                         allumee plus longtemps, retrecir le canal coute
+::X|FR|net.wifi.chwidth6.009|                         donc de la batterie au lieu d'en economiser.
+::X|FR|net.wifi.chwidth6.010|                         Cette carte existe pour remettre Auto, et pour
+::X|FR|net.wifi.chwidth6.011|                         rester muette sur les cartes sans radio 6 GHz
+::X|FR|net.wifi.chwidth6.012|                         plutot que de signaler une ecriture qui n'a
+::X|FR|net.wifi.chwidth6.013|                         jamais eu lieu.
+::X|FR|net.wifi.chwidth6.014|
+::X|FR|net.wifi.chwidth6.015|  Non verifie (en)  : I have no 6 GHz access point here to test against,
+::X|FR|net.wifi.chwidth6.016|                      so nothing in this card is a measurement of a live 6
+::X|FR|net.wifi.chwidth6.017|                      GHz link. It rests on the keyword's Enum text read
+::X|FR|net.wifi.chwidth6.018|                      from the driver and on how the 5 GHz equivalent
+::X|FR|net.wifi.chwidth6.019|                      behaves. Whether your 6 GHz coverage is usable at
+::X|FR|net.wifi.chwidth6.020|                      all in a given room is dominated by the regulatory
+::X|FR|net.wifi.chwidth6.021|                      power limits on that band, which no client-side
+::X|FR|net.wifi.chwidth6.022|                      keyword changes.
+::X|FR|net.wifi.chwidth6.023|
+::X|FR|net.wifi.chwidth6.024|  Cible           : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|FR|net.wifi.chwidth6.025|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth6
+::X|FR|net.wifi.chwidth6.026|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|FR|net.wifi.chwidth6.027|                    Live only after :nicrestart or a reboot.
+::T|EN|net.wifi.chwidth6.001|CHANNEL WIDTH 6 GHZ - LEAVE IT ON AUTO
+::T|EN|net.wifi.chwidth6.002|
+::T|EN|net.wifi.chwidth6.003|  What it is      : ChannelWidth6 decides whether your client accepts the
+::T|EN|net.wifi.chwidth6.004|                    wide channels an access point operates in the 6 GHz
+::T|EN|net.wifi.chwidth6.005|                    band, or restricts itself to 20 MHz. The keyword only
+::T|EN|net.wifi.chwidth6.006|                    exists on adapters with a 6 GHz radio, and only
+::T|EN|net.wifi.chwidth6.007|                    matters if you actually have a Wi-Fi 6E or Wi-Fi 7
+::T|EN|net.wifi.chwidth6.008|                    access point.
+::T|EN|net.wifi.chwidth6.009|
+::T|EN|net.wifi.chwidth6.010|  Actual effect   : OPTY writes ChannelWidth6 as REG_SZ through :nicset
+::T|EN|net.wifi.chwidth6.011|                    once the number is confirmed present in
+::T|EN|net.wifi.chwidth6.012|                    Ndi\Params\ChannelWidth6\Enum, and re-asserts 1
+::T|EN|net.wifi.chwidth6.013|                    (Auto). On any adapter without a 6 GHz radio the
+::T|EN|net.wifi.chwidth6.014|                    Ndi\Params subkey is absent, :nicset returns without
+::T|EN|net.wifi.chwidth6.015|                    writing, and the step must report that it did nothing
+::T|EN|net.wifi.chwidth6.016|                    rather than printing a success line. Takes effect on
+::T|EN|net.wifi.chwidth6.017|                    adapter restart.
+::T|EN|net.wifi.chwidth6.018|
+::T|EN|net.wifi.chwidth6.019|  Gain            : None from changing it. The 6 GHz band is restricted by
+::T|EN|net.wifi.chwidth6.020|                    regulation to Wi-Fi 6E and later equipment, so it
+::T|EN|net.wifi.chwidth6.021|                    carries far less foreign traffic than 5 GHz, and the
+::T|EN|net.wifi.chwidth6.022|                    reason to be there at all is the width. Narrowing the
+::T|EN|net.wifi.chwidth6.023|                    channel gives up the entire point of the band while
+::T|EN|net.wifi.chwidth6.024|                    keeping its shorter range.
+::T|EN|net.wifi.chwidth6.025|
+::T|EN|net.wifi.chwidth6.026|  Cost            : Setting 0 costs most of the link rate on the band you
+::T|EN|net.wifi.chwidth6.027|                    paid a 6E adapter for. It also makes the band look
+::T|EN|net.wifi.chwidth6.028|                    worse than it is, which is how people conclude that 6
+::T|EN|net.wifi.chwidth6.029|                    GHz is not worth using.
+::T|EN|net.wifi.chwidth6.030|
+::T|EN|net.wifi.chwidth6.031|  Windows default : The AX210 driver measured here ships 1, Auto. OPTY
+::T|EN|net.wifi.chwidth6.032|                    reads Ndi\Params\ChannelWidth6\default rather than
+::T|EN|net.wifi.chwidth6.033|                    assuming it.
+::T|EN|net.wifi.chwidth6.034|
+::T|EN|net.wifi.chwidth6.035|  Possible values:
+::T|EN|net.wifi.chwidth6.036|    0                    : 20 MHz only. The client operates on a single 20
+::T|EN|net.wifi.chwidth6.037|                           MHz channel in the 6 GHz band. This throws away
+::T|EN|net.wifi.chwidth6.038|                           the one advantage the band has - room for very
+::T|EN|net.wifi.chwidth6.039|                           wide channels in spectrum almost nobody is
+::T|EN|net.wifi.chwidth6.040|                           using yet - and leaves you with a short-range
+::T|EN|net.wifi.chwidth6.041|                           link at a narrow width, which is the worst of
+::T|EN|net.wifi.chwidth6.042|                           both.
+::T|EN|net.wifi.chwidth6.043|    1                    : Auto. The client accepts the width the access
+::T|EN|net.wifi.chwidth6.044|                           point operates in 6 GHz. The shipped default.
+::T|EN|net.wifi.chwidth6.045|                           This is the value under which a Wi-Fi 6E link
+::T|EN|net.wifi.chwidth6.046|                           behaves like a Wi-Fi 6E link.
+::T|EN|net.wifi.chwidth6.047|    NICDEFAULT           : Hand the keyword back to the driver:
+::T|EN|net.wifi.chwidth6.048|                           :nicdefault reads
+::T|EN|net.wifi.chwidth6.049|                           Ndi\Params\ChannelWidth6\default and writes
+::T|EN|net.wifi.chwidth6.050|                           that string back.
+::X|EN|net.wifi.chwidth6.001|  Why these profiles : Four identical columns at Auto, for the same reason
+::X|EN|net.wifi.chwidth6.002|                       as the 5 GHz card and more so. No profile here
+::X|EN|net.wifi.chwidth6.003|                       benefits from a narrow 6 GHz channel: there is no
+::X|EN|net.wifi.chwidth6.004|                       crowding to relieve in a band that is mostly empty,
+::X|EN|net.wifi.chwidth6.005|                       so the only effect of 0 is lost rate. The laptop is
+::X|EN|net.wifi.chwidth6.006|                       not an exception - a slower transfer keeps the
+::X|EN|net.wifi.chwidth6.007|                       radio on longer, so narrowing the channel costs
+::X|EN|net.wifi.chwidth6.008|                       battery rather than saving it. This card exists to
+::X|EN|net.wifi.chwidth6.009|                       put Auto back, and to stay silent on adapters that
+::X|EN|net.wifi.chwidth6.010|                       have no 6 GHz radio instead of reporting a write
+::X|EN|net.wifi.chwidth6.011|                       that never happened.
+::X|EN|net.wifi.chwidth6.012|
+::X|EN|net.wifi.chwidth6.013|  Unverified      : I have no 6 GHz access point here to test against, so
+::X|EN|net.wifi.chwidth6.014|                    nothing in this card is a measurement of a live 6 GHz
+::X|EN|net.wifi.chwidth6.015|                    link. It rests on the keyword's Enum text read from
+::X|EN|net.wifi.chwidth6.016|                    the driver and on how the 5 GHz equivalent behaves.
+::X|EN|net.wifi.chwidth6.017|                    Whether your 6 GHz coverage is usable at all in a
+::X|EN|net.wifi.chwidth6.018|                    given room is dominated by the regulatory power limits
+::X|EN|net.wifi.chwidth6.019|                    on that band, which no client-side keyword changes.
+::X|EN|net.wifi.chwidth6.020|
+::X|EN|net.wifi.chwidth6.021|  Target          : HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-
+::X|EN|net.wifi.chwidth6.022|                    e325-11ce-bfc1-08002be10318}\<NNNN> /v ChannelWidth6
+::X|EN|net.wifi.chwidth6.023|                    /t REG_SZ, written by :nicset after an Enum check.
+::X|EN|net.wifi.chwidth6.024|                    Live only after :nicrestart or a reboot.
 :: ============================================================
 :: ==================  CLEAN STEP MEMBERSHIP  =================
 :: ============================================================
