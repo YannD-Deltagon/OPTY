@@ -126,6 +126,62 @@ if ($long.Count) {
 }
 Write-Ok 'no line over 1000 chars (self-heal safe)'
 
+# --- gate 9: no reading a subroutine's output inside the same parenthesised block
+# CMD parses a whole "if ... ( ... )" block BEFORE running any of it, so a
+# %VAR% written by a `call` inside the block is expanded to its OLD value - for
+# a variable the call is meant to create, that is the empty string, every time.
+# It is valid batch, it passes every other gate, and it silently does nothing.
+# The GPU section shipped with exactly this shape in its first draft:
+#     if defined GPUAMD (
+#         call :ask "gpu.ulps" 5
+#         if "%ANSWER%"=="1" reg add ...        <-- ANSWER is always empty here
+#     )
+# The fix is always the same: flatten it with goto, or use delayed expansion.
+$setters = @{
+    'ask'      = @('ANSWER')
+    'profval'  = @('PROFVAL')
+    'stepmeta' = @('STEPMEM', 'STEPLBL')
+    'regset'   = @('RESULT')
+    'svcset'   = @('RESULT')
+    'pwrread'  = @('PWAC', 'PWDC')
+    'cp_read'  = @('CURCP')
+    'isrunning' = @('RUNNING')
+}
+$depth = 0
+$pending = @{}
+$blockBugs = @()
+$n = 0
+foreach ($line in $codeLines) {
+    $n++
+    # Count only STRUCTURAL parentheses. Two things must go first or the depth
+    # counter is nonsense: 'echo(' is this file's safe-echo idiom and is not a
+    # block opener, and parentheses inside "quoted strings" are data. Without
+    # this the gate fired 17 times on correct code, every one a false positive
+    # from echo( - a gate that cries wolf is worse than no gate at all.
+    $struct = $line -replace '"[^"]*"', '' -replace '(?i)echo\(', 'echo '
+    $opens  = ([regex]::Matches($struct, '\(')).Count
+    $closes = ([regex]::Matches($struct, '\)')).Count
+    # a call that populates a variable, seen while inside a block
+    if ($depth -gt 0) {
+        foreach ($sub in $setters.Keys) {
+            if ($line -match "(?i)call\s+:$sub\b") {
+                foreach ($v in $setters[$sub]) { $pending[$v] = $n }
+            }
+        }
+        foreach ($v in @($pending.Keys)) {
+            # the same block later reads it with %VAR% - too late, already expanded
+            if ($line -match "%$v%" -and $n -gt $pending[$v]) {
+                $blockBugs += "line ${n}: reads %$v% inside the same ( ) block that called the subroutine setting it (line $($pending[$v])) - it will be empty"
+                $pending.Remove($v)
+            }
+        }
+    }
+    $depth += $opens - $closes
+    if ($depth -le 0) { $depth = 0; $pending = @{} }
+}
+if ($blockBugs.Count) { Fail ("parenthesised-block expansion bug(s):`n      " + ($blockBugs -join "`n      ")) }
+Write-Ok 'no subroutine output read inside its own ( ) block'
+
 # --- gate 6: every card exists in BOTH languages, and every ::P| has a card ---
 # A missing translation is invisible until a French user hits that one question
 # and gets a blank screen with a prompt under it.
@@ -321,3 +377,4 @@ Write-Ok 'published asset is byte-identical CRLF - self-update is safe'
 
 Write-Host ''
 Write-Host "Released $Tag  ->  $($rel.html_url)" -ForegroundColor Green
+

@@ -2561,7 +2561,7 @@ set "choice="
 set /p choice= Enter action:
 echo %date% %time% : msetup "%choice%"                            >> %logs%
 if "%choice%"=="1" goto mnetwork
-if "%choice%"=="2" goto display_tweaks
+if "%choice%"=="2" goto setup_gpu
 if "%choice%"=="3" goto mregprofil
 if "%choice%"=="4" goto debloat2026
 if "%choice%"=="5" goto mreenable
@@ -2572,6 +2572,80 @@ color 0C
 call :t "This is not a valid action" "Ce n est pas une action valide"
 timeout /t 3 >nul
 goto msetup
+
+:setup_gpu
+:: The first SETUP section driven entirely by cards. Every question renders its
+:: own explanation, offers the five profiles with their actual values, and
+:: writes whatever the answer maps to. Nothing is hardcoded here except the
+:: order of the questions and which registry key each one targets - the text,
+:: the values and the reasoning all live in the ::T| / ::X| / ::P| tables.
+echo.                                                           >> %logs%
+echo ====================== :SETUP_GPU ========================= >> %logs%
+echo %date% %time% : Entered :setup_gpu label                     >> %logs%
+cls
+call :banner "DISPLAY AND GPU"
+echo(
+call :ti "Read each card, answer 1-5, press ? for the long version." "Lisez chaque fiche, repondez 1-5, tapez ? pour la version longue."
+call :ti "Anything not measured on a real machine says so." "Tout ce qui n a pas ete mesure sur une vraie machine le dit."
+echo(
+if not defined AUTOPROFILE pause
+
+:: --- HAGS. Four identical columns on purpose: the shipped value is 2 and there
+:: is no use case in this script that wants it different. A card that says so is
+:: worth more than four invented distinctions.
+call :askreg "rad.hwschmode" 5 "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "HwSchMode" REG_DWORD "Hardware GPU scheduling"
+
+:: --- MPO leftovers. Their true default is ABSENT, so every profile is DELETE.
+:: Writing 0 here would be a third state, not a restore - the distinction that
+:: has bitten this file more than once.
+call :askreg "rad.overlay.killkey" 5 "HKLM\SOFTWARE\Microsoft\Windows\Dwm" "OverlayTestMode" REG_DWORD "MPO override (OverlayTestMode)"
+call :ask "rad.gpu.tdr.killkeys" 5
+if not "%ANSWER%"=="SKIP" (
+    for %%V in (TdrLevel TdrDelay TdrDdiDelay TdrLimitCount TdrLimitTime TdrDebugMode) do call :killkey "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers" "%%V"
+)
+call :askreg "rad.gpu.preemption.killkey" 5 "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" "EnablePreemption" REG_DWORD "GPU preemption override"
+
+:: --- ULPS. The one card in this section written from our own measurements
+:: rather than from documentation, and the only one that recommends against
+:: itself for four profiles out of five.
+:: Written with goto rather than a parenthesised block, and that is not style.
+:: Inside "if defined X ( ... )" the WHOLE block is parsed before any of it runs,
+:: so ANSWER would be expanded before :ask had a chance to set it - the test
+:: would compare against an empty string, every time, silently. The first draft
+:: of this section had exactly that bug, and it passes every validator gate,
+:: because it is valid batch that simply does the wrong thing.
+:: It also asked the ULPS question TWICE, once via :askreg and once via :ask.
+call :gpuvendor
+if not defined GPUAMD goto setup_gpu_noamd
+call :ask "gpu.ulps" 5
+if "%ANSWER%"=="SKIP" goto setup_gpu_dvr
+call :profval "gpu.ulps" "%ANSWER%"
+set "ULPSK=HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318} 0"
+call :regset "%ULPSK%" "EnableUlps" REG_DWORD "%PROFVAL%" "AMD ULPS"
+:: EnableUlps_NA is a REG_SZ holding the same number. Writing it as a DWORD is
+:: accepted by reg.exe and then ignored by the driver - the same silent-failure
+:: shape as an NDIS keyword written with the wrong type.
+call :regset "%ULPSK%" "EnableUlps_NA" REG_SZ "%PROFVAL%" "AMD ULPS (string twin)"
+goto setup_gpu_dvr
+:setup_gpu_noamd
+call :L "%cInfo%" "  skipped  AMD ULPS - no AMD display adapter on this machine"
+:setup_gpu_dvr
+
+:: --- GameDVR.
+call :askreg "reg.gamedvr.enabled" 5 "HKCU\System\GameConfigStore" "GameDVR_Enabled" REG_DWORD "GameDVR capture"
+
+call :L "%cOK%" "Display and GPU section done."
+if not defined AUTOPROFILE pause
+goto msetup
+
+:gpuvendor
+:: GPUAMD is set when an AMD display adapter is present. Gates the ULPS question,
+:: which writes into the AMD driver's own class key and means nothing on an
+:: Intel or NVIDIA machine - asking it there would be noise pretending to be a
+:: setting.
+set "GPUAMD="
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" /v DriverDesc 2>nul | findstr /i /c:"Radeon" /c:"AMD" >nul && set "GPUAMD=1"
+goto :eof
 
 :setup_lang
 :: Manual override of the detected language. :lang_detect guesses from the
@@ -3768,12 +3842,16 @@ goto :eof
 :: minutes" path. Risky cards override it by calling :ask with AUTOPROFILE
 :: temporarily cleared, so a destructive step is never auto-answered.
 set "ANSWER="
-if defined AUTOPROFILE (
-    set "ANSWER=%AUTOPROFILE%"
-    call :profval "%~1" "%AUTOPROFILE%"
-    call :L "%cInfo%" "  auto [%AUTOPROFILE%] %~1 = %PROFVAL%"
-    goto :eof
-)
+:: Flat, not a parenthesised block. Inside "if defined X ( ... )" the whole
+:: block is parsed before any of it runs, so the PROFVAL that :profval is about
+:: to set would expand to its OLD value - empty - and the auto path would report
+:: every setting as blank. Validator gate 9 exists because this exact line
+:: shipped that way and passes every other check.
+if not defined AUTOPROFILE goto ask_show
+set "ANSWER=%AUTOPROFILE%"
+call :profval "%~1" "%AUTOPROFILE%"
+call :L "%cInfo%" "  auto [%AUTOPROFILE%] %~1 = %PROFVAL%"
+goto :eof
 :ask_show
 cls
 call :rule
