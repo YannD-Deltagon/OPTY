@@ -79,6 +79,34 @@ if ($loneLf -gt 0) {
 }
 Write-Ok 'CRLF only'
 
+# --- gate 10: no stray control bytes ---------------------------------------
+# A NUL or other control byte in a .bat can truncate how CMD reads the file,
+# and it is invisible in every editor. This has already happened twice here,
+# both times from the SAME cause: generating batch through Python string
+# literals, where "\4" and "\0000" are read as OCTAL escapes rather than as a
+# backslash followed by digits. "Documents\4 - VSC" became "Documents<0x04>",
+# and a registry subkey "...\0000" became "...<0x00>0".
+# Writing the generator carefully is not a defence - it was written carefully
+# the second time, by someone who had just documented the first. Hence a gate.
+$ctrl = @{}
+for ($i = 0; $i -lt $bytes.Length; $i++) {
+    $b = $bytes[$i]
+    if ($b -lt 9 -or ($b -gt 10 -and $b -lt 13) -or ($b -gt 13 -and $b -lt 32)) {
+        if (-not $ctrl.ContainsKey($b)) { $ctrl[$b] = $i }
+    }
+}
+if ($ctrl.Count) {
+    $msg = @()
+    foreach ($b in ($ctrl.Keys | Sort-Object)) {
+        $off = $ctrl[$b]
+        $from = [Math]::Max(0, $off - 40)
+        $ctx = [Text.Encoding]::ASCII.GetString($bytes, $from, [Math]::Min(70, $bytes.Length - $from)) -replace '[^\x20-\x7E]', '?'
+        $msg += ("byte 0x{0:X2} at offset {1} - near: {2}" -f $b, $off, $ctx)
+    }
+    Fail ("control byte(s) in OPTY.bat:`n      " + ($msg -join "`n      "))
+}
+Write-Ok 'no stray control bytes'
+
 # --- CODE ONLY: strip '::' lines before looking for goto/call targets.
 # A '::' line is a label CMD never executes, so it is where comments and (soon)
 # the bilingual card text live. That prose legitimately contains things like
