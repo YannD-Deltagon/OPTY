@@ -3411,6 +3411,22 @@ set "DT="
 for /f "tokens=2 delims=:" %%T in ('fsutil fsinfo drivetype %~1: 2^>nul') do set "DT=%%T"
 if not defined DT goto :eof
 if /i not "%DT%"=="%FIXEDREF%" goto :eof
+:: A cloud mount lies to fsutil. Measured here: Google Drive for Desktop on
+:: G: reports "- Lecteur fixe", byte-identical to the C: reference, so it was
+:: landing in FIXEDLIST and :drivesweep was running on it. Deleting there is
+:: not local space recovery - it propagates to the account and to every
+:: device syncing it, and re-syncing is network-bound, which breaks the
+:: "regenerates in well under 30 minutes" rule this whole cleanup rests on.
+::
+:: System Volume Information is the discriminator. Measured across all five
+:: drives on this machine: present on C, D, E and J (real NTFS volumes),
+:: ABSENT on G (the projected filesystem). No parsing, no localisation, and
+:: if it ever excludes a genuine volume the only cost is that the volume is
+:: not swept - the safe direction to fail in.
+if not exist "%~1:\System Volume Information" (
+    >>%logs% echo %date% %time% : Drive %~1: reports fixed but has no System Volume Information - treated as a cloud or virtual mount, NOT swept
+    goto :eof
+)
 set "FIXEDLIST=%FIXEDLIST% %~1"
 goto :eof
 
