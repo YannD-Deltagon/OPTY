@@ -1097,9 +1097,26 @@ del /S /F /Q "%LOCALAPPDATA%\Microsoft\EdgeWebView\User Data\Default\Code Cache\
 if not "%autoclean%"=="2" goto delete_skip_winold
 if exist "%SystemDrive%\Windows.old" (
     echo %date% %time% : Removing Windows.old previous installation  >> %logs%
-    takeown /F "%SystemDrive%\Windows.old" /R /A /D Y               >nul 2>&1
-    icacls "%SystemDrive%\Windows.old" /grant administrators:F /T /C >nul 2>&1
+    :: /SKIPSL and /L keep the recursion out of the live profile. Windows.old
+    :: still holds the legacy compatibility junctions - "Local Settings",
+    :: "Application Data", "My Documents" - and their stored targets are
+    :: ABSOLUTE paths into the CURRENT C:\Users profile. takeown /R and
+    :: icacls /T follow links unless told otherwise, so without these two
+    :: switches the recursion can reassign ownership and ACLs on folders that
+    :: are still in service. That change is invisible, it survives the cleanup,
+    :: and nothing in this script puts it back.
+    takeown /F "%SystemDrive%\Windows.old" /R /A /D Y /SKIPSL        >nul 2>&1
+    icacls "%SystemDrive%\Windows.old" /grant administrators:F /T /C /L >nul 2>&1
+    :: rd /S /Q regularly does NOT finish here: hardlinked servicing files and
+    :: entries whose ACLs could not be changed stay behind. The errors were
+    :: being thrown away, so a partly-deleted Windows.old was reported as a
+    :: clean success. Check afterwards and say so.
     rd /S /Q "%SystemDrive%\Windows.old" 2>nul
+    if exist "%SystemDrive%\Windows.old" (
+        call :L "%cWarn%" "  Windows.old only PARTLY removed - locked or hardlinked files remain"
+    ) else (
+        call :L "%cOK%" "  Windows.old removed"
+    )
 )
 :delete_skip_winold
 
@@ -32157,6 +32174,5970 @@ goto :eof
 ::X|EN|driverstore.delete.019|                    CMD calls pnputil /delete-driver "oemNN.inf" once per
 ::X|EN|driverstore.delete.020|                    package, with no /force, after a typed YES
 ::X|EN|driverstore.delete.021|                    confirmation
+::
+:: ---- third batch: the 36 CLEAN steps. Written in three smaller runs so a
+:: ---- session limit could cost one batch instead of the domain. Their
+:: ---- audit is why USERHOME stopped being a hardcoded profile path.
+::
+::
+:: ---- cl.optylogs.prune (cleanup) ---------------------------------
+::P|cl.optylogs.prune|DELETE|DELETE|DELETE|DELETE|DELETE|
+::T|FR|cl.optylogs.prune.001|PURGE DES ANCIENS JOURNAUX ET RAPPORTS D'OPTY
+::T|FR|cl.optylogs.prune.002|
+::T|FR|cl.optylogs.prune.003|  Ce que c est    : OPTY écrit un fichier journal par exécution,
+::T|FR|cl.optylogs.prune.004|                    logs_<date>_<heure>.txt, plus netinfo_*.txt et
+::T|FR|cl.optylogs.prune.005|                    netprops_*.json quand vous demandez un rapport réseau.
+::T|FR|cl.optylogs.prune.006|                    Cette étape garde les 5 plus récents de chacune de ces
+::T|FR|cl.optylogs.prune.007|                    trois familles et supprime le reste.
+::T|FR|cl.optylogs.prune.008|
+::T|FR|cl.optylogs.prune.009|  Effet reel      : Trois boucles identiques, lignes 123 à 125. Chacune
+::T|FR|cl.optylogs.prune.010|                    lance dir /b /a-d /o:-d sur un motif, ce qui liste le
+::T|FR|cl.optylogs.prune.011|                    dossier du plus récent au plus ancien selon la date de
+::T|FR|cl.optylogs.prune.012|                    dernière écriture ; skip=5 écarte les cinq premiers ;
+::T|FR|cl.optylogs.prune.013|                    del supprime le reste. Les seuls chemins concernés
+::T|FR|cl.optylogs.prune.014|                    sont %~dp0logs_*.txt, %~dp0netinfo_*.txt et
+::T|FR|cl.optylogs.prune.015|                    %~dp0netprops_*.json, c'est-à-dire le dossier où se
+::T|FR|cl.optylogs.prune.016|                    trouve OPTY.bat. Aucun fichier Windows, aucun des
+::T|FR|cl.optylogs.prune.017|                    vôtres ne peut correspondre. La suppression aboutit
+::T|FR|cl.optylogs.prune.018|                    vraiment : rien ne verrouille ces fichiers, et le
+::T|FR|cl.optylogs.prune.019|                    journal de l'exécution en cours n'existe pas encore à
+::T|FR|cl.optylogs.prune.020|                    ce moment-là. À noter : aucune question n'est posée,
+::T|FR|cl.optylogs.prune.021|                    cela s'exécute au lancement, avant le menu, quoi que
+::T|FR|cl.optylogs.prune.022|                    vous répondiez par ailleurs.
+::T|FR|cl.optylogs.prune.023|
+::T|FR|cl.optylogs.prune.024|  Gain            : Un journal d'exécution pèse 10 à 60 Ko, un netprops
+::T|FR|cl.optylogs.prune.025|                    JSON quelques centaines de Ko. En purger cinquante
+::T|FR|cl.optylogs.prune.026|                    récupère de l'ordre de 1 à 5 Mo. En espace disque,
+::T|FR|cl.optylogs.prune.027|                    c'est rien, et vous ne verrez aucun chiffre bouger
+::T|FR|cl.optylogs.prune.028|                    nulle part. Le vrai bénéfice est la lisibilité : cinq
+::T|FR|cl.optylogs.prune.029|                    fichiers par famille au lieu d'un par exécution, donc
+::T|FR|cl.optylogs.prune.030|                    le journal d'hier soir est celui du haut.
+::T|FR|cl.optylogs.prune.031|
+::T|FR|cl.optylogs.prune.032|  Cout            : Tout ce qui dépasse les 5 plus récents est perdu
+::T|FR|cl.optylogs.prune.033|                    définitivement. C'est un del, pas la corbeille, et le
+::T|FR|cl.optylogs.prune.034|                    journal d'une ancienne exécution ne peut pas se
+::T|FR|cl.optylogs.prune.035|                    régénérer : c'est la seule chose de tout ce lot de
+::T|FR|cl.optylogs.prune.036|                    nettoyage qui ne revient jamais. Si vous comparez des
+::T|FR|cl.optylogs.prune.037|                    comportements sur plus de cinq exécutions, copiez les
+::T|FR|cl.optylogs.prune.038|                    journaux ailleurs avant de relancer. Rien en dehors du
+::T|FR|cl.optylogs.prune.039|                    dossier d'OPTY n'est touché.
+::T|FR|cl.optylogs.prune.040|
+::T|FR|cl.optylogs.prune.041|  Defaut Windows  : Sans objet. Ces fichiers sont produits par OPTY :
+::T|FR|cl.optylogs.prune.042|                    Windows n'a ni comportement d'origine, ni tâche
+::T|FR|cl.optylogs.prune.043|                    planifiée, ni avis sur la question.
+::T|FR|cl.optylogs.prune.044|
+::T|FR|cl.optylogs.prune.045|  Valeurs possibles :
+::T|FR|cl.optylogs.prune.046|    DELETE               : Garder les 5 logs_*.txt les plus récents, les 5
+::T|FR|cl.optylogs.prune.047|                           netinfo_*.txt les plus récents et les 5
+::T|FR|cl.optylogs.prune.048|                           netprops_*.json les plus récents, et supprimer
+::T|FR|cl.optylogs.prune.049|                           tous les autres. C'est ce que fait le code
+::T|FR|cl.optylogs.prune.050|                           aujourd'hui, sans condition, à chaque
+::T|FR|cl.optylogs.prune.051|                           lancement.
+::T|FR|cl.optylogs.prune.052|    KEEP                 : Conserver tous les journaux qu'OPTY a écrits.
+::T|FR|cl.optylogs.prune.053|                           Le dossier grossit d'un fichier par exécution,
+::T|FR|cl.optylogs.prune.054|                           environ 10 à 60 Ko chacun. Après cent
+::T|FR|cl.optylogs.prune.055|                           exécutions, c'est un dossier encombré, pas un
+::T|FR|cl.optylogs.prune.056|                           problème de place. À choisir si vous déboguez
+::T|FR|cl.optylogs.prune.057|                           OPTY sur plusieurs exécutions.
+::T|FR|cl.optylogs.prune.058|    ASK                  : Aucun profil ne l'utilise ici, et ce serait de
+::T|FR|cl.optylogs.prune.059|                           la mise en scène : l'étape ne touche que les
+::T|FR|cl.optylogs.prune.060|                           fichiers produits par OPTY, et la perte se
+::T|FR|cl.optylogs.prune.061|                           limite à quelques Mo de texte écrit par OPTY
+::T|FR|cl.optylogs.prune.062|                           lui-même.
+::X|FR|cl.optylogs.prune.001|  Pourquoi ces profils : Cinq colonnes identiques, et c'est la réponse
+::X|FR|cl.optylogs.prune.002|                         honnête, pas un trou dans le tableau. Ces
+::X|FR|cl.optylogs.prune.003|                         fichiers appartiennent à OPTY, pèsent quelques Mo
+::X|FR|cl.optylogs.prune.004|                         au total, et aucun usage de la machine ne change
+::X|FR|cl.optylogs.prune.005|                         la valeur d'un vieux journal. La colonne WINDOWS
+::X|FR|cl.optylogs.prune.006|                         elle-même est identique, faute de comportement
+::X|FR|cl.optylogs.prune.007|                         Windows auquel se référer : les laisser en place
+::X|FR|cl.optylogs.prune.008|                         n'est pas un réglage d'origine, c'est juste un
+::X|FR|cl.optylogs.prune.009|                         dossier plus encombré.
+::X|FR|cl.optylogs.prune.010|
+::X|FR|cl.optylogs.prune.011|  Problemes connus : La purge regarde dans %~dp0, le dossier depuis lequel
+::X|FR|cl.optylogs.prune.012|                     OPTY.bat s'exécute, alors que le rapport réseau écrit
+::X|FR|cl.optylogs.prune.013|                     netinfo_*.txt et netprops_*.json dans %OPTY_HOME%,
+::X|FR|cl.optylogs.prune.014|                     soit C:\OPTY_by-YannD, lignes 2436 et 2437. Ces deux
+::X|FR|cl.optylogs.prune.015|                     dossiers ne coïncident que si OPTY tourne depuis
+::X|FR|cl.optylogs.prune.016|                     C:\OPTY_by-YannD. Si vous avez refusé le déplacement
+::X|FR|cl.optylogs.prune.017|                     ou qu'il a échoué, les rapports réseau s'accumulent
+::X|FR|cl.optylogs.prune.018|                     dans C:\OPTY_by-YannD sans que rien ne les purge,
+::X|FR|cl.optylogs.prune.019|                     pendant que la purge de votre dossier ne trouve aucun
+::X|FR|cl.optylogs.prune.020|                     netinfo à traiter.
+::X|FR|cl.optylogs.prune.021|
+::X|FR|cl.optylogs.prune.022|  Non verifie (en)  : dir /o:-d sorts by last-write time, not by the date
+::X|FR|cl.optylogs.prune.023|                      encoded in the file name. The two agree as long as
+::X|FR|cl.optylogs.prune.024|                      nothing rewrites an old log, which nothing does here
+::X|FR|cl.optylogs.prune.025|                      - but a file you open and re-save would move to the
+::X|FR|cl.optylogs.prune.026|                      top of the keep list.
+::X|FR|cl.optylogs.prune.027|
+::X|FR|cl.optylogs.prune.028|  Cible           : %~dp0logs_*.txt, %~dp0netinfo_*.txt and
+::X|FR|cl.optylogs.prune.029|                    %~dp0netprops_*.json - everything except the 5 newest
+::X|FR|cl.optylogs.prune.030|                    of each family, in the folder OPTY.bat itself is
+::X|FR|cl.optylogs.prune.031|                    running from. OPTY.bat lines 121-125, executed at
+::X|FR|cl.optylogs.prune.032|                    startup right after cd /d "%~dp0", before any menu is
+::X|FR|cl.optylogs.prune.033|                    drawn.
+::T|EN|cl.optylogs.prune.001|PRUNE OPTY'S OWN OLD LOGS AND REPORTS
+::T|EN|cl.optylogs.prune.002|
+::T|EN|cl.optylogs.prune.003|  What it is      : OPTY writes one log file per run,
+::T|EN|cl.optylogs.prune.004|                    logs_<date>_<time>.txt, plus netinfo_*.txt and
+::T|EN|cl.optylogs.prune.005|                    netprops_*.json when you ask for a network report.
+::T|EN|cl.optylogs.prune.006|                    This step keeps the 5 newest of each of those three
+::T|EN|cl.optylogs.prune.007|                    families and deletes the rest.
+::T|EN|cl.optylogs.prune.008|
+::T|EN|cl.optylogs.prune.009|  Actual effect   : Three identical loops at lines 123 to 125. Each runs
+::T|EN|cl.optylogs.prune.010|                    dir /b /a-d /o:-d on one pattern, which lists the
+::T|EN|cl.optylogs.prune.011|                    folder newest-first by last-write time; skip=5 drops
+::T|EN|cl.optylogs.prune.012|                    the five most recent; del removes what is left. The
+::T|EN|cl.optylogs.prune.013|                    only paths in range are %~dp0logs_*.txt,
+::T|EN|cl.optylogs.prune.014|                    %~dp0netinfo_*.txt and %~dp0netprops_*.json -
+::T|EN|cl.optylogs.prune.015|                    literally the folder OPTY.bat is sitting in. No
+::T|EN|cl.optylogs.prune.016|                    Windows file and none of your files can match. The
+::T|EN|cl.optylogs.prune.017|                    delete succeeds: nothing holds these files open, the
+::T|EN|cl.optylogs.prune.018|                    log for the current run has not been created yet at
+::T|EN|cl.optylogs.prune.019|                    that point. Note there is no question: this runs at
+::T|EN|cl.optylogs.prune.020|                    launch, before the menu, whatever you answer to
+::T|EN|cl.optylogs.prune.021|                    anything else.
+::T|EN|cl.optylogs.prune.022|
+::T|EN|cl.optylogs.prune.023|  Gain            : A run log is roughly 10 to 60 KB, a netprops JSON a
+::T|EN|cl.optylogs.prune.024|                    few hundred KB. Pruning fifty of them recovers on the
+::T|EN|cl.optylogs.prune.025|                    order of 1 to 5 MB. As disk space that is nothing and
+::T|EN|cl.optylogs.prune.026|                    you should not expect a number to change anywhere. The
+::T|EN|cl.optylogs.prune.027|                    actual benefit is legibility: five files per family
+::T|EN|cl.optylogs.prune.028|                    instead of one per run, so last night's log is the one
+::T|EN|cl.optylogs.prune.029|                    at the top.
+::T|EN|cl.optylogs.prune.030|
+::T|EN|cl.optylogs.prune.031|  Cost            : Everything past the 5 newest is gone for good. This is
+::T|EN|cl.optylogs.prune.032|                    del, not the Recycle Bin, and a log from a previous
+::T|EN|cl.optylogs.prune.033|                    run cannot regenerate - it is the one thing in this
+::T|EN|cl.optylogs.prune.034|                    whole cleanup batch that does not come back. If you
+::T|EN|cl.optylogs.prune.035|                    are comparing behaviour across more than five runs,
+::T|EN|cl.optylogs.prune.036|                    copy the logs somewhere else before launching again.
+::T|EN|cl.optylogs.prune.037|                    Nothing outside OPTY's folder is affected.
+::T|EN|cl.optylogs.prune.038|
+::T|EN|cl.optylogs.prune.039|  Windows default : No such thing. These files were written by OPTY;
+::T|EN|cl.optylogs.prune.040|                    Windows has no shipped behaviour, no scheduled task
+::T|EN|cl.optylogs.prune.041|                    and no opinion about them.
+::T|EN|cl.optylogs.prune.042|
+::T|EN|cl.optylogs.prune.043|  Possible values:
+::T|EN|cl.optylogs.prune.044|    DELETE               : Keep the 5 newest logs_*.txt, the 5 newest
+::T|EN|cl.optylogs.prune.045|                           netinfo_*.txt and the 5 newest netprops_*.json,
+::T|EN|cl.optylogs.prune.046|                           delete every older one. That is what the code
+::T|EN|cl.optylogs.prune.047|                           does today, unconditionally, at every launch.
+::T|EN|cl.optylogs.prune.048|    KEEP                 : Keep every log OPTY has ever written. The
+::T|EN|cl.optylogs.prune.049|                           folder grows by one file per run, roughly 10 to
+::T|EN|cl.optylogs.prune.050|                           60 KB each. After a hundred runs it is a
+::T|EN|cl.optylogs.prune.051|                           cluttered folder, not a disk-space problem.
+::T|EN|cl.optylogs.prune.052|                           Choose this while you are debugging OPTY across
+::T|EN|cl.optylogs.prune.053|                           many runs.
+::T|EN|cl.optylogs.prune.054|    ASK                  : Not used by any profile here, and it would be
+::T|EN|cl.optylogs.prune.055|                           theatre if it were: the step touches nothing
+::T|EN|cl.optylogs.prune.056|                           but OPTY's own output files, and the loss is
+::T|EN|cl.optylogs.prune.057|                           capped at a few MB of text OPTY wrote itself.
+::X|EN|cl.optylogs.prune.001|  Why these profiles : Five identical columns, and that is the honest
+::X|EN|cl.optylogs.prune.002|                       answer rather than a gap. The files belong to OPTY,
+::X|EN|cl.optylogs.prune.003|                       weigh a couple of MB in total, and no machine role
+::X|EN|cl.optylogs.prune.004|                       changes what a stale log is worth. Even the WINDOWS
+::X|EN|cl.optylogs.prune.005|                       column matches, because there is no Windows default
+::X|EN|cl.optylogs.prune.006|                       to defer to - leaving these alone is not a Windows
+::X|EN|cl.optylogs.prune.007|                       behaviour, it is just a fuller folder.
+::X|EN|cl.optylogs.prune.008|
+::X|EN|cl.optylogs.prune.009|  Known problems  : The prune looks in %~dp0, the folder OPTY.bat is
+::X|EN|cl.optylogs.prune.010|                    running from, but the network report writes
+::X|EN|cl.optylogs.prune.011|                    netinfo_*.txt and netprops_*.json into %OPTY_HOME%,
+::X|EN|cl.optylogs.prune.012|                    C:\OPTY_by-YannD, at lines 2436 and 2437. Those are
+::X|EN|cl.optylogs.prune.013|                    the same folder only when OPTY is running from
+::X|EN|cl.optylogs.prune.014|                    C:\OPTY_by-YannD. If you declined the relocation or it
+::X|EN|cl.optylogs.prune.015|                    failed, the network reports pile up in C:\OPTY_by-
+::X|EN|cl.optylogs.prune.016|                    YannD and nothing ever prunes them, while the prune in
+::X|EN|cl.optylogs.prune.017|                    your own folder finds no netinfo files at all.
+::X|EN|cl.optylogs.prune.018|
+::X|EN|cl.optylogs.prune.019|  Unverified      : dir /o:-d sorts by last-write time, not by the date
+::X|EN|cl.optylogs.prune.020|                    encoded in the file name. The two agree as long as
+::X|EN|cl.optylogs.prune.021|                    nothing rewrites an old log, which nothing does here -
+::X|EN|cl.optylogs.prune.022|                    but a file you open and re-save would move to the top
+::X|EN|cl.optylogs.prune.023|                    of the keep list.
+::X|EN|cl.optylogs.prune.024|
+::X|EN|cl.optylogs.prune.025|  Target          : %~dp0logs_*.txt, %~dp0netinfo_*.txt and
+::X|EN|cl.optylogs.prune.026|                    %~dp0netprops_*.json - everything except the 5 newest
+::X|EN|cl.optylogs.prune.027|                    of each family, in the folder OPTY.bat itself is
+::X|EN|cl.optylogs.prune.028|                    running from. OPTY.bat lines 121-125, executed at
+::X|EN|cl.optylogs.prune.029|                    startup right after cd /d "%~dp0", before any menu is
+::X|EN|cl.optylogs.prune.030|                    drawn.
+::
+:: ---- cl.selfmove.optyhome (risky) ------------------------------
+::P|cl.selfmove.optyhome|ASK|ASK|ASK|ASK|KEEP|
+::T|FR|cl.selfmove.optyhome.001|DÉPLACEMENT D'OPTY.BAT VERS C:\OPTY_BY-YANND
+::T|FR|cl.selfmove.optyhome.002|
+::T|FR|cl.selfmove.optyhome.003|  Ce que c est    : Si OPTY.bat ne tourne pas déjà depuis C:\OPTY_by-
+::T|FR|cl.selfmove.optyhome.004|                    YannD, il crée ce dossier, s'y recopie, lance la copie
+::T|FR|cl.selfmove.optyhome.005|                    et supprime le fichier que vous avez démarré.
+::T|FR|cl.selfmove.optyhome.006|
+::T|FR|cl.selfmove.optyhome.007|  Effet reel      : md, puis xcopy /y /q, puis vérification que
+::T|FR|cl.selfmove.optyhome.008|                    C:\OPTY_by-YannD\OPTY.bat existe bien, puis start sur
+::T|FR|cl.selfmove.optyhome.009|                    la copie, puis del sur l'original, puis exit. Deux
+::T|FR|cl.selfmove.optyhome.010|                    verrous comptent ici, et tous deux ont été des bugs :
+::T|FR|cl.selfmove.optyhome.011|                    la comparaison de chemin est insensible à la casse (if
+::T|FR|cl.selfmove.optyhome.012|                    /i), donc c:\opty_by-yannd\ ne rate plus le test et ne
+::T|FR|cl.selfmove.optyhome.013|                    fait plus se recopier le script sur lui-même ; et le
+::T|FR|cl.selfmove.optyhome.014|                    del n'intervient qu'une fois la copie de destination
+::T|FR|cl.selfmove.optyhome.015|                    vérifiée présente, alors que l'ancien ordre supprimait
+::T|FR|cl.selfmove.optyhome.016|                    la source même quand xcopy avait échoué. La
+::T|FR|cl.selfmove.optyhome.017|                    suppression aboutit bel et bien : un .bat est lu ligne
+::T|FR|cl.selfmove.optyhome.018|                    par ligne, pas verrouillé en exclusif.
+::T|FR|cl.selfmove.optyhome.019|
+::T|FR|cl.selfmove.optyhome.020|  Gain            : Un chemin unique et connu. Les journaux d'OPTY, son
+::T|FR|cl.selfmove.optyhome.021|                    fichier de rollback et son suivi des points de
+::T|FR|cl.selfmove.optyhome.022|                    restauration se retrouvent dans un seul dossier au
+::T|FR|cl.selfmove.optyhome.023|                    lieu d'être éparpillés entre Téléchargements, le
+::T|FR|cl.selfmove.optyhome.024|                    bureau et une clé USB. Aucun gain de performance,
+::T|FR|cl.selfmove.optyhome.025|                    d'aucune sorte, pour quoi que ce soit.
+::T|FR|cl.selfmove.optyhome.026|
+::T|FR|cl.selfmove.optyhome.027|  Cout            : Le fichier disparaît de là où vous l'aviez mis. Si
+::T|FR|cl.selfmove.optyhome.028|                    OPTY.bat était dans un dépôt git, ce dépôt affiche
+::T|FR|cl.selfmove.optyhome.029|                    désormais un fichier supprimé ; dans un dossier
+::T|FR|cl.selfmove.optyhome.030|                    synchronisé, la suppression se propage à tous vos
+::T|FR|cl.selfmove.optyhome.031|                    appareils. Le retour arrière est manuel : remettre le
+::T|FR|cl.selfmove.optyhome.032|                    fichier en place et supprimer C:\OPTY_by-YannD vous-
+::T|FR|cl.selfmove.optyhome.033|                    même. Et regardez où il atterrit. Cela installe un
+::T|FR|cl.selfmove.optyhome.034|                    script qui s'exécute toujours en administrateur dans
+::T|FR|cl.selfmove.optyhome.035|                    un dossier à la racine de C:, où les permissions
+::T|FR|cl.selfmove.optyhome.036|                    héritées de la racine du disque système sont plus
+::T|FR|cl.selfmove.optyhome.037|                    permissives que sous Program Files : les comptes
+::T|FR|cl.selfmove.optyhome.038|                    standard de cette machine peuvent y créer des
+::T|FR|cl.selfmove.optyhome.039|                    fichiers. Sur un PC partagé avec d'autres comptes
+::T|FR|cl.selfmove.optyhome.040|                    standard, préférez un dossier que vous créez vous-même
+::T|FR|cl.selfmove.optyhome.041|                    sous Program Files, ou vérifiez les permissions de
+::T|FR|cl.selfmove.optyhome.042|                    C:\OPTY_by-YannD une fois créé. OPTY se relance depuis
+::T|FR|cl.selfmove.optyhome.043|                    cette copie et peut s'y remplacer lui-même depuis
+::T|FR|cl.selfmove.optyhome.044|                    GitHub : c'est ce qui rend l'emplacement digne d'une
+::T|FR|cl.selfmove.optyhome.045|                    ligne.
+::T|FR|cl.selfmove.optyhome.046|
+::T|FR|cl.selfmove.optyhome.047|  Defaut Windows  : Sans objet. C:\OPTY_by-YannD n'est pas un dossier
+::T|FR|cl.selfmove.optyhome.048|                    Windows et n'existe pas avant qu'OPTY ne le crée.
+::T|FR|cl.selfmove.optyhome.049|
+::T|FR|cl.selfmove.optyhome.050|  Valeurs possibles :
+::T|FR|cl.selfmove.optyhome.051|    DELETE               : Copier OPTY.bat dans C:\OPTY_by-YannD, se
+::T|FR|cl.selfmove.optyhome.052|                           relancer de là et supprimer le fichier que vous
+::T|FR|cl.selfmove.optyhome.053|                           avez lancé. Raisonnable si vous l'avez démarré
+::T|FR|cl.selfmove.optyhome.054|                           depuis Téléchargements ou une clé USB et que
+::T|FR|cl.selfmove.optyhome.055|                           l'emplacement vous est égal.
+::T|FR|cl.selfmove.optyhome.056|    KEEP                 : Exécuter OPTY là où il se trouve. Ses journaux
+::T|FR|cl.selfmove.optyhome.057|                           et son fichier de rollback suivent alors le
+::T|FR|cl.selfmove.optyhome.058|                           script au lieu d'avoir une adresse fixe, et le
+::T|FR|cl.selfmove.optyhome.059|                           rapport réseau écrit de toute façon dans
+::T|FR|cl.selfmove.optyhome.060|                           C:\OPTY_by-YannD.
+::T|FR|cl.selfmove.optyhome.061|    ASK                  : La bonne réponse pour les quatre profils de
+::T|FR|cl.selfmove.optyhome.062|                           machine réelle, parce que ce qui décide n'est
+::T|FR|cl.selfmove.optyhome.063|                           pas l'usage du PC mais l'endroit où se trouve
+::T|FR|cl.selfmove.optyhome.064|                           le fichier. Dans un dépôt git ou un dossier
+::T|FR|cl.selfmove.optyhome.065|                           OneDrive, cette étape fait disparaître un
+::T|FR|cl.selfmove.optyhome.066|                           fichier suivi ; dans Téléchargements, c'est du
+::T|FR|cl.selfmove.optyhome.067|                           rangement. OPTY ne peut pas faire la
+::T|FR|cl.selfmove.optyhome.068|                           différence, donc il demande.
+::X|FR|cl.selfmove.optyhome.001|  Pourquoi ces profils : Quatre ASK et un KEEP. Les quatre profils de
+::X|FR|cl.selfmove.optyhome.002|                         machine réelle ont ASK pour la même raison, sans
+::X|FR|cl.selfmove.optyhome.003|                         rapport avec les performances : la réponse dépend
+::X|FR|cl.selfmove.optyhome.004|                         de l'endroit où se trouve le fichier maintenant,
+::X|FR|cl.selfmove.optyhome.005|                         et OPTY ne sait pas distinguer un dépôt d'un
+::X|FR|cl.selfmove.optyhome.006|                         dossier Téléchargements. WINDOWS est un vrai KEEP
+::X|FR|cl.selfmove.optyhome.007|                         et non du remplissage : ne rien faire est ici
+::X|FR|cl.selfmove.optyhome.008|                         parfaitement défini et sans danger, le fichier
+::X|FR|cl.selfmove.optyhome.009|                         reste simplement où vous l'avez mis.
+::X|FR|cl.selfmove.optyhome.010|
+::X|FR|cl.selfmove.optyhome.011|  Problemes connus : Deux, dans les mêmes trois lignes. D'abord, xcopy /y
+::X|FR|cl.selfmove.optyhome.012|                     écrase sans rien comparer : lancez un OPTY.bat plus
+::X|FR|cl.selfmove.optyhome.013|                     ancien depuis Téléchargements et il remplace
+::X|FR|cl.selfmove.optyhome.014|                     silencieusement la copie plus récente de C:\OPTY_by-
+::X|FR|cl.selfmove.optyhome.015|                     YannD par l'ancienne, puis supprime le fichier que
+::X|FR|cl.selfmove.optyhome.016|                     vous avez lancé. Ensuite, le verrou teste l'existence
+::X|FR|cl.selfmove.optyhome.017|                     de C:\OPTY_by-YannD\OPTY.bat, pas la réussite de ce
+::X|FR|cl.selfmove.optyhome.018|                     xcopy-ci. Si la copie échoue - verrou antivirus,
+::X|FR|cl.selfmove.optyhome.019|                     redirection de dossier, disque plein - alors qu'une
+::X|FR|cl.selfmove.optyhome.020|                     ancienne copie est déjà là, le test passe, la vieille
+::X|FR|cl.selfmove.optyhome.021|                     copie est lancée et votre fichier plus récent est
+::X|FR|cl.selfmove.optyhome.022|                     supprimé quand même.
+::X|FR|cl.selfmove.optyhome.023|
+::X|FR|cl.selfmove.optyhome.024|  Non verifie (en)  : The permission claim is about the default ACL
+::X|FR|cl.selfmove.optyhome.025|                      inherited from the root of C:, which grants Users a
+::X|FR|cl.selfmove.optyhome.026|                      create-folders and append-data right on new
+::X|FR|cl.selfmove.optyhome.027|                      subfolders. It was not re-measured on this machine,
+::X|FR|cl.selfmove.optyhome.028|                      so treat the exact rights as indicative and check
+::X|FR|cl.selfmove.optyhome.029|                      icacls C:\OPTY_by-YannD yourself if other people
+::X|FR|cl.selfmove.optyhome.030|                      have accounts here.
+::X|FR|cl.selfmove.optyhome.031|
+::X|FR|cl.selfmove.optyhome.032|  Cible           : Creates C:\OPTY_by-YannD, runs xcopy /y /q
+::X|FR|cl.selfmove.optyhome.033|                    "%~dp0OPTY.bat" "C:\OPTY_by-YannD\" (line 169), starts
+::X|FR|cl.selfmove.optyhome.034|                    the copy (line 180), then del "%~dp0OPTY.bat" (line
+::X|FR|cl.selfmove.optyhome.035|                    182) and exits. OPTY.bat lines 166 to 183, label
+::X|FR|cl.selfmove.optyhome.036|                    :shortcut.
+::T|EN|cl.selfmove.optyhome.001|RELOCATE OPTY.BAT TO C:\OPTY_BY-YANND
+::T|EN|cl.selfmove.optyhome.002|
+::T|EN|cl.selfmove.optyhome.003|  What it is      : If OPTY.bat is not already running from C:\OPTY_by-
+::T|EN|cl.selfmove.optyhome.004|                    YannD, it creates that folder, copies itself into it,
+::T|EN|cl.selfmove.optyhome.005|                    launches the copy and deletes the file you started.
+::T|EN|cl.selfmove.optyhome.006|
+::T|EN|cl.selfmove.optyhome.007|  Actual effect   : md, then xcopy /y /q, then a check that C:\OPTY_by-
+::T|EN|cl.selfmove.optyhome.008|                    YannD\OPTY.bat exists, then start on the copy, then
+::T|EN|cl.selfmove.optyhome.009|                    del on the original, then exit. Two guards matter here
+::T|EN|cl.selfmove.optyhome.010|                    and both were bugs once: the path comparison is case-
+::T|EN|cl.selfmove.optyhome.011|                    insensitive (if /i), so c:\opty_by-yannd\ no longer
+::T|EN|cl.selfmove.optyhome.012|                    fails the test and makes the script relocate on top of
+::T|EN|cl.selfmove.optyhome.013|                    itself; and the del only runs after the destination
+::T|EN|cl.selfmove.optyhome.014|                    file has been confirmed present, where the old order
+::T|EN|cl.selfmove.optyhome.015|                    deleted the source even when xcopy had failed. The
+::T|EN|cl.selfmove.optyhome.016|                    delete does succeed - a .bat file is read line by
+::T|EN|cl.selfmove.optyhome.017|                    line, not held open by an exclusive lock.
+::T|EN|cl.selfmove.optyhome.018|
+::T|EN|cl.selfmove.optyhome.019|  Gain            : One known path. OPTY's logs, its rollback file and its
+::T|EN|cl.selfmove.optyhome.020|                    restore-point bookkeeping end up in a single folder
+::T|EN|cl.selfmove.optyhome.021|                    instead of scattered across Downloads, the desktop and
+::T|EN|cl.selfmove.optyhome.022|                    a USB key. There is no performance gain of any kind,
+::T|EN|cl.selfmove.optyhome.023|                    for anything.
+::T|EN|cl.selfmove.optyhome.024|
+::T|EN|cl.selfmove.optyhome.025|  Cost            : The file disappears from where you put it. If OPTY.bat
+::T|EN|cl.selfmove.optyhome.026|                    was in a git checkout, that working tree now shows a
+::T|EN|cl.selfmove.optyhome.027|                    deleted file; in a synced folder, the deletion syncs
+::T|EN|cl.selfmove.optyhome.028|                    to every other device. Undo is manual: move the file
+::T|EN|cl.selfmove.optyhome.029|                    back and delete C:\OPTY_by-YannD yourself. Beyond
+::T|EN|cl.selfmove.optyhome.030|                    that, note where it lands. It puts a script that
+::T|EN|cl.selfmove.optyhome.031|                    always runs as administrator in a folder at the root
+::T|EN|cl.selfmove.optyhome.032|                    of C:, and the permissions inherited from the root of
+::T|EN|cl.selfmove.optyhome.033|                    the system drive are looser than anything under
+::T|EN|cl.selfmove.optyhome.034|                    Program Files - standard user accounts on this machine
+::T|EN|cl.selfmove.optyhome.035|                    can create files there. On a shared PC with other
+::T|EN|cl.selfmove.optyhome.036|                    standard accounts, prefer a folder you create yourself
+::T|EN|cl.selfmove.optyhome.037|                    under Program Files, or check the permissions on
+::T|EN|cl.selfmove.optyhome.038|                    C:\OPTY_by-YannD once it exists. OPTY also relaunches
+::T|EN|cl.selfmove.optyhome.039|                    itself from that copy and can overwrite itself from
+::T|EN|cl.selfmove.optyhome.040|                    GitHub, which is what makes the location worth a line.
+::T|EN|cl.selfmove.optyhome.041|
+::T|EN|cl.selfmove.optyhome.042|  Windows default : Not applicable. C:\OPTY_by-YannD is not a Windows
+::T|EN|cl.selfmove.optyhome.043|                    folder and does not exist until OPTY creates it.
+::T|EN|cl.selfmove.optyhome.044|
+::T|EN|cl.selfmove.optyhome.045|  Possible values:
+::T|EN|cl.selfmove.optyhome.046|    DELETE               : Copy OPTY.bat to C:\OPTY_by-YannD, relaunch
+::T|EN|cl.selfmove.optyhome.047|                           from there and delete the file you double-
+::T|EN|cl.selfmove.optyhome.048|                           clicked. Sensible when you launched it from
+::T|EN|cl.selfmove.optyhome.049|                           Downloads or a USB stick and do not care where
+::T|EN|cl.selfmove.optyhome.050|                           the file lives.
+::T|EN|cl.selfmove.optyhome.051|    KEEP                 : Run OPTY from wherever it is. Its logs and its
+::T|EN|cl.selfmove.optyhome.052|                           rollback file then follow the script instead of
+::T|EN|cl.selfmove.optyhome.053|                           living at a fixed address, and the network
+::T|EN|cl.selfmove.optyhome.054|                           report still writes to C:\OPTY_by-YannD anyway.
+::T|EN|cl.selfmove.optyhome.055|    ASK                  : The right answer for the four real-machine
+::T|EN|cl.selfmove.optyhome.056|                           profiles, because the deciding fact is not what
+::T|EN|cl.selfmove.optyhome.057|                           the PC is for but where the file currently
+::T|EN|cl.selfmove.optyhome.058|                           sits. Inside a git checkout or a OneDrive
+::T|EN|cl.selfmove.optyhome.059|                           folder, this step makes a tracked file
+::T|EN|cl.selfmove.optyhome.060|                           disappear; in Downloads it is housekeeping.
+::T|EN|cl.selfmove.optyhome.061|                           OPTY cannot see the difference, so it has to
+::T|EN|cl.selfmove.optyhome.062|                           ask.
+::X|EN|cl.selfmove.optyhome.001|  Why these profiles : Four ASK and one KEEP. The four real-machine
+::X|EN|cl.selfmove.optyhome.002|                       profiles all get ASK for the same reason, which has
+::X|EN|cl.selfmove.optyhome.003|                       nothing to do with performance: the answer depends
+::X|EN|cl.selfmove.optyhome.004|                       on where the file is right now, and OPTY has no way
+::X|EN|cl.selfmove.optyhome.005|                       to tell a checkout from a Downloads folder. WINDOWS
+::X|EN|cl.selfmove.optyhome.006|                       is a genuine KEEP rather than filler - the do-
+::X|EN|cl.selfmove.optyhome.007|                       nothing behaviour here is well defined and
+::X|EN|cl.selfmove.optyhome.008|                       completely safe, the file simply stays where you
+::X|EN|cl.selfmove.optyhome.009|                       put it.
+::X|EN|cl.selfmove.optyhome.010|
+::X|EN|cl.selfmove.optyhome.011|  Known problems  : Two, both in the same three lines. First, xcopy /y
+::X|EN|cl.selfmove.optyhome.012|                    overwrites without comparing anything: launch an older
+::X|EN|cl.selfmove.optyhome.013|                    OPTY.bat from Downloads and it silently replaces the
+::X|EN|cl.selfmove.optyhome.014|                    newer copy in C:\OPTY_by-YannD with the older one,
+::X|EN|cl.selfmove.optyhome.015|                    then deletes the file you launched. Second, the guard
+::X|EN|cl.selfmove.optyhome.016|                    tests whether C:\OPTY_by-YannD\OPTY.bat exists, not
+::X|EN|cl.selfmove.optyhome.017|                    whether this xcopy succeeded. If the copy fails -
+::X|EN|cl.selfmove.optyhome.018|                    antivirus lock, folder redirection, disk full - while
+::X|EN|cl.selfmove.optyhome.019|                    an older copy is already sitting there, the check
+::X|EN|cl.selfmove.optyhome.020|                    passes, the old copy is started and your newer file is
+::X|EN|cl.selfmove.optyhome.021|                    deleted anyway.
+::X|EN|cl.selfmove.optyhome.022|
+::X|EN|cl.selfmove.optyhome.023|  Unverified      : The permission claim is about the default ACL
+::X|EN|cl.selfmove.optyhome.024|                    inherited from the root of C:, which grants Users a
+::X|EN|cl.selfmove.optyhome.025|                    create-folders and append-data right on new
+::X|EN|cl.selfmove.optyhome.026|                    subfolders. It was not re-measured on this machine, so
+::X|EN|cl.selfmove.optyhome.027|                    treat the exact rights as indicative and check icacls
+::X|EN|cl.selfmove.optyhome.028|                    C:\OPTY_by-YannD yourself if other people have
+::X|EN|cl.selfmove.optyhome.029|                    accounts here.
+::X|EN|cl.selfmove.optyhome.030|
+::X|EN|cl.selfmove.optyhome.031|  Target          : Creates C:\OPTY_by-YannD, runs xcopy /y /q
+::X|EN|cl.selfmove.optyhome.032|                    "%~dp0OPTY.bat" "C:\OPTY_by-YannD\" (line 169), starts
+::X|EN|cl.selfmove.optyhome.033|                    the copy (line 180), then del "%~dp0OPTY.bat" (line
+::X|EN|cl.selfmove.optyhome.034|                    182) and exits. OPTY.bat lines 166 to 183, label
+::X|EN|cl.selfmove.optyhome.035|                    :shortcut.
+::
+:: ---- cl.dnscache.flush (cleanup) ---------------------------------
+::P|cl.dnscache.flush|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.dnscache.flush.001|VIDAGE DU CACHE DNS
+::T|FR|cl.dnscache.flush.002|
+::T|FR|cl.dnscache.flush.003|  Ce que c est    : Windows garde en mémoire les réponses DNS récentes
+::T|FR|cl.dnscache.flush.004|                    pour éviter de refaire la même résolution sur le
+::T|FR|cl.dnscache.flush.005|                    réseau. Cette étape vide ce cache.
+::T|FR|cl.dnscache.flush.006|
+::T|FR|cl.dnscache.flush.007|  Effet reel      : Une seule commande, ipconfig /flushdns, qui jette
+::T|FR|cl.dnscache.flush.008|                    toutes les entrées mémorisées par le service Dnscache.
+::T|FR|cl.dnscache.flush.009|                    La prochaine résolution de chaque nom repart vers
+::T|FR|cl.dnscache.flush.010|                    votre serveur DNS. Rien n'est écrit : vos serveurs
+::T|FR|cl.dnscache.flush.011|                    DNS, votre fichier hosts, votre profil réseau et les
+::T|FR|cl.dnscache.flush.012|                    réglages de vos cartes restent intacts. Ça réussit
+::T|FR|cl.dnscache.flush.013|                    toujours : rien ne peut verrouiller un cache qui vit
+::T|FR|cl.dnscache.flush.014|                    dans la mémoire d'un service. À noter, le même bloc
+::T|FR|cl.dnscache.flush.015|                    réaffirme ensuite trois réglages TCP sur les lignes
+::T|FR|cl.dnscache.flush.016|                    suivantes, ce qui est une autre étape avec sa propre
+::T|FR|cl.dnscache.flush.017|                    réponse.
+::T|FR|cl.dnscache.flush.018|
+::T|FR|cl.dnscache.flush.019|  Gain            : Aucun gain de performance. Aucun. Au contraire, les
+::T|FR|cl.dnscache.flush.020|                    premières résolutions suivantes sont un peu plus
+::T|FR|cl.dnscache.flush.021|                    lentes puisqu'il faut ressortir sur le réseau. Ce que
+::T|FR|cl.dnscache.flush.022|                    ça corrige, et c'est la seule chose, c'est un nom qui
+::T|FR|cl.dnscache.flush.023|                    pointe encore sur une adresse périmée : après un
+::T|FR|cl.dnscache.flush.024|                    changement de DNS, après une connexion ou une
+::T|FR|cl.dnscache.flush.025|                    déconnexion VPN, ou après une modification du fichier
+::T|FR|cl.dnscache.flush.026|                    hosts.
+::T|FR|cl.dnscache.flush.027|
+::T|FR|cl.dnscache.flush.028|  Cout            : Rien. Le cache se remplit à nouveau en quelques
+::T|FR|cl.dnscache.flush.029|                    secondes d'utilisation normale. Aucune donnée
+::T|FR|cl.dnscache.flush.030|                    personnelle, aucune configuration, aucun historique
+::T|FR|cl.dnscache.flush.031|                    n'est concerné.
+::T|FR|cl.dnscache.flush.032|
+::T|FR|cl.dnscache.flush.033|  Defaut Windows  : Sans objet au sens habituel. Windows ne vide jamais ce
+::T|FR|cl.dnscache.flush.034|                    cache à la demande ; les entrées expirent simplement à
+::T|FR|cl.dnscache.flush.035|                    la fin de leur durée de vie, et l'ensemble repart de
+::T|FR|cl.dnscache.flush.036|                    zéro à chaque redémarrage.
+::T|FR|cl.dnscache.flush.037|
+::T|FR|cl.dnscache.flush.038|  Valeurs possibles :
+::T|FR|cl.dnscache.flush.039|    DELETE               : Vider maintenant le cache DNS en mémoire.
+::T|FR|cl.dnscache.flush.040|                           Gratuit, instantané, et c'est le remède
+::T|FR|cl.dnscache.flush.041|                           standard quand un nom pointe encore sur une
+::T|FR|cl.dnscache.flush.042|                           adresse qu'il ne devrait plus avoir.
+::T|FR|cl.dnscache.flush.043|    KEEP                 : Laisser le cache tranquille. Chaque entrée
+::T|FR|cl.dnscache.flush.044|                           expire d'elle-même à la fin de sa durée de vie,
+::T|FR|cl.dnscache.flush.045|                           de quelques minutes à un jour selon les noms.
+::T|FR|cl.dnscache.flush.046|                           Rien ne s'accumule : le cache est en mémoire
+::T|FR|cl.dnscache.flush.047|                           vive et se vide au redémarrage.
+::T|FR|cl.dnscache.flush.048|    ASK                  : Aucun profil ne l'utilise, et aucun ne le
+::T|FR|cl.dnscache.flush.049|                           devrait. Il n'y a rien à peser ici : aucune
+::T|FR|cl.dnscache.flush.050|                           donnée perdue, aucun réglage modifié, et au
+::T|FR|cl.dnscache.flush.051|                           pire quelques résolutions qui prennent quelques
+::T|FR|cl.dnscache.flush.052|                           millisecondes de plus.
+::X|FR|cl.dnscache.flush.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.dnscache.flush.002|                         identiques volontairement : il n'y a aucun
+::X|FR|cl.dnscache.flush.003|                         argument jeu, serveur, bureautique ou batterie
+::X|FR|cl.dnscache.flush.004|                         dans un sens ni dans l'autre, l'opération est
+::X|FR|cl.dnscache.flush.005|                         gratuite et parfois utile, donc tous la font.
+::X|FR|cl.dnscache.flush.006|                         WINDOWS est à KEEP parce que le comportement
+::X|FR|cl.dnscache.flush.007|                         d'origine est réellement différent, et pas un
+::X|FR|cl.dnscache.flush.008|                         simple bouche-trou : Windows laisse chaque entrée
+::X|FR|cl.dnscache.flush.009|                         expirer d'elle-même au lieu de tout jeter d'un
+::X|FR|cl.dnscache.flush.010|                         coup.
+::X|FR|cl.dnscache.flush.011|
+::X|FR|cl.dnscache.flush.012|  Cible           : No file path. ipconfig /flushdns, OPTY.bat line 579,
+::X|FR|cl.dnscache.flush.013|                    label :netdns - the first line of that block, before
+::X|FR|cl.dnscache.flush.014|                    the TCP defaults are re-asserted at lines 587 to 589.
+::T|EN|cl.dnscache.flush.001|FLUSH THE DNS RESOLVER CACHE
+::T|EN|cl.dnscache.flush.002|
+::T|EN|cl.dnscache.flush.003|  What it is      : Windows keeps recent DNS answers in memory so repeated
+::T|EN|cl.dnscache.flush.004|                    lookups of the same name do not go back out to the
+::T|EN|cl.dnscache.flush.005|                    network. This empties that cache.
+::T|EN|cl.dnscache.flush.006|
+::T|EN|cl.dnscache.flush.007|  Actual effect   : One command, ipconfig /flushdns, which discards every
+::T|EN|cl.dnscache.flush.008|                    cached entry held by the Dnscache service. The next
+::T|EN|cl.dnscache.flush.009|                    lookup for each name goes back to your DNS server. It
+::T|EN|cl.dnscache.flush.010|                    writes nothing: your DNS servers, your hosts file,
+::T|EN|cl.dnscache.flush.011|                    your network profile, your adapter settings are all
+::T|EN|cl.dnscache.flush.012|                    untouched. It always succeeds - nothing can lock a
+::T|EN|cl.dnscache.flush.013|                    cache that lives in a service's memory. Note that the
+::T|EN|cl.dnscache.flush.014|                    same block then re-asserts three TCP settings on the
+::T|EN|cl.dnscache.flush.015|                    following lines, which is a separate step with a
+::T|EN|cl.dnscache.flush.016|                    separate answer.
+::T|EN|cl.dnscache.flush.017|
+::T|EN|cl.dnscache.flush.018|  Gain            : No performance gain. None. If anything the next few
+::T|EN|cl.dnscache.flush.019|                    lookups are marginally slower because they have to go
+::T|EN|cl.dnscache.flush.020|                    out to the network again. What it does fix, and the
+::T|EN|cl.dnscache.flush.021|                    only thing it fixes, is a name that still resolves to
+::T|EN|cl.dnscache.flush.022|                    an address it should no longer resolve to - after a
+::T|EN|cl.dnscache.flush.023|                    DNS change, after connecting or disconnecting a VPN,
+::T|EN|cl.dnscache.flush.024|                    or after editing the hosts file.
+::T|EN|cl.dnscache.flush.025|
+::T|EN|cl.dnscache.flush.026|  Cost            : Nothing. The cache refills by itself within seconds of
+::T|EN|cl.dnscache.flush.027|                    normal use. No user data, no configuration and no
+::T|EN|cl.dnscache.flush.028|                    history is involved.
+::T|EN|cl.dnscache.flush.029|
+::T|EN|cl.dnscache.flush.030|  Windows default : Not applicable in the usual sense. Windows never
+::T|EN|cl.dnscache.flush.031|                    flushes on demand; entries simply expire when their
+::T|EN|cl.dnscache.flush.032|                    TTL runs out, and the whole cache is empty again after
+::T|EN|cl.dnscache.flush.033|                    every reboot.
+::T|EN|cl.dnscache.flush.034|
+::T|EN|cl.dnscache.flush.035|  Possible values:
+::T|EN|cl.dnscache.flush.036|    DELETE               : Empty the in-memory DNS resolver cache now.
+::T|EN|cl.dnscache.flush.037|                           Free, instant, and the standard fix when a name
+::T|EN|cl.dnscache.flush.038|                           resolves to an address it should no longer
+::T|EN|cl.dnscache.flush.039|                           resolve to.
+::T|EN|cl.dnscache.flush.040|    KEEP                 : Leave the cache alone. Each entry expires on
+::T|EN|cl.dnscache.flush.041|                           its own when its TTL runs out, which for most
+::T|EN|cl.dnscache.flush.042|                           names is minutes to a day. Nothing accumulates:
+::T|EN|cl.dnscache.flush.043|                           the cache is in RAM and is empty again after a
+::T|EN|cl.dnscache.flush.044|                           reboot.
+::T|EN|cl.dnscache.flush.045|    ASK                  : No profile uses it and none should. There is
+::T|EN|cl.dnscache.flush.046|                           nothing here to weigh: no data is lost, no
+::T|EN|cl.dnscache.flush.047|                           setting is changed and the worst case is a
+::T|EN|cl.dnscache.flush.048|                           handful of lookups that take a few extra
+::T|EN|cl.dnscache.flush.049|                           milliseconds.
+::X|EN|cl.dnscache.flush.001|  Why these profiles : Four DELETE and one KEEP. The four are identical on
+::X|EN|cl.dnscache.flush.002|                       purpose - there is no gaming, server, office or
+::X|EN|cl.dnscache.flush.003|                       battery argument in either direction, the step is
+::X|EN|cl.dnscache.flush.004|                       free and occasionally useful, so they all take it.
+::X|EN|cl.dnscache.flush.005|                       WINDOWS is KEEP because the shipped behaviour
+::X|EN|cl.dnscache.flush.006|                       really is different and not just a placeholder:
+::X|EN|cl.dnscache.flush.007|                       Windows lets each entry age out by TTL rather than
+::X|EN|cl.dnscache.flush.008|                       dropping the lot.
+::X|EN|cl.dnscache.flush.009|
+::X|EN|cl.dnscache.flush.010|  Target          : No file path. ipconfig /flushdns, OPTY.bat line 579,
+::X|EN|cl.dnscache.flush.011|                    label :netdns - the first line of that block, before
+::X|EN|cl.dnscache.flush.012|                    the TCP defaults are re-asserted at lines 587 to 589.
+::
+:: ---- cl.winsxs.superseded (cleanup) ------------------------------
+::P|cl.winsxs.superseded|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.winsxs.superseded.001|PURGE DES COMPOSANTS REMPLACÉS DANS WINSXS
+::T|FR|cl.winsxs.superseded.002|
+::T|FR|cl.winsxs.superseded.003|  Ce que c est    : WinSxS conserve la version précédente de chaque
+::T|FR|cl.winsxs.superseded.004|                    composant à côté de la version actuelle, pour que les
+::T|FR|cl.winsxs.superseded.005|                    mises à jour installées restent désinstallables. Cette
+::T|FR|cl.winsxs.superseded.006|                    étape supprime les versions devenues obsolètes.
+::T|FR|cl.winsxs.superseded.007|
+::T|FR|cl.winsxs.superseded.008|  Effet reel      : DISM supprime les versions de composants qui ont été
+::T|FR|cl.winsxs.superseded.009|                    remplacées. /ResetBase n'est volontairement PAS
+::T|FR|cl.winsxs.superseded.010|                    utilisé, et c'est tout l'intérêt de la ligne : avec
+::T|FR|cl.winsxs.superseded.011|                    /ResetBase, plus aucune mise à jour installée ne
+::T|FR|cl.winsxs.superseded.012|                    pourrait jamais être désinstallée. Sans lui, les mises
+::T|FR|cl.winsxs.superseded.013|                    à jour dans la fenêtre de rétention restent
+::T|FR|cl.winsxs.superseded.014|                    retirables. Attention à la durée, en revanche : c'est
+::T|FR|cl.winsxs.superseded.015|                    la cinquième des cinq commandes DISM du bloc, et le
+::T|FR|cl.winsxs.superseded.016|                    temps que vous voyez passer vient surtout de
+::T|FR|cl.winsxs.superseded.017|                    RestoreHealth, juste au-dessus, qui peut prendre dix à
+::T|FR|cl.winsxs.superseded.018|                    trente minutes et solliciter Windows Update pour
+::T|FR|cl.winsxs.superseded.019|                    récupérer des fichiers de remplacement.
+::T|FR|cl.winsxs.superseded.020|
+::T|FR|cl.winsxs.superseded.021|  Gain            : De l'espace disque, souvent 1 à 6 Go sur une machine
+::T|FR|cl.winsxs.superseded.022|                    jamais nettoyée, et fréquemment quelques centaines de
+::T|FR|cl.winsxs.superseded.023|                    Mo voire rien du tout sur une machine déjà passée par
+::T|FR|cl.winsxs.superseded.024|                    là. Ça n'accélère Windows sur aucun plan : la taille
+::T|FR|cl.winsxs.superseded.025|                    de WinSxS n'a aucun effet sur le démarrage, sur
+::T|FR|cl.winsxs.superseded.026|                    l'accès aux fichiers ni sur quoi que ce soit de
+::T|FR|cl.winsxs.superseded.027|                    perceptible. C'est de la place, rien d'autre.
+::T|FR|cl.winsxs.superseded.028|
+::T|FR|cl.winsxs.superseded.029|  Cout            : Les mises à jour plus anciennes que la fenêtre de
+::T|FR|cl.winsxs.superseded.030|                    rétention ne peuvent plus être désinstallées. Rien
+::T|FR|cl.winsxs.superseded.031|                    d'autre n'est perdu : aucune donnée personnelle, aucun
+::T|FR|cl.winsxs.superseded.032|                    réglage, aucune fonctionnalité installée. Windows fait
+::T|FR|cl.winsxs.superseded.033|                    le même ménage tout seul via la tâche planifiée
+::T|FR|cl.winsxs.superseded.034|                    StartComponentCleanup, donc on ne fait ici qu'avancer
+::T|FR|cl.winsxs.superseded.035|                    ce qui serait arrivé plus tard. Comptez plusieurs
+::T|FR|cl.winsxs.superseded.036|                    minutes de travail disque et processeur soutenu, ce
+::T|FR|cl.winsxs.superseded.037|                    qui, sur un portable, se fait plutôt sur secteur que
+::T|FR|cl.winsxs.superseded.038|                    sur batterie.
+::T|FR|cl.winsxs.superseded.039|
+::T|FR|cl.winsxs.superseded.040|  Defaut Windows  : Sans objet en tant que réglage. Windows exécute un
+::T|FR|cl.winsxs.superseded.041|                    nettoyage équivalent selon sa propre planification,
+::T|FR|cl.winsxs.superseded.042|                    pendant les temps morts, avec son propre seuil
+::T|FR|cl.winsxs.superseded.043|                    d'ancienneté.
+::T|FR|cl.winsxs.superseded.044|
+::T|FR|cl.winsxs.superseded.045|  Valeurs possibles :
+::T|FR|cl.winsxs.superseded.046|    DELETE               : Lancer StartComponentCleanup maintenant et
+::T|FR|cl.winsxs.superseded.047|                           supprimer les versions de composants
+::T|FR|cl.winsxs.superseded.048|                           remplacées. /ResetBase n'est volontairement pas
+::T|FR|cl.winsxs.superseded.049|                           passé, donc les mises à jour plus récentes que
+::T|FR|cl.winsxs.superseded.050|                           la fenêtre de rétention restent
+::T|FR|cl.winsxs.superseded.051|                           désinstallables.
+::T|FR|cl.winsxs.superseded.052|    KEEP                 : Ne rien faire et laisser la tâche planifiée \Mi
+::T|FR|cl.winsxs.superseded.053|                           crosoft\Windows\Servicing\StartComponentCleanup
+::T|FR|cl.winsxs.superseded.054|                           faire le même travail pendant les temps morts.
+::T|FR|cl.winsxs.superseded.055|                           Vous gardez l'espace occupé un peu plus
+::T|FR|cl.winsxs.superseded.056|                           longtemps, sans autre conséquence.
+::T|FR|cl.winsxs.superseded.057|    ASK                  : Non utilisé. Rien ici n'est irréversible au
+::T|FR|cl.winsxs.superseded.058|                           point qu'un profil ne puisse trancher : aucune
+::T|FR|cl.winsxs.superseded.059|                           donnée personnelle n'est concernée, et le seul
+::T|FR|cl.winsxs.superseded.060|                           enjeu est la profondeur de l'historique de
+::T|FR|cl.winsxs.superseded.061|                           désinstallation.
+::X|FR|cl.winsxs.superseded.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.winsxs.superseded.002|                         identiques parce que le seul enjeu est l'espace
+::X|FR|cl.winsxs.superseded.003|                         disque, qui vaut autant sur un PC de jeu, un
+::X|FR|cl.winsxs.superseded.004|                         serveur, un poste bureautique ou un portable, et
+::X|FR|cl.winsxs.superseded.005|                         parce que ni la latence, ni le débit, ni
+::X|FR|cl.winsxs.superseded.006|                         l'autonomie ne changent la réponse. WINDOWS est à
+::X|FR|cl.winsxs.superseded.007|                         KEEP pour une vraie raison et non pour remplir la
+::X|FR|cl.winsxs.superseded.008|                         colonne : le comportement d'origine consiste
+::X|FR|cl.winsxs.superseded.009|                         effectivement à laisser faire la tâche planifiée.
+::X|FR|cl.winsxs.superseded.010|
+::X|FR|cl.winsxs.superseded.011|  Non verifie (en)  : The 1 to 6 GB range is the usual figure for a
+::X|FR|cl.winsxs.superseded.012|                      machine that has taken several months of cumulative
+::X|FR|cl.winsxs.superseded.013|                      updates without cleanup. On a recent install, or a
+::X|FR|cl.winsxs.superseded.014|                      machine where the scheduled task has already run,
+::X|FR|cl.winsxs.superseded.015|                      the reclaimed amount is frequently a few hundred MB
+::X|FR|cl.winsxs.superseded.016|                      and sometimes zero. Run dism /Online /Cleanup-Image
+::X|FR|cl.winsxs.superseded.017|                      /AnalyzeComponentStore first - OPTY does exactly
+::X|FR|cl.winsxs.superseded.018|                      that at line 616 - and read the reclaimable figure
+::X|FR|cl.winsxs.superseded.019|                      it prints instead of trusting the range.
+::X|FR|cl.winsxs.superseded.020|
+::X|FR|cl.winsxs.superseded.021|  Cible           : The component store C:\Windows\WinSxS. Command: dism
+::X|FR|cl.winsxs.superseded.022|                    /Online /Cleanup-image /StartComponentCleanup,
+::X|FR|cl.winsxs.superseded.023|                    OPTY.bat line 622, last of the five DISM commands in
+::X|FR|cl.winsxs.superseded.024|                    the :mdism block (lines 616 to 623).
+::T|EN|cl.winsxs.superseded.001|WINSXS SUPERSEDED COMPONENT CLEANUP
+::T|EN|cl.winsxs.superseded.002|
+::T|EN|cl.winsxs.superseded.003|  What it is      : WinSxS keeps the previous version of every component
+::T|EN|cl.winsxs.superseded.004|                    next to the current one, so that installed updates
+::T|EN|cl.winsxs.superseded.005|                    stay uninstallable. This removes the versions that
+::T|EN|cl.winsxs.superseded.006|                    have been superseded.
+::T|EN|cl.winsxs.superseded.007|
+::T|EN|cl.winsxs.superseded.008|  Actual effect   : DISM deletes component versions that have been
+::T|EN|cl.winsxs.superseded.009|                    replaced. /ResetBase is deliberately NOT used, and
+::T|EN|cl.winsxs.superseded.010|                    that is the whole point of the line: with /ResetBase
+::T|EN|cl.winsxs.superseded.011|                    no installed update could ever be uninstalled again.
+::T|EN|cl.winsxs.superseded.012|                    Without it, updates inside the retention window stay
+::T|EN|cl.winsxs.superseded.013|                    removable. Watch the clock, though: this is the fifth
+::T|EN|cl.winsxs.superseded.014|                    of five DISM commands in the block, and the running
+::T|EN|cl.winsxs.superseded.015|                    time you notice is mostly RestoreHealth on the line
+::T|EN|cl.winsxs.superseded.016|                    above, which can take ten to thirty minutes and may
+::T|EN|cl.winsxs.superseded.017|                    reach out to Windows Update for replacement files.
+::T|EN|cl.winsxs.superseded.018|
+::T|EN|cl.winsxs.superseded.019|  Gain            : Disk space, commonly 1 to 6 GB on a machine that has
+::T|EN|cl.winsxs.superseded.020|                    never been cleaned, and often a few hundred MB or
+::T|EN|cl.winsxs.superseded.021|                    nothing at all on one that has. It does not make
+::T|EN|cl.winsxs.superseded.022|                    Windows faster in any respect - the size of WinSxS has
+::T|EN|cl.winsxs.superseded.023|                    no effect on boot time, on file access or on anything
+::T|EN|cl.winsxs.superseded.024|                    else you can feel. Space only.
+::T|EN|cl.winsxs.superseded.025|
+::T|EN|cl.winsxs.superseded.026|  Cost            : Updates older than the retention window can no longer
+::T|EN|cl.winsxs.superseded.027|                    be uninstalled. Nothing else is lost: no user data, no
+::T|EN|cl.winsxs.superseded.028|                    settings, no installed feature. Windows performs the
+::T|EN|cl.winsxs.superseded.029|                    same cleanup by itself through the
+::T|EN|cl.winsxs.superseded.030|                    StartComponentCleanup scheduled task, so in practice
+::T|EN|cl.winsxs.superseded.031|                    this does now what would have happened later. Expect
+::T|EN|cl.winsxs.superseded.032|                    several minutes of steady disk and CPU work, which on
+::T|EN|cl.winsxs.superseded.033|                    a laptop means it is worth doing on mains power rather
+::T|EN|cl.winsxs.superseded.034|                    than on battery.
+::T|EN|cl.winsxs.superseded.035|
+::T|EN|cl.winsxs.superseded.036|  Windows default : Not applicable as a setting. Windows runs an
+::T|EN|cl.winsxs.superseded.037|                    equivalent cleanup on its own schedule, on idle, with
+::T|EN|cl.winsxs.superseded.038|                    its own age gate.
+::T|EN|cl.winsxs.superseded.039|
+::T|EN|cl.winsxs.superseded.040|  Possible values:
+::T|EN|cl.winsxs.superseded.041|    DELETE               : Run StartComponentCleanup now and drop the
+::T|EN|cl.winsxs.superseded.042|                           superseded component versions. /ResetBase is
+::T|EN|cl.winsxs.superseded.043|                           deliberately not passed, so updates newer than
+::T|EN|cl.winsxs.superseded.044|                           the retention window stay uninstallable.
+::T|EN|cl.winsxs.superseded.045|    KEEP                 : Do nothing and let the \Microsoft\Windows\Servi
+::T|EN|cl.winsxs.superseded.046|                           cing\StartComponentCleanup scheduled task do
+::T|EN|cl.winsxs.superseded.047|                           the same work on idle. You keep the space
+::T|EN|cl.winsxs.superseded.048|                           occupied a while longer and lose nothing else.
+::T|EN|cl.winsxs.superseded.049|    ASK                  : Not used. Nothing here is irreversible in a way
+::T|EN|cl.winsxs.superseded.050|                           a profile cannot decide: no user data is
+::T|EN|cl.winsxs.superseded.051|                           involved and the only thing at stake is how far
+::T|EN|cl.winsxs.superseded.052|                           back the uninstall history reaches.
+::X|EN|cl.winsxs.superseded.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.winsxs.superseded.002|                       because the only thing at stake is disk space,
+::X|EN|cl.winsxs.superseded.003|                       which is worth the same on a gaming PC, a server,
+::X|EN|cl.winsxs.superseded.004|                       an office desktop and a laptop, and because nothing
+::X|EN|cl.winsxs.superseded.005|                       about latency, throughput or battery changes the
+::X|EN|cl.winsxs.superseded.006|                       answer. WINDOWS is KEEP for a real reason and not
+::X|EN|cl.winsxs.superseded.007|                       to fill the column: the shipped behaviour genuinely
+::X|EN|cl.winsxs.superseded.008|                       is to leave it to the scheduled task.
+::X|EN|cl.winsxs.superseded.009|
+::X|EN|cl.winsxs.superseded.010|  Unverified      : The 1 to 6 GB range is the usual figure for a machine
+::X|EN|cl.winsxs.superseded.011|                    that has taken several months of cumulative updates
+::X|EN|cl.winsxs.superseded.012|                    without cleanup. On a recent install, or a machine
+::X|EN|cl.winsxs.superseded.013|                    where the scheduled task has already run, the
+::X|EN|cl.winsxs.superseded.014|                    reclaimed amount is frequently a few hundred MB and
+::X|EN|cl.winsxs.superseded.015|                    sometimes zero. Run dism /Online /Cleanup-Image
+::X|EN|cl.winsxs.superseded.016|                    /AnalyzeComponentStore first - OPTY does exactly that
+::X|EN|cl.winsxs.superseded.017|                    at line 616 - and read the reclaimable figure it
+::X|EN|cl.winsxs.superseded.018|                    prints instead of trusting the range.
+::X|EN|cl.winsxs.superseded.019|
+::X|EN|cl.winsxs.superseded.020|  Target          : The component store C:\Windows\WinSxS. Command: dism
+::X|EN|cl.winsxs.superseded.021|                    /Online /Cleanup-image /StartComponentCleanup,
+::X|EN|cl.winsxs.superseded.022|                    OPTY.bat line 622, last of the five DISM commands in
+::X|EN|cl.winsxs.superseded.023|                    the :mdism block (lines 616 to 623).
+::
+:: ---- cl.cleanmgr.arm (risky) -----------------------------------
+::P|cl.cleanmgr.arm|ASK|ASK|ASK|ASK|KEEP|
+::T|FR|cl.cleanmgr.arm.001|LISTE BLANCHE DU NETTOYAGE DE DISQUE, 17 GESTIONNAIRES ARMÉS
+::T|FR|cl.cleanmgr.arm.002|
+::T|FR|cl.cleanmgr.arm.003|  Ce que c est    : Écrit StateFlags0064 = 2 sur 17 gestionnaires nommés
+::T|FR|cl.cleanmgr.arm.004|                    du Nettoyage de disque, ce qui les arme dans le profil
+::T|FR|cl.cleanmgr.arm.005|                    64. Les noms sont écrits en dur au lieu d'être
+::T|FR|cl.cleanmgr.arm.006|                    énumérés depuis la clé de registre, précisément pour
+::T|FR|cl.cleanmgr.arm.007|                    que DownloadsFolder ne puisse jamais être armé par
+::T|FR|cl.cleanmgr.arm.008|                    accident.
+::T|FR|cl.cleanmgr.arm.009|
+::T|FR|cl.cleanmgr.arm.010|  Effet reel      : L'écriture registre ne fait que marquer ces
+::T|FR|cl.cleanmgr.arm.011|                    gestionnaires comme sélectionnés. Rien n'est supprimé
+::T|FR|cl.cleanmgr.arm.012|                    tant que la ligne 763 n'a pas lancé cleanmgr
+::T|FR|cl.cleanmgr.arm.013|                    /sagerun:64, vingt lignes plus loin dans le même bloc
+::T|FR|cl.cleanmgr.arm.014|                    - et aucune question ne sépare les deux, donc répondre
+::T|FR|cl.cleanmgr.arm.015|                    oui à l'invite Nettoyage de disque répond pour les
+::T|FR|cl.cleanmgr.arm.016|                    deux. Les 17 gestionnaires : Active Setup Temp
+::T|FR|cl.cleanmgr.arm.017|                    Folders, D3D Shader Cache, Delivery Optimization
+::T|FR|cl.cleanmgr.arm.018|                    Files, Diagnostic Data Viewer database files,
+::T|FR|cl.cleanmgr.arm.019|                    Downloaded Program Files, Feedback Hub Archive log
+::T|FR|cl.cleanmgr.arm.020|                    files, Internet Cache Files, RetailDemo Offline
+::T|FR|cl.cleanmgr.arm.021|                    Content, Setup Log Files, Temporary Files, Thumbnail
+::T|FR|cl.cleanmgr.arm.022|                    Cache, Windows Defender, Windows Error Reporting
+::T|FR|cl.cleanmgr.arm.023|                    Files, Windows Upgrade Log Files, Corbeille, vidages
+::T|FR|cl.cleanmgr.arm.024|                    mémoire système et minidumps système. Chaque écriture
+::T|FR|cl.cleanmgr.arm.025|                    est protégée par un reg query : un gestionnaire absent
+::T|FR|cl.cleanmgr.arm.026|                    de cette édition est ignoré et non créé. Le bloc
+::T|FR|cl.cleanmgr.arm.027|                    commence par supprimer les anciennes valeurs
+::T|FR|cl.cleanmgr.arm.028|                    StateFlags6553 et StateFlags65535 de tous les
+::T|FR|cl.cleanmgr.arm.029|                    gestionnaires, là où se nichait le bug historique du
+::T|FR|cl.cleanmgr.arm.030|                    numéro de profil.
+::T|FR|cl.cleanmgr.arm.031|
+::T|FR|cl.cleanmgr.arm.032|  Gain            : Un nettoyage prévisible et vérifiable, au lieu de
+::T|FR|cl.cleanmgr.arm.033|                    /verylowdisk qui exécute tous les gestionnaires
+::T|FR|cl.cleanmgr.arm.034|                    enregistrés, y compris ceux des logiciels tiers, sans
+::T|FR|cl.cleanmgr.arm.035|                    confirmation et sans trace. En espace, comptez
+::T|FR|cl.cleanmgr.arm.036|                    quelques centaines de Mo à deux ou trois Go, dominés
+::T|FR|cl.cleanmgr.arm.037|                    par Delivery Optimization Files, Internet Cache Files
+::T|FR|cl.cleanmgr.arm.038|                    et Thumbnail Cache - plus le contenu de votre
+::T|FR|cl.cleanmgr.arm.039|                    Corbeille, qui peut aller de rien à des dizaines de
+::T|FR|cl.cleanmgr.arm.040|                    Go.
+::T|FR|cl.cleanmgr.arm.041|
+::T|FR|cl.cleanmgr.arm.042|  Cout            : Relisez les trois derniers noms. La Corbeille et les
+::T|FR|cl.cleanmgr.arm.043|                    deux gestionnaires de vidages mémoire SONT armés :
+::T|FR|cl.cleanmgr.arm.044|                    l'exécution vide donc votre Corbeille sur tous les
+::T|FR|cl.cleanmgr.arm.045|                    disques et supprime les vidages nécessaires pour
+::T|FR|cl.cleanmgr.arm.046|                    diagnostiquer un écran bleu. Rien de tout cela ne
+::T|FR|cl.cleanmgr.arm.047|                    revient, jamais : un fichier supprimé qui était dans
+::T|FR|cl.cleanmgr.arm.048|                    la Corbeille est perdu, et un minidump d'un plantage
+::T|FR|cl.cleanmgr.arm.049|                    de la semaine dernière ne se reconstitue pas. C'est
+::T|FR|cl.cleanmgr.arm.050|                    ici que « nettoyage » devient « le fichier supprimé
+::T|FR|cl.cleanmgr.arm.051|                    hier n'existe plus ». D3D Shader Cache figure aussi
+::T|FR|cl.cleanmgr.arm.052|                    dans la liste, ce qui coûte quelques secondes de
+::T|FR|cl.cleanmgr.arm.053|                    saccades à la prochaine reconstruction des shaders de
+::T|FR|cl.cleanmgr.arm.054|                    chaque jeu, et fait double emploi avec l'étape des
+::T|FR|cl.cleanmgr.arm.055|                    caches de shaders GPU. Thumbnail Cache signifie que
+::T|FR|cl.cleanmgr.arm.056|                    vos gros dossiers d'images régénèrent visiblement
+::T|FR|cl.cleanmgr.arm.057|                    leurs aperçus à la prochaine ouverture.
+::T|FR|cl.cleanmgr.arm.058|
+::T|FR|cl.cleanmgr.arm.059|  Defaut Windows  : Absent. Le profil 0064 n'existe pas tant qu'OPTY ne
+::T|FR|cl.cleanmgr.arm.060|                    l'écrit pas, et cleanmgr ne s'exécute jamais tout seul
+::T|FR|cl.cleanmgr.arm.061|                    sans surveillance.
+::T|FR|cl.cleanmgr.arm.062|
+::T|FR|cl.cleanmgr.arm.063|  Valeurs possibles :
+::T|FR|cl.cleanmgr.arm.064|    DELETE               : Armer les 17 gestionnaires et laisser cleanmgr
+::T|FR|cl.cleanmgr.arm.065|                           /sagerun:64 les exécuter. Lisez d'abord la
+::T|FR|cl.cleanmgr.arm.066|                           liste : cela vide la Corbeille de tous les
+::T|FR|cl.cleanmgr.arm.067|                           disques et supprime les deux types de vidage
+::T|FR|cl.cleanmgr.arm.068|                           mémoire. C'est définitif, il n'y a pas de
+::T|FR|cl.cleanmgr.arm.069|                           repêchage.
+::T|FR|cl.cleanmgr.arm.070|    KEEP                 : Ne pas écrire le profil 64 et ne pas lancer
+::T|FR|cl.cleanmgr.arm.071|                           cleanmgr. Toutes les autres étapes de nettoyage
+::T|FR|cl.cleanmgr.arm.072|                           de ce lot s'exécutent quand même ; vous perdez
+::T|FR|cl.cleanmgr.arm.073|                           seulement la partie pilotée par les
+::T|FR|cl.cleanmgr.arm.074|                           gestionnaires, qui recoupe largement les étapes
+::T|FR|cl.cleanmgr.arm.075|                           temp et caches.
+::T|FR|cl.cleanmgr.arm.076|    ASK                  : La réponse pour les quatre profils de machine
+::T|FR|cl.cleanmgr.arm.077|                           réelle, à cause d'une ligne précise de la liste
+::T|FR|cl.cleanmgr.arm.078|                           : Corbeille. Un profil ne peut pas savoir si la
+::T|FR|cl.cleanmgr.arm.079|                           vôtre est vide ou si elle contient le fichier
+::T|FR|cl.cleanmgr.arm.080|                           supprimé hier que vous voudrez récupérer
+::T|FR|cl.cleanmgr.arm.081|                           demain. Ce n'est pas une question de
+::T|FR|cl.cleanmgr.arm.082|                           performance et aucun usage de la machine ne
+::T|FR|cl.cleanmgr.arm.083|                           tranche.
+::X|FR|cl.cleanmgr.arm.001|  Pourquoi ces profils : Quatre ASK et un KEEP. Les quatre sont
+::X|FR|cl.cleanmgr.arm.002|                         identiques, et c'est le constat plutôt qu'une
+::X|FR|cl.cleanmgr.arm.003|                         distinction manquante : ce qui décide, c'est le
+::X|FR|cl.cleanmgr.arm.004|                         contenu actuel de votre Corbeille et le fait que
+::X|FR|cl.cleanmgr.arm.005|                         vous enquêtiez ou non sur un plantage, ce qui ne
+::X|FR|cl.cleanmgr.arm.006|                         dépend pas de l'usage de la machine. WINDOWS est
+::X|FR|cl.cleanmgr.arm.007|                         à KEEP parce qu'il n'y a réellement rien à
+::X|FR|cl.cleanmgr.arm.008|                         supprimer ni à garder dans l'état d'origine :
+::X|FR|cl.cleanmgr.arm.009|                         aucun profil 64 n'existe et rien ne s'exécute.
+::X|FR|cl.cleanmgr.arm.010|
+::X|FR|cl.cleanmgr.arm.011|  Problemes connus : La ligne de journal 760 annonce « 14 on / 15 off »
+::X|FR|cl.cleanmgr.arm.012|                     alors que le code écrit 17 activés et 12 désactivés :
+::X|FR|cl.cleanmgr.arm.013|                     le journal se trompe dans les deux sens. Pire, le
+::X|FR|cl.cleanmgr.arm.014|                     commentaire juste au-dessus affirme que la Corbeille,
+::X|FR|cl.cleanmgr.arm.015|                     l'Historique des fichiers et les gestionnaires de
+::X|FR|cl.cleanmgr.arm.016|                     vidages sont précisément ce que ce nettoyage refuse
+::X|FR|cl.cleanmgr.arm.017|                     délibérément de toucher - et la liste arme la
+::X|FR|cl.cleanmgr.arm.018|                     Corbeille et les deux gestionnaires de vidages. C'est
+::X|FR|cl.cleanmgr.arm.019|                     la liste qui s'exécute ; le commentaire est périmé et
+::X|FR|cl.cleanmgr.arm.020|                     trompeur pour qui audite le fichier.
+::X|FR|cl.cleanmgr.arm.021|
+::X|FR|cl.cleanmgr.arm.022|  Non verifie (en)  : The code comment above the block says the manual
+::X|FR|cl.cleanmgr.arm.023|                      cleanup deliberately refuses to touch the Recycle
+::X|FR|cl.cleanmgr.arm.024|                      Bin and the dump handlers, and the log line claims
+::X|FR|cl.cleanmgr.arm.025|                      14 handlers on. The list actually written contains
+::X|FR|cl.cleanmgr.arm.026|                      17 handlers including all three. The card describes
+::X|FR|cl.cleanmgr.arm.027|                      the code, because the code is what runs - but the
+::X|FR|cl.cleanmgr.arm.028|                      intent behind the block is genuinely unclear, and
+::X|FR|cl.cleanmgr.arm.029|                      someone should decide which of the two is meant to
+::X|FR|cl.cleanmgr.arm.030|                      be true.
+::X|FR|cl.cleanmgr.arm.031|
+::X|FR|cl.cleanmgr.arm.032|  Cible           : HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explore
+::X|FR|cl.cleanmgr.arm.033|                    r\VolumeCaches\<handler>, value StateFlags0064 = 2, on
+::X|FR|cl.cleanmgr.arm.034|                    17 named handlers - OPTY.bat lines 725 to 743. The
+::X|FR|cl.cleanmgr.arm.035|                    deletion itself happens at line 763, start "" cleanmgr
+::X|FR|cl.cleanmgr.arm.036|                    /sagerun:64, with a 600-second watchdog that taskkills
+::X|FR|cl.cleanmgr.arm.037|                    cleanmgr if it hangs.
+::T|EN|cl.cleanmgr.arm.001|DISK CLEANUP ALLOW-LIST, 17 HANDLERS ARMED
+::T|EN|cl.cleanmgr.arm.002|
+::T|EN|cl.cleanmgr.arm.003|  What it is      : Writes StateFlags0064 = 2 on 17 named Disk Cleanup
+::T|EN|cl.cleanmgr.arm.004|                    handlers, arming them in profile 64. The names are
+::T|EN|cl.cleanmgr.arm.005|                    written as explicit literals instead of being
+::T|EN|cl.cleanmgr.arm.006|                    enumerated from the registry key, precisely so that
+::T|EN|cl.cleanmgr.arm.007|                    DownloadsFolder can never be armed by accident.
+::T|EN|cl.cleanmgr.arm.008|
+::T|EN|cl.cleanmgr.arm.009|  Actual effect   : The registry write only marks those handlers as
+::T|EN|cl.cleanmgr.arm.010|                    selected. Nothing is deleted until line 763 launches
+::T|EN|cl.cleanmgr.arm.011|                    cleanmgr /sagerun:64, twenty lines later in the same
+::T|EN|cl.cleanmgr.arm.012|                    block - and there is no separate question between the
+::T|EN|cl.cleanmgr.arm.013|                    two, so answering yes to the Disk Cleanup prompt
+::T|EN|cl.cleanmgr.arm.014|                    answers for both. The 17 handlers: Active Setup Temp
+::T|EN|cl.cleanmgr.arm.015|                    Folders, D3D Shader Cache, Delivery Optimization
+::T|EN|cl.cleanmgr.arm.016|                    Files, Diagnostic Data Viewer database files,
+::T|EN|cl.cleanmgr.arm.017|                    Downloaded Program Files, Feedback Hub Archive log
+::T|EN|cl.cleanmgr.arm.018|                    files, Internet Cache Files, RetailDemo Offline
+::T|EN|cl.cleanmgr.arm.019|                    Content, Setup Log Files, Temporary Files, Thumbnail
+::T|EN|cl.cleanmgr.arm.020|                    Cache, Windows Defender, Windows Error Reporting
+::T|EN|cl.cleanmgr.arm.021|                    Files, Windows Upgrade Log Files, Recycle Bin, System
+::T|EN|cl.cleanmgr.arm.022|                    error memory dump files, System error minidump files.
+::T|EN|cl.cleanmgr.arm.023|                    Each write is guarded by a reg query, so a handler
+::T|EN|cl.cleanmgr.arm.024|                    that does not exist on this edition is skipped rather
+::T|EN|cl.cleanmgr.arm.025|                    than created. The block first deletes the legacy
+::T|EN|cl.cleanmgr.arm.026|                    StateFlags6553 and StateFlags65535 values from every
+::T|EN|cl.cleanmgr.arm.027|                    handler, which is where the old profile-number bug
+::T|EN|cl.cleanmgr.arm.028|                    used to live.
+::T|EN|cl.cleanmgr.arm.029|
+::T|EN|cl.cleanmgr.arm.030|  Gain            : A predictable, auditable cleanup instead of
+::T|EN|cl.cleanmgr.arm.031|                    /verylowdisk, which runs every registered handler
+::T|EN|cl.cleanmgr.arm.032|                    including third-party ones with no prompt and no
+::T|EN|cl.cleanmgr.arm.033|                    record of what it removed. In space terms, expect a
+::T|EN|cl.cleanmgr.arm.034|                    few hundred MB to two or three GB, dominated by
+::T|EN|cl.cleanmgr.arm.035|                    Delivery Optimization Files, Internet Cache Files and
+::T|EN|cl.cleanmgr.arm.036|                    Thumbnail Cache - plus whatever your Recycle Bin
+::T|EN|cl.cleanmgr.arm.037|                    happens to hold, which can be anything from nothing to
+::T|EN|cl.cleanmgr.arm.038|                    tens of GB.
+::T|EN|cl.cleanmgr.arm.039|
+::T|EN|cl.cleanmgr.arm.040|  Cost            : Read the last three names again. Recycle Bin and both
+::T|EN|cl.cleanmgr.arm.041|                    crash-dump handlers ARE armed, so the run empties your
+::T|EN|cl.cleanmgr.arm.042|                    Recycle Bin on every drive and deletes the dumps you
+::T|EN|cl.cleanmgr.arm.043|                    would need to diagnose a blue screen. Those do not
+::T|EN|cl.cleanmgr.arm.044|                    come back, ever - a deleted file that was in the bin
+::T|EN|cl.cleanmgr.arm.045|                    is simply gone, and a minidump for a crash that
+::T|EN|cl.cleanmgr.arm.046|                    happened last week cannot be reconstructed. This is
+::T|EN|cl.cleanmgr.arm.047|                    the step where cleanup becomes the file I deleted
+::T|EN|cl.cleanmgr.arm.048|                    yesterday is gone. D3D Shader Cache is also on the
+::T|EN|cl.cleanmgr.arm.049|                    list, which costs a few seconds of stutter the next
+::T|EN|cl.cleanmgr.arm.050|                    time each game rebuilds its shaders, and duplicates
+::T|EN|cl.cleanmgr.arm.051|                    what the GPU shader-cache step already does. Thumbnail
+::T|EN|cl.cleanmgr.arm.052|                    Cache means large picture folders regenerate their
+::T|EN|cl.cleanmgr.arm.053|                    previews visibly the next time you open them.
+::T|EN|cl.cleanmgr.arm.054|
+::T|EN|cl.cleanmgr.arm.055|  Windows default : Absent. Profile 0064 does not exist until OPTY writes
+::T|EN|cl.cleanmgr.arm.056|                    it, and cleanmgr never runs unattended on its own.
+::T|EN|cl.cleanmgr.arm.057|
+::T|EN|cl.cleanmgr.arm.058|  Possible values:
+::T|EN|cl.cleanmgr.arm.059|    DELETE               : Arm the 17 handlers and let cleanmgr
+::T|EN|cl.cleanmgr.arm.060|                           /sagerun:64 run them. Read the list first: it
+::T|EN|cl.cleanmgr.arm.061|                           empties the Recycle Bin on every drive and
+::T|EN|cl.cleanmgr.arm.062|                           deletes both kinds of crash dump. Those are
+::T|EN|cl.cleanmgr.arm.063|                           gone for good, not to the bin.
+::T|EN|cl.cleanmgr.arm.064|    KEEP                 : Do not write profile 64 and do not run
+::T|EN|cl.cleanmgr.arm.065|                           cleanmgr. Every other cleanup step in this
+::T|EN|cl.cleanmgr.arm.066|                           batch still runs; you simply lose the handler-
+::T|EN|cl.cleanmgr.arm.067|                           driven part, which mostly overlaps with the
+::T|EN|cl.cleanmgr.arm.068|                           temp and cache steps anyway.
+::T|EN|cl.cleanmgr.arm.069|    ASK                  : The answer for all four real-machine profiles,
+::T|EN|cl.cleanmgr.arm.070|                           and the reason is one specific line in the
+::T|EN|cl.cleanmgr.arm.071|                           list: Recycle Bin. A profile cannot know
+::T|EN|cl.cleanmgr.arm.072|                           whether your bin is empty or holds the file you
+::T|EN|cl.cleanmgr.arm.073|                           deleted yesterday and will want back tomorrow.
+::T|EN|cl.cleanmgr.arm.074|                           That is not a performance question and no
+::T|EN|cl.cleanmgr.arm.075|                           machine role settles it.
+::X|EN|cl.cleanmgr.arm.001|  Why these profiles : Four ASK and one KEEP. The four are identical, and
+::X|EN|cl.cleanmgr.arm.002|                       that is the finding rather than a missing
+::X|EN|cl.cleanmgr.arm.003|                       distinction: the deciding fact is what is currently
+::X|EN|cl.cleanmgr.arm.004|                       in your Recycle Bin and whether you are
+::X|EN|cl.cleanmgr.arm.005|                       investigating a crash, neither of which is a
+::X|EN|cl.cleanmgr.arm.006|                       property of the machine's role. WINDOWS is KEEP
+::X|EN|cl.cleanmgr.arm.007|                       because there genuinely is nothing to keep or
+::X|EN|cl.cleanmgr.arm.008|                       delete in the shipped state - no profile 64 exists
+::X|EN|cl.cleanmgr.arm.009|                       and nothing runs.
+::X|EN|cl.cleanmgr.arm.010|
+::X|EN|cl.cleanmgr.arm.011|  Known problems  : The log line at 760 records 14 on and 15 off while the
+::X|EN|cl.cleanmgr.arm.012|                    code writes 17 on and 12 off, so the log is wrong in
+::X|EN|cl.cleanmgr.arm.013|                    both directions. Worse, the comment block just above
+::X|EN|cl.cleanmgr.arm.014|                    claims Recycle Bin, File History and the dump handlers
+::X|EN|cl.cleanmgr.arm.015|                    are the exact things this cleanup deliberately refuses
+::X|EN|cl.cleanmgr.arm.016|                    to touch - and then the list arms Recycle Bin and both
+::X|EN|cl.cleanmgr.arm.017|                    dump handlers. The list is what executes; the comment
+::X|EN|cl.cleanmgr.arm.018|                    is stale and misleading to anyone auditing the file.
+::X|EN|cl.cleanmgr.arm.019|
+::X|EN|cl.cleanmgr.arm.020|  Unverified      : The code comment above the block says the manual
+::X|EN|cl.cleanmgr.arm.021|                    cleanup deliberately refuses to touch the Recycle Bin
+::X|EN|cl.cleanmgr.arm.022|                    and the dump handlers, and the log line claims 14
+::X|EN|cl.cleanmgr.arm.023|                    handlers on. The list actually written contains 17
+::X|EN|cl.cleanmgr.arm.024|                    handlers including all three. The card describes the
+::X|EN|cl.cleanmgr.arm.025|                    code, because the code is what runs - but the intent
+::X|EN|cl.cleanmgr.arm.026|                    behind the block is genuinely unclear, and someone
+::X|EN|cl.cleanmgr.arm.027|                    should decide which of the two is meant to be true.
+::X|EN|cl.cleanmgr.arm.028|
+::X|EN|cl.cleanmgr.arm.029|  Target          : HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explore
+::X|EN|cl.cleanmgr.arm.030|                    r\VolumeCaches\<handler>, value StateFlags0064 = 2, on
+::X|EN|cl.cleanmgr.arm.031|                    17 named handlers - OPTY.bat lines 725 to 743. The
+::X|EN|cl.cleanmgr.arm.032|                    deletion itself happens at line 763, start "" cleanmgr
+::X|EN|cl.cleanmgr.arm.033|                    /sagerun:64, with a 600-second watchdog that taskkills
+::X|EN|cl.cleanmgr.arm.034|                    cleanmgr if it hangs.
+::
+:: ---- cl.cleanmgr.pinoff (preference) --------------------------------
+::P|cl.cleanmgr.pinoff|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.cleanmgr.pinoff.001|VERROUILLAGE DES GESTIONNAIRES DANGEREUX SUR DÉSACTIVÉ
+::T|FR|cl.cleanmgr.pinoff.002|
+::T|FR|cl.cleanmgr.pinoff.003|  Ce que c est    : Écrit StateFlags0064 = 0 sur 12 gestionnaires, ce qui
+::T|FR|cl.cleanmgr.pinoff.004|                    les épingle explicitement à DÉSACTIVÉ dans le même
+::T|FR|cl.cleanmgr.pinoff.005|                    profil 64, au lieu de les laisser à la valeur que la
+::T|FR|cl.cleanmgr.pinoff.006|                    machine portait déjà.
+::T|FR|cl.cleanmgr.pinoff.007|
+::T|FR|cl.cleanmgr.pinoff.008|  Effet reel      : Marque comme non sélectionnés : BranchCache, Content
+::T|FR|cl.cleanmgr.pinoff.009|                    Indexer Cleaner, Device Driver Packages,
+::T|FR|cl.cleanmgr.pinoff.010|                    DownloadsFolder, Language Pack, Old ChkDsk Files,
+::T|FR|cl.cleanmgr.pinoff.011|                    Previous Installations, Temporary Setup Files, Update
+::T|FR|cl.cleanmgr.pinoff.012|                    Cleanup, Upgrade Discarded Files, User file versions,
+::T|FR|cl.cleanmgr.pinoff.013|                    Windows ESD installation files. Chaque écriture est
+::T|FR|cl.cleanmgr.pinoff.014|                    protégée par un reg query, donc les gestionnaires
+::T|FR|cl.cleanmgr.pinoff.015|                    absents de cette édition sont ignorés. Ces lignes ne
+::T|FR|cl.cleanmgr.pinoff.016|                    suppriment rien : c'est le frein, pas le moteur.
+::T|FR|cl.cleanmgr.pinoff.017|                    Sachez qu'elles s'enchaînent avec le bloc d'armement
+::T|FR|cl.cleanmgr.pinoff.018|                    et le sagerun dans une seule section :clean derrière
+::T|FR|cl.cleanmgr.pinoff.019|                    une unique question oui/non, donc en l'état du fichier
+::T|FR|cl.cleanmgr.pinoff.020|                    vous ne pouvez pas répondre différemment à cette étape
+::T|FR|cl.cleanmgr.pinoff.021|                    et à la précédente.
+::T|FR|cl.cleanmgr.pinoff.022|
+::T|FR|cl.cleanmgr.pinoff.023|  Gain            : C'est le garde-fou, et trois entrées portent presque
+::T|FR|cl.cleanmgr.pinoff.024|                    toute sa valeur. DownloadsFolder supprimerait le
+::T|FR|cl.cleanmgr.pinoff.025|                    contenu de votre dossier Téléchargements sans la
+::T|FR|cl.cleanmgr.pinoff.026|                    moindre limite d'ancienneté. User file versions
+::T|FR|cl.cleanmgr.pinoff.027|                    supprimerait vos versions de l'Historique des
+::T|FR|cl.cleanmgr.pinoff.028|                    fichiers. Previous Installations supprimerait
+::T|FR|cl.cleanmgr.pinoff.029|                    Windows.old, et avec lui votre possibilité de revenir
+::T|FR|cl.cleanmgr.pinoff.030|                    en arrière après une mise à niveau. Écrire 0
+::T|FR|cl.cleanmgr.pinoff.031|                    explicitement empêche qu'une valeur héritée d'un autre
+::T|FR|cl.cleanmgr.pinoff.032|                    outil, d'un ancien profil ou d'une image constructeur
+::T|FR|cl.cleanmgr.pinoff.033|                    ne les arme à votre insu. Cette étape ne libère aucun
+::T|FR|cl.cleanmgr.pinoff.034|                    octet, et c'est voulu.
+::T|FR|cl.cleanmgr.pinoff.035|
+::T|FR|cl.cleanmgr.pinoff.036|  Cout            : Vous renoncez à l'espace que ces gestionnaires
+::T|FR|cl.cleanmgr.pinoff.037|                    auraient récupéré. Update Cleanup et Windows ESD
+::T|FR|cl.cleanmgr.pinoff.038|                    installation files sont les deux qui comptent, et ils
+::T|FR|cl.cleanmgr.pinoff.039|                    peuvent représenter plusieurs Go. Si vous voulez
+::T|FR|cl.cleanmgr.pinoff.040|                    vraiment cette place, l'étape DISM
+::T|FR|cl.cleanmgr.pinoff.041|                    StartComponentCleanup récupère à peu près la même
+::T|FR|cl.cleanmgr.pinoff.042|                    chose sans les dommages collatéraux, et les fichiers
+::T|FR|cl.cleanmgr.pinoff.043|                    ESD peuvent être supprimés séparément une fois que
+::T|FR|cl.cleanmgr.pinoff.044|                    vous êtes certain de ne plus avoir besoin d'une image
+::T|FR|cl.cleanmgr.pinoff.045|                    de réinitialisation.
+::T|FR|cl.cleanmgr.pinoff.046|
+::T|FR|cl.cleanmgr.pinoff.047|  Defaut Windows  : Absent. Le profil 0064 n'existe pas tant qu'OPTY ne
+::T|FR|cl.cleanmgr.pinoff.048|                    l'écrit pas : il n'y a rien à comparer, l'état
+::T|FR|cl.cleanmgr.pinoff.049|                    d'origine est simplement l'absence de profil.
+::T|FR|cl.cleanmgr.pinoff.050|
+::T|FR|cl.cleanmgr.pinoff.051|  Valeurs possibles :
+::T|FR|cl.cleanmgr.pinoff.052|    DELETE               : Ici, DELETE veut dire exécuter l'étape, et
+::T|FR|cl.cleanmgr.pinoff.053|                           cette étape ne supprime rien du tout : elle
+::T|FR|cl.cleanmgr.pinoff.054|                           écrit douze zéros pour que DownloadsFolder,
+::T|FR|cl.cleanmgr.pinoff.055|                           User file versions et Previous Installations ne
+::T|FR|cl.cleanmgr.pinoff.056|                           puissent pas se déclencher pendant cleanmgr
+::T|FR|cl.cleanmgr.pinoff.057|                           /sagerun:64. Le mot appartient à l'échelle de
+::T|FR|cl.cleanmgr.pinoff.058|                           réponse, il ne décrit pas l'effet.
+::T|FR|cl.cleanmgr.pinoff.059|    KEEP                 : Laisser ces douze gestionnaires à la valeur que
+::T|FR|cl.cleanmgr.pinoff.060|                           la machine porte déjà. Sur un poste où un autre
+::T|FR|cl.cleanmgr.pinoff.061|                           nettoyeur ou un profil antérieur est passé,
+::T|FR|cl.cleanmgr.pinoff.062|                           DownloadsFolder peut déjà valoir 1 - et le
+::T|FR|cl.cleanmgr.pinoff.063|                           sagerun de la ligne 763 vide alors votre
+::T|FR|cl.cleanmgr.pinoff.064|                           dossier Téléchargements sans aucune limite
+::T|FR|cl.cleanmgr.pinoff.065|                           d'ancienneté.
+::T|FR|cl.cleanmgr.pinoff.066|    ASK                  : Non utilisé, et il serait malvenu de
+::T|FR|cl.cleanmgr.pinoff.067|                           l'utiliser. Poser la question ne produirait que
+::T|FR|cl.cleanmgr.pinoff.068|                           des réponses rendant l'étape suivante plus
+::T|FR|cl.cleanmgr.pinoff.069|                           dangereuse ; il n'existe aucun cas où écrire
+::T|FR|cl.cleanmgr.pinoff.070|                           ces zéros vous coûte quelque chose
+::T|FR|cl.cleanmgr.pinoff.071|                           d'irrécupérable autrement.
+::X|FR|cl.cleanmgr.pinoff.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.cleanmgr.pinoff.002|                         identiques parce que protéger Téléchargements,
+::X|FR|cl.cleanmgr.pinoff.003|                         l'Historique des fichiers et Windows.old vaut
+::X|FR|cl.cleanmgr.pinoff.004|                         exactement autant sur n'importe quelle machine,
+::X|FR|cl.cleanmgr.pinoff.005|                         et qu'inventer une distinction ici serait pire
+::X|FR|cl.cleanmgr.pinoff.006|                         que d'admettre qu'il n'y en a pas. WINDOWS est à
+::X|FR|cl.cleanmgr.pinoff.007|                         KEEP par simple cohérence avec l'étape précédente
+::X|FR|cl.cleanmgr.pinoff.008|                         : si le profil 64 n'est jamais armé et que
+::X|FR|cl.cleanmgr.pinoff.009|                         cleanmgr ne s'exécute jamais, il n'y a rien
+::X|FR|cl.cleanmgr.pinoff.010|                         contre quoi se protéger.
+::X|FR|cl.cleanmgr.pinoff.011|
+::X|FR|cl.cleanmgr.pinoff.012|  Cible           : HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explore
+::X|FR|cl.cleanmgr.pinoff.013|                    r\VolumeCaches\<handler>, value StateFlags0064 = 0, on
+::X|FR|cl.cleanmgr.pinoff.014|                    12 named handlers - OPTY.bat lines 745 to 759. No file
+::X|FR|cl.cleanmgr.pinoff.015|                    is deleted by this step; it exists to stop other
+::X|FR|cl.cleanmgr.pinoff.016|                    handlers from deleting.
+::T|EN|cl.cleanmgr.pinoff.001|PIN THE DANGEROUS CLEANUP HANDLERS OFF
+::T|EN|cl.cleanmgr.pinoff.002|
+::T|EN|cl.cleanmgr.pinoff.003|  What it is      : Writes StateFlags0064 = 0 on 12 handlers, pinning them
+::T|EN|cl.cleanmgr.pinoff.004|                    explicitly OFF in the same profile 64 rather than
+::T|EN|cl.cleanmgr.pinoff.005|                    leaving them at whatever this machine already had.
+::T|EN|cl.cleanmgr.pinoff.006|
+::T|EN|cl.cleanmgr.pinoff.007|  Actual effect   : Marks these as not selected: BranchCache, Content
+::T|EN|cl.cleanmgr.pinoff.008|                    Indexer Cleaner, Device Driver Packages,
+::T|EN|cl.cleanmgr.pinoff.009|                    DownloadsFolder, Language Pack, Old ChkDsk Files,
+::T|EN|cl.cleanmgr.pinoff.010|                    Previous Installations, Temporary Setup Files, Update
+::T|EN|cl.cleanmgr.pinoff.011|                    Cleanup, Upgrade Discarded Files, User file versions,
+::T|EN|cl.cleanmgr.pinoff.012|                    Windows ESD installation files. Each write is guarded
+::T|EN|cl.cleanmgr.pinoff.013|                    by a reg query so handlers absent from this edition
+::T|EN|cl.cleanmgr.pinoff.014|                    are skipped. Nothing is deleted by these lines - they
+::T|EN|cl.cleanmgr.pinoff.015|                    are the brake, not the engine. Be aware that they run
+::T|EN|cl.cleanmgr.pinoff.016|                    back to back with the arming block and the sagerun in
+::T|EN|cl.cleanmgr.pinoff.017|                    a single :clean section behind one yes-or-no prompt,
+::T|EN|cl.cleanmgr.pinoff.018|                    so in the file as it stands you cannot answer this
+::T|EN|cl.cleanmgr.pinoff.019|                    step differently from the previous one.
+::T|EN|cl.cleanmgr.pinoff.020|
+::T|EN|cl.cleanmgr.pinoff.021|  Gain            : This is the guard rail, and three entries carry nearly
+::T|EN|cl.cleanmgr.pinoff.022|                    all its value. DownloadsFolder would delete the
+::T|EN|cl.cleanmgr.pinoff.023|                    contents of your Downloads folder with no age limit
+::T|EN|cl.cleanmgr.pinoff.024|                    whatsoever. User file versions would delete your File
+::T|EN|cl.cleanmgr.pinoff.025|                    History versions. Previous Installations would delete
+::T|EN|cl.cleanmgr.pinoff.026|                    Windows.old and with it your ability to roll back a
+::T|EN|cl.cleanmgr.pinoff.027|                    Windows upgrade. Writing 0 explicitly means a value
+::T|EN|cl.cleanmgr.pinoff.028|                    inherited from another tool, another profile or
+::T|EN|cl.cleanmgr.pinoff.029|                    another machine image cannot arm them behind your
+::T|EN|cl.cleanmgr.pinoff.030|                    back. Zero disk space is reclaimed by this step, by
+::T|EN|cl.cleanmgr.pinoff.031|                    design.
+::T|EN|cl.cleanmgr.pinoff.032|
+::T|EN|cl.cleanmgr.pinoff.033|  Cost            : You forgo the space those handlers would have
+::T|EN|cl.cleanmgr.pinoff.034|                    reclaimed. Update Cleanup and Windows ESD installation
+::T|EN|cl.cleanmgr.pinoff.035|                    files are the two that matter, and they can be several
+::T|EN|cl.cleanmgr.pinoff.036|                    GB. If you genuinely want that space, the DISM
+::T|EN|cl.cleanmgr.pinoff.037|                    StartComponentCleanup step reclaims essentially the
+::T|EN|cl.cleanmgr.pinoff.038|                    same thing without the collateral, and Windows ESD
+::T|EN|cl.cleanmgr.pinoff.039|                    files can be removed separately once you are sure you
+::T|EN|cl.cleanmgr.pinoff.040|                    will not need a reset image.
+::T|EN|cl.cleanmgr.pinoff.041|
+::T|EN|cl.cleanmgr.pinoff.042|  Windows default : Absent. Profile 0064 does not exist until OPTY writes
+::T|EN|cl.cleanmgr.pinoff.043|                    it, so there is nothing to compare against - the
+::T|EN|cl.cleanmgr.pinoff.044|                    shipped state is simply no profile.
+::T|EN|cl.cleanmgr.pinoff.045|
+::T|EN|cl.cleanmgr.pinoff.046|  Possible values:
+::T|EN|cl.cleanmgr.pinoff.047|    DELETE               : Here DELETE means run the step, and the step
+::T|EN|cl.cleanmgr.pinoff.048|                           itself deletes nothing - it writes twelve zeros
+::T|EN|cl.cleanmgr.pinoff.049|                           so that DownloadsFolder, User file versions and
+::T|EN|cl.cleanmgr.pinoff.050|                           Previous Installations cannot fire during
+::T|EN|cl.cleanmgr.pinoff.051|                           cleanmgr /sagerun:64. The token is the answer
+::T|EN|cl.cleanmgr.pinoff.052|                           scale, not a description of the effect.
+::T|EN|cl.cleanmgr.pinoff.053|    KEEP                 : Leave those twelve handlers at whatever value
+::T|EN|cl.cleanmgr.pinoff.054|                           the machine already carries. On a machine that
+::T|EN|cl.cleanmgr.pinoff.055|                           has had another cleaner or a previous profile
+::T|EN|cl.cleanmgr.pinoff.056|                           written to it, that can mean DownloadsFolder is
+::T|EN|cl.cleanmgr.pinoff.057|                           already set to 1 - and then the sagerun on line
+::T|EN|cl.cleanmgr.pinoff.058|                           763 empties your Downloads folder with no age
+::T|EN|cl.cleanmgr.pinoff.059|                           limit at all.
+::T|EN|cl.cleanmgr.pinoff.060|    ASK                  : Not used, and it would be wrong to use it.
+::T|EN|cl.cleanmgr.pinoff.061|                           Asking would only ever produce answers that
+::T|EN|cl.cleanmgr.pinoff.062|                           make the following step more dangerous; there
+::T|EN|cl.cleanmgr.pinoff.063|                           is no scenario where writing these zeros costs
+::T|EN|cl.cleanmgr.pinoff.064|                           you anything you cannot get back another way.
+::X|EN|cl.cleanmgr.pinoff.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.cleanmgr.pinoff.002|                       because protecting Downloads, File History and
+::X|EN|cl.cleanmgr.pinoff.003|                       Windows.old is worth exactly the same on every kind
+::X|EN|cl.cleanmgr.pinoff.004|                       of machine, and inventing a distinction here would
+::X|EN|cl.cleanmgr.pinoff.005|                       be worse than admitting there is none. WINDOWS is
+::X|EN|cl.cleanmgr.pinoff.006|                       KEEP only for consistency with the previous step:
+::X|EN|cl.cleanmgr.pinoff.007|                       if profile 64 is never armed and cleanmgr never
+::X|EN|cl.cleanmgr.pinoff.008|                       runs, there is nothing to guard against.
+::X|EN|cl.cleanmgr.pinoff.009|
+::X|EN|cl.cleanmgr.pinoff.010|  Target          : HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explore
+::X|EN|cl.cleanmgr.pinoff.011|                    r\VolumeCaches\<handler>, value StateFlags0064 = 0, on
+::X|EN|cl.cleanmgr.pinoff.012|                    12 named handlers - OPTY.bat lines 745 to 759. No file
+::X|EN|cl.cleanmgr.pinoff.013|                    is deleted by this step; it exists to stop other
+::X|EN|cl.cleanmgr.pinoff.014|                    handlers from deleting.
+::
+:: ---- cl.vhdx.compact (cleanup) -----------------------------------
+::P|cl.vhdx.compact|DELETE|ASK|DELETE|ASK|KEEP|
+::T|FR|cl.vhdx.compact.001|COMPACTAGE DES DISQUES VIRTUELS WSL ET DOCKER
+::T|FR|cl.vhdx.compact.002|
+::T|FR|cl.vhdx.compact.003|  Ce que c est    : WSL et Docker rangent leurs systèmes de fichiers Linux
+::T|FR|cl.vhdx.compact.004|                    dans des fichiers de disque virtuel .vhdx. Ces
+::T|FR|cl.vhdx.compact.005|                    fichiers grossissent quand on écrit et ne rétrécissent
+::T|FR|cl.vhdx.compact.006|                    jamais quand on efface : une distribution peut occuper
+::T|FR|cl.vhdx.compact.007|                    60 Go sur votre disque tout en n'en contenant que 8.
+::T|FR|cl.vhdx.compact.008|                    Cette étape les ramène à leur taille utile.
+::T|FR|cl.vhdx.compact.009|
+::T|FR|cl.vhdx.compact.010|  Effet reel      : On demande d'abord à Docker Desktop de se fermer
+::T|FR|cl.vhdx.compact.011|                    proprement, avec une attente de 120 secondes maximum
+::T|FR|cl.vhdx.compact.012|                    que la distribution docker-desktop et
+::T|FR|cl.vhdx.compact.013|                    com.docker.backend.exe disparaissent ; au-delà, le
+::T|FR|cl.vhdx.compact.014|                    script tue de force Docker Desktop, le backend, les
+::T|FR|cl.vhdx.compact.015|                    auxiliaires build et CLI, et vpnkit. Puis wsl
+::T|FR|cl.vhdx.compact.016|                    --shutdown. Ensuite, pour chaque .vhdx trouvé,
+::T|FR|cl.vhdx.compact.017|                    diskpart enchaîne select vdisk, attach vdisk readonly,
+::T|FR|cl.vhdx.compact.018|                    compact vdisk, detach vdisk. L'attachement en lecture
+::T|FR|cl.vhdx.compact.019|                    seule est ce qui garantit que le système de fichiers
+::T|FR|cl.vhdx.compact.020|                    Linux n'est jamais modifié : seul l'espace inutilisé
+::T|FR|cl.vhdx.compact.021|                    du conteneur est rendu à Windows.
+::T|FR|cl.vhdx.compact.022|
+::T|FR|cl.vhdx.compact.023|  Gain            : En général le plus gros gain de place de tout le
+::T|FR|cl.vhdx.compact.024|                    script pour qui utilise Docker : plusieurs dizaines de
+::T|FR|cl.vhdx.compact.025|                    Go sont courantes sur une machine de développement qui
+::T|FR|cl.vhdx.compact.026|                    a construit et élagué beaucoup d'images. Exactement
+::T|FR|cl.vhdx.compact.027|                    zéro pour qui n'utilise ni WSL ni Docker, et zéro
+::T|FR|cl.vhdx.compact.028|                    également sur toute machine dont le dossier
+::T|FR|cl.vhdx.compact.029|                    utilisateur n'est pas C:\Users\compt, puisque rien n'y
+::T|FR|cl.vhdx.compact.030|                    est alors trouvé.
+::T|FR|cl.vhdx.compact.031|
+::T|FR|cl.vhdx.compact.032|  Cout            : Plusieurs minutes par disque - mais comprenez ce qui
+::T|FR|cl.vhdx.compact.033|                    est réécrit. Le .vhdx, c'est tout le système de
+::T|FR|cl.vhdx.compact.034|                    fichiers Linux : votre répertoire personnel, le
+::T|FR|cl.vhdx.compact.035|                    travail non commité, les volumes de conteneurs, les
+::T|FR|cl.vhdx.compact.036|                    fichiers de base de données. Ce sont des données
+::T|FR|cl.vhdx.compact.037|                    utilisateur, pas un cache régénérable, et OPTY n'en a
+::T|FR|cl.vhdx.compact.038|                    aucune copie. Si la machine perd le courant, est
+::T|FR|cl.vhdx.compact.039|                    redémarrée de force ou plante pendant compact vdisk,
+::T|FR|cl.vhdx.compact.040|                    le disque peut rester immontable, et ce script n'offre
+::T|FR|cl.vhdx.compact.041|                    aucun retour arrière. Sauvegardez d'abord la
+::T|FR|cl.vhdx.compact.042|                    distribution avec wsl --export <distribution>
+::T|FR|cl.vhdx.compact.043|                    <fichier>.tar, et ne lancez pas ceci si vous ne pouvez
+::T|FR|cl.vhdx.compact.044|                    pas laisser la machine tranquille quelques minutes. À
+::T|FR|cl.vhdx.compact.045|                    cela s'ajoute l'arrêt des conteneurs en cours :
+::T|FR|cl.vhdx.compact.046|                    proprement s'ils répondent en moins de 120 secondes,
+::T|FR|cl.vhdx.compact.047|                    par taskkill /f sinon.
+::T|FR|cl.vhdx.compact.048|
+::T|FR|cl.vhdx.compact.049|  Defaut Windows  : Sans objet. Windows ne compacte jamais les disques
+::T|FR|cl.vhdx.compact.050|                    virtuels WSL ou Docker de lui-même : ils ne font que
+::T|FR|cl.vhdx.compact.051|                    grossir.
+::T|FR|cl.vhdx.compact.052|
+::T|FR|cl.vhdx.compact.053|  Valeurs possibles :
+::T|FR|cl.vhdx.compact.054|    DELETE               : Arrêter Docker, éteindre WSL et compacter
+::T|FR|cl.vhdx.compact.055|                           chaque .vhdx trouvé. Rien ne change à
+::T|FR|cl.vhdx.compact.056|                           l'intérieur du système de fichiers Linux ; seul
+::T|FR|cl.vhdx.compact.057|                           l'espace inutilisé du fichier conteneur est
+::T|FR|cl.vhdx.compact.058|                           rendu à Windows. À faire quand vous pouvez
+::T|FR|cl.vhdx.compact.059|                           laisser la machine tranquille quelques minutes.
+::T|FR|cl.vhdx.compact.060|    KEEP                 : Laisser les disques virtuels tels quels. Ils
+::T|FR|cl.vhdx.compact.061|                           gardent la place déjà prise et en prendront
+::T|FR|cl.vhdx.compact.062|                           davantage à chaque écriture ; ils ne
+::T|FR|cl.vhdx.compact.063|                           rétrécissent jamais tout seuls. Vous y perdez
+::T|FR|cl.vhdx.compact.064|                           de la place disque, rien de plus.
+::T|FR|cl.vhdx.compact.065|    ASK                  : Pour le serveur et le portable, parce que dans
+::T|FR|cl.vhdx.compact.066|                           les deux cas le risque d'interruption est
+::T|FR|cl.vhdx.compact.067|                           concret et non théorique : sur un serveur,
+::T|FR|cl.vhdx.compact.068|                           l'étape tue Docker de force au bout de 120
+::T|FR|cl.vhdx.compact.069|                           secondes et emporte vos conteneurs avec lui ;
+::T|FR|cl.vhdx.compact.070|                           sur un portable, une batterie qui lâche en
+::T|FR|cl.vhdx.compact.071|                           plein compactage est précisément la panne à
+::T|FR|cl.vhdx.compact.072|                           laquelle cette opération ne survit pas.
+::X|FR|cl.vhdx.compact.001|  Pourquoi ces profils : Pas quatre colonnes identiques cette fois, et
+::X|FR|cl.vhdx.compact.002|                         chaque différence a un mécanisme. JEU et
+::X|FR|cl.vhdx.compact.003|                         BUREAUTIQUE l'exécutent : soit il n'y a aucun
+::X|FR|cl.vhdx.compact.004|                         .vhdx et rien ne se passe, soit il y en a un et
+::X|FR|cl.vhdx.compact.005|                         la place vaut la peine. SERVEUR demande, parce
+::X|FR|cl.vhdx.compact.006|                         que c'est le profil dont le métier est justement
+::X|FR|cl.vhdx.compact.007|                         de garder des conteneurs en marche et que l'étape
+::X|FR|cl.vhdx.compact.008|                         tue Docker de force au bout de deux minutes.
+::X|FR|cl.vhdx.compact.009|                         PORTABLE demande, parce que plusieurs minutes
+::X|FR|cl.vhdx.compact.010|                         d'entrées-sorties intensives sur batterie sont la
+::X|FR|cl.vhdx.compact.011|                         seule situation où le disque peut perdre le
+::X|FR|cl.vhdx.compact.012|                         courant en pleine réécriture. WINDOWS garde,
+::X|FR|cl.vhdx.compact.013|                         parce que laisser ces fichiers tranquilles est
+::X|FR|cl.vhdx.compact.014|                         réellement le comportement d'origine.
+::X|FR|cl.vhdx.compact.015|
+::X|FR|cl.vhdx.compact.016|  Non verifie (en)  : The search paths come from USERHOME,
+::X|FR|cl.vhdx.compact.017|                      WSL_DOCKER_VHDX, WSL_SEARCH1 and WSL_SEARCH2, all
+::X|FR|cl.vhdx.compact.018|                      built from C:\Users\compt hardcoded at line 81. On
+::X|FR|cl.vhdx.compact.019|                      any other machine, or any other account name, this
+::X|FR|cl.vhdx.compact.020|                      step finds nothing and silently prints No WSL /
+::X|FR|cl.vhdx.compact.021|                      Docker virtual disk found. As written it is not
+::X|FR|cl.vhdx.compact.022|                      portable, which contradicts the project's own
+::X|FR|cl.vhdx.compact.023|                      portability goal.
+::X|FR|cl.vhdx.compact.024|
+::X|FR|cl.vhdx.compact.025|  Cible           : %USERHOME%\AppData\Local\Docker\wsl\disk\docker_data.v
+::X|FR|cl.vhdx.compact.026|                    hdx plus every ext4.vhdx found under
+::X|FR|cl.vhdx.compact.027|                    %USERHOME%\AppData\Local\Packages and
+::X|FR|cl.vhdx.compact.028|                    %USERHOME%\AppData\Local\wsl, where USERHOME is
+::X|FR|cl.vhdx.compact.029|                    hardcoded to C:\Users\compt at line 81. Each is fed to
+::X|FR|cl.vhdx.compact.030|                    diskpart as select vdisk / attach vdisk readonly /
+::X|FR|cl.vhdx.compact.031|                    compact vdisk / detach vdisk. OPTY.bat lines 781 to
+::X|FR|cl.vhdx.compact.032|                    859, compact vdisk at line 847.
+::T|EN|cl.vhdx.compact.001|COMPACT THE WSL AND DOCKER VIRTUAL DISKS
+::T|EN|cl.vhdx.compact.002|
+::T|EN|cl.vhdx.compact.003|  What it is      : WSL and Docker store their Linux filesystems inside
+::T|EN|cl.vhdx.compact.004|                    .vhdx virtual disk files. Those files grow when data
+::T|EN|cl.vhdx.compact.005|                    is written and never shrink when it is deleted, so a
+::T|EN|cl.vhdx.compact.006|                    distro can occupy 60 GB on your disk while holding 8
+::T|EN|cl.vhdx.compact.007|                    GB inside. This shrinks them back to their useful
+::T|EN|cl.vhdx.compact.008|                    size.
+::T|EN|cl.vhdx.compact.009|
+::T|EN|cl.vhdx.compact.010|  Actual effect   : First Docker Desktop is asked to quit cleanly and the
+::T|EN|cl.vhdx.compact.011|                    script waits up to 120 seconds for the docker-desktop
+::T|EN|cl.vhdx.compact.012|                    distro and com.docker.backend.exe to disappear; past
+::T|EN|cl.vhdx.compact.013|                    that it force-kills Docker Desktop, the backend, the
+::T|EN|cl.vhdx.compact.014|                    build and CLI helpers and vpnkit. Then wsl --shutdown.
+::T|EN|cl.vhdx.compact.015|                    Then, for each .vhdx found, diskpart runs select
+::T|EN|cl.vhdx.compact.016|                    vdisk, attach vdisk readonly, compact vdisk, detach
+::T|EN|cl.vhdx.compact.017|                    vdisk. Attaching read-only is what guarantees the
+::T|EN|cl.vhdx.compact.018|                    Linux filesystem inside is never modified - only the
+::T|EN|cl.vhdx.compact.019|                    unused space in the container is returned to Windows.
+::T|EN|cl.vhdx.compact.020|
+::T|EN|cl.vhdx.compact.021|  Gain            : Usually the single largest space win in the whole
+::T|EN|cl.vhdx.compact.022|                    script for anyone who uses Docker. Tens of GB is
+::T|EN|cl.vhdx.compact.023|                    routine on a developer machine that has built and
+::T|EN|cl.vhdx.compact.024|                    pruned a lot of images. Exactly zero for anyone who
+::T|EN|cl.vhdx.compact.025|                    uses neither WSL nor Docker, and zero on any machine
+::T|EN|cl.vhdx.compact.026|                    whose user folder is not C:\Users\compt, because then
+::T|EN|cl.vhdx.compact.027|                    nothing is found at all.
+::T|EN|cl.vhdx.compact.028|
+::T|EN|cl.vhdx.compact.029|  Cost            : Several minutes per disk - but understand what is
+::T|EN|cl.vhdx.compact.030|                    being rewritten. The .vhdx is the entire Linux
+::T|EN|cl.vhdx.compact.031|                    filesystem: your home directory, uncommitted work,
+::T|EN|cl.vhdx.compact.032|                    container volumes, database files. That is user data,
+::T|EN|cl.vhdx.compact.033|                    not a regenerable cache, and OPTY holds no copy of it.
+::T|EN|cl.vhdx.compact.034|                    If the machine loses power, is forced to reboot or
+::T|EN|cl.vhdx.compact.035|                    crashes during compact vdisk, the disk can be left
+::T|EN|cl.vhdx.compact.036|                    unmountable and there is no way back in this script.
+::T|EN|cl.vhdx.compact.037|                    Back the distro up first with wsl --export <distro>
+::T|EN|cl.vhdx.compact.038|                    <file>.tar, and do not start this if you cannot leave
+::T|EN|cl.vhdx.compact.039|                    the machine alone for a few minutes. On top of that,
+::T|EN|cl.vhdx.compact.040|                    running containers are stopped - cleanly if they
+::T|EN|cl.vhdx.compact.041|                    respond within 120 seconds, by taskkill /f if they do
+::T|EN|cl.vhdx.compact.042|                    not.
+::T|EN|cl.vhdx.compact.043|
+::T|EN|cl.vhdx.compact.044|  Windows default : Not applicable. Windows never compacts WSL or Docker
+::T|EN|cl.vhdx.compact.045|                    virtual disks on its own; they only ever grow.
+::T|EN|cl.vhdx.compact.046|
+::T|EN|cl.vhdx.compact.047|  Possible values:
+::T|EN|cl.vhdx.compact.048|    DELETE               : Stop Docker, shut WSL down and compact every
+::T|EN|cl.vhdx.compact.049|                           .vhdx found. Nothing inside the Linux
+::T|EN|cl.vhdx.compact.050|                           filesystem changes; only the unused space in
+::T|EN|cl.vhdx.compact.051|                           the container file is handed back to Windows.
+::T|EN|cl.vhdx.compact.052|                           Do it when you can leave the machine alone for
+::T|EN|cl.vhdx.compact.053|                           a few minutes.
+::T|EN|cl.vhdx.compact.054|    KEEP                 : Leave the virtual disks as they are. They keep
+::T|EN|cl.vhdx.compact.055|                           the space they have already claimed and will
+::T|EN|cl.vhdx.compact.056|                           claim more as you write; they never shrink on
+::T|EN|cl.vhdx.compact.057|                           their own. You lose disk space and nothing
+::T|EN|cl.vhdx.compact.058|                           else.
+::T|EN|cl.vhdx.compact.059|    ASK                  : For the server and the laptop, because on both
+::T|EN|cl.vhdx.compact.060|                           the interruption risk is real rather than
+::T|EN|cl.vhdx.compact.061|                           theoretical: on a server this step force-kills
+::T|EN|cl.vhdx.compact.062|                           Docker after 120 seconds and takes your
+::T|EN|cl.vhdx.compact.063|                           containers down with it, and on a laptop a
+::T|EN|cl.vhdx.compact.064|                           battery that dies mid-compact is exactly the
+::T|EN|cl.vhdx.compact.065|                           failure this operation cannot survive.
+::X|EN|cl.vhdx.compact.001|  Why these profiles : Not four identical columns this time, and each
+::X|EN|cl.vhdx.compact.002|                       difference has a mechanism. GAMING and OFFICE take
+::X|EN|cl.vhdx.compact.003|                       it: either there is no .vhdx and nothing happens,
+::X|EN|cl.vhdx.compact.004|                       or there is one and the space is worth having.
+::X|EN|cl.vhdx.compact.005|                       SERVER asks, because this is the profile whose
+::X|EN|cl.vhdx.compact.006|                       whole job is to keep containers running and the
+::X|EN|cl.vhdx.compact.007|                       step force-kills Docker after two minutes. LAPTOP
+::X|EN|cl.vhdx.compact.008|                       asks, because several minutes of heavy I/O on
+::X|EN|cl.vhdx.compact.009|                       battery is the one situation where the disk can
+::X|EN|cl.vhdx.compact.010|                       lose power mid-rewrite. WINDOWS keeps, because
+::X|EN|cl.vhdx.compact.011|                       leaving these files alone is genuinely the shipped
+::X|EN|cl.vhdx.compact.012|                       behaviour.
+::X|EN|cl.vhdx.compact.013|
+::X|EN|cl.vhdx.compact.014|  Unverified      : The search paths come from USERHOME, WSL_DOCKER_VHDX,
+::X|EN|cl.vhdx.compact.015|                    WSL_SEARCH1 and WSL_SEARCH2, all built from
+::X|EN|cl.vhdx.compact.016|                    C:\Users\compt hardcoded at line 81. On any other
+::X|EN|cl.vhdx.compact.017|                    machine, or any other account name, this step finds
+::X|EN|cl.vhdx.compact.018|                    nothing and silently prints No WSL / Docker virtual
+::X|EN|cl.vhdx.compact.019|                    disk found. As written it is not portable, which
+::X|EN|cl.vhdx.compact.020|                    contradicts the project's own portability goal.
+::X|EN|cl.vhdx.compact.021|
+::X|EN|cl.vhdx.compact.022|  Target          : %USERHOME%\AppData\Local\Docker\wsl\disk\docker_data.v
+::X|EN|cl.vhdx.compact.023|                    hdx plus every ext4.vhdx found under
+::X|EN|cl.vhdx.compact.024|                    %USERHOME%\AppData\Local\Packages and
+::X|EN|cl.vhdx.compact.025|                    %USERHOME%\AppData\Local\wsl, where USERHOME is
+::X|EN|cl.vhdx.compact.026|                    hardcoded to C:\Users\compt at line 81. Each is fed to
+::X|EN|cl.vhdx.compact.027|                    diskpart as select vdisk / attach vdisk readonly /
+::X|EN|cl.vhdx.compact.028|                    compact vdisk / detach vdisk. OPTY.bat lines 781 to
+::X|EN|cl.vhdx.compact.029|                    859, compact vdisk at line 847.
+::
+:: ---- cl.storagesense.setup (preference) -----------------------------
+::P|cl.storagesense.setup|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.storagesense.setup.001|ASSISTANT DE STOCKAGE (STORAGE SENSE)
+::T|FR|cl.storagesense.setup.002|
+::T|FR|cl.storagesense.setup.003|  Ce que c est    : L'Assistant de stockage est la fonction intégrée de
+::T|FR|cl.storagesense.setup.004|                    Windows qui supprime les fichiers temporaires et vide
+::T|FR|cl.storagesense.setup.005|                    la Corbeille selon une planification. OPTY l'active
+::T|FR|cl.storagesense.setup.006|                    pour l'utilisateur courant avec une périodicité de 30
+::T|FR|cl.storagesense.setup.007|                    jours.
+::T|FR|cl.storagesense.setup.008|
+::T|FR|cl.storagesense.setup.009|  Effet reel      : Écrit cinq valeurs sous HKCU
+::T|FR|cl.storagesense.setup.010|                    ...\StorageSense\Parameters\StoragePolicy : 01 = 1
+::T|FR|cl.storagesense.setup.011|                    active la fonction, 04 = 1 nettoie les fichiers
+::T|FR|cl.storagesense.setup.012|                    temporaires, 2048 = 30 fixe la périodicité à 30 jours,
+::T|FR|cl.storagesense.setup.013|                    et 32 = 0 avec 512 = 0 verrouillent fermement la règle
+::T|FR|cl.storagesense.setup.014|                    Téléchargements et son seuil d'ancienneté sur
+::T|FR|cl.storagesense.setup.015|                    désactivé. La clé de stratégie HKLM est volontairement
+::T|FR|cl.storagesense.setup.016|                    évitée : elle grise le réglage dans Paramètres avec «
+::T|FR|cl.storagesense.setup.017|                    géré par votre organisation » et vous retire la main.
+::T|FR|cl.storagesense.setup.018|                    On est dans HKCU, donc cela concerne le compte qui
+::T|FR|cl.storagesense.setup.019|                    lance OPTY et aucun autre profil de la machine.
+::T|FR|cl.storagesense.setup.020|
+::T|FR|cl.storagesense.setup.021|  Gain            : Windows garde les fichiers temporaires sous contrôle
+::T|FR|cl.storagesense.setup.022|                    tout seul entre deux passages d'OPTY. Modeste en
+::T|FR|cl.storagesense.setup.023|                    mégaoctets, mais c'est la seule étape de ce lot qui
+::T|FR|cl.storagesense.setup.024|                    continue d'agir après la fermeture du script - ce qui
+::T|FR|cl.storagesense.setup.025|                    compte surtout pour qui ne relancera pas OPTY avant
+::T|FR|cl.storagesense.setup.026|                    six mois.
+::T|FR|cl.storagesense.setup.027|
+::T|FR|cl.storagesense.setup.028|  Cout            : Activer l'Assistant de stockage, c'est donner à
+::T|FR|cl.storagesense.setup.029|                    Windows une autorisation permanente de supprimer selon
+::T|FR|cl.storagesense.setup.030|                    un calendrier, et il faut regarder précisément ce
+::T|FR|cl.storagesense.setup.031|                    qu'OPTY épingle et ce qu'il n'épingle pas. La règle
+::T|FR|cl.storagesense.setup.032|                    Téléchargements, valeurs 32 et 512, est explicitement
+::T|FR|cl.storagesense.setup.033|                    forcée à l'arrêt. La règle Corbeille, valeurs 08 et
+::T|FR|cl.storagesense.setup.034|                    256, n'est pas écrite du tout : elle garde donc ce que
+::T|FR|cl.storagesense.setup.035|                    la machine avait déjà, ici activée avec un seuil de 30
+::T|FR|cl.storagesense.setup.036|                    jours. Si vous comptez sur la Corbeille comme filet de
+::T|FR|cl.storagesense.setup.037|                    sécurité durable, allez vérifier cette règle dans
+::T|FR|cl.storagesense.setup.038|                    Paramètres, Système, Stockage, Assistant de stockage
+::T|FR|cl.storagesense.setup.039|                    après l'exécution. Au moment où cette étape s'exécute,
+::T|FR|cl.storagesense.setup.040|                    rien n'est supprimé.
+::T|FR|cl.storagesense.setup.041|
+::T|FR|cl.storagesense.setup.042|  Defaut Windows  : Variable selon l'image. Le réglage est livré désactivé
+::T|FR|cl.storagesense.setup.043|                    sur certaines installations propres de Windows 11,
+::T|FR|cl.storagesense.setup.044|                    activé après l'OOBE sur certaines images constructeur,
+::T|FR|cl.storagesense.setup.045|                    et Windows peut l'activer de lui-même quand l'espace
+::T|FR|cl.storagesense.setup.046|                    libre vient à manquer. Ce qui est confirmé désactivé
+::T|FR|cl.storagesense.setup.047|                    par défaut, c'est la règle de suppression automatique
+::T|FR|cl.storagesense.setup.048|                    des Téléchargements, valeurs 32 et 512 : Windows ne
+::T|FR|cl.storagesense.setup.049|                    supprime jamais vos Téléchargements sans que vous
+::T|FR|cl.storagesense.setup.050|                    l'ayez choisi.
+::T|FR|cl.storagesense.setup.051|
+::T|FR|cl.storagesense.setup.052|  Valeurs possibles :
+::T|FR|cl.storagesense.setup.053|    DELETE               : Activer l'Assistant de stockage pour votre
+::T|FR|cl.storagesense.setup.054|                           compte, tous les 30 jours, avec le nettoyage
+::T|FR|cl.storagesense.setup.055|                           des fichiers temporaires, et verrouiller la
+::T|FR|cl.storagesense.setup.056|                           règle Téléchargements sur désactivé. Windows
+::T|FR|cl.storagesense.setup.057|                           supprime ensuite les fichiers temporaires tout
+::T|FR|cl.storagesense.setup.058|                           seul, sans OPTY.
+::T|FR|cl.storagesense.setup.059|    KEEP                 : Ne pas écrire ces cinq valeurs. Les fichiers
+::T|FR|cl.storagesense.setup.060|                           temporaires s'accumulent alors jusqu'à ce
+::T|FR|cl.storagesense.setup.061|                           qu'autre chose les efface : un Nettoyage de
+::T|FR|cl.storagesense.setup.062|                           disque manuel, ou la prochaine exécution
+::T|FR|cl.storagesense.setup.063|                           d'OPTY. Rien ne casse, le disque se remplit
+::T|FR|cl.storagesense.setup.064|                           simplement plus vite qu'il ne se vide.
+::T|FR|cl.storagesense.setup.065|    ASK                  : Non utilisé. Le seul point réellement
+::T|FR|cl.storagesense.setup.066|                           surprenant - la règle Corbeille est héritée et
+::T|FR|cl.storagesense.setup.067|                           non choisie - se vérifie dans les Paramètres
+::T|FR|cl.storagesense.setup.068|                           après coup, ce n'est pas une raison
+::T|FR|cl.storagesense.setup.069|                           d'interrompre l'exécution.
+::X|FR|cl.storagesense.setup.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.storagesense.setup.002|                         identiques parce que le nettoyage automatique des
+::X|FR|cl.storagesense.setup.003|                         fichiers temporaires vaut la même chose quel que
+::X|FR|cl.storagesense.setup.004|                         soit l'usage de la machine : il n'y a ici ni
+::X|FR|cl.storagesense.setup.005|                         angle latence, ni débit, ni autonomie, et
+::X|FR|cl.storagesense.setup.006|                         prétendre le contraire serait de l'invention.
+::X|FR|cl.storagesense.setup.007|                         WINDOWS est à KEEP parce que l'état d'origine
+::X|FR|cl.storagesense.setup.008|                         n'est pas une valeur fixe à réaffirmer mais
+::X|FR|cl.storagesense.setup.009|                         quelque chose qui varie selon l'image : la seule
+::X|FR|cl.storagesense.setup.010|                         réponse « ne rien faire » cohérente est donc de
+::X|FR|cl.storagesense.setup.011|                         n'écrire strictement rien.
+::X|FR|cl.storagesense.setup.012|
+::X|FR|cl.storagesense.setup.013|  Non verifie (en)  : The shipped values for 04, 2048 and 512 on a clean
+::X|FR|cl.storagesense.setup.014|                      Windows 11 25H2 install were not verified; this
+::X|FR|cl.storagesense.setup.015|                      machine has already been through OPTY, so its
+::X|FR|cl.storagesense.setup.016|                      current values prove nothing. Only value 32, the
+::X|FR|cl.storagesense.setup.017|                      Downloads rule, is confirmed off by default.
+::X|FR|cl.storagesense.setup.018|                      Separately, OPTY pins the Downloads rule off but
+::X|FR|cl.storagesense.setup.019|                      never writes the Recycle Bin rule, so that one is
+::X|FR|cl.storagesense.setup.020|                      inherited rather than chosen.
+::X|FR|cl.storagesense.setup.021|
+::X|FR|cl.storagesense.setup.022|  Cible           : HKCU\Software\Microsoft\Windows\CurrentVersion\Storage
+::X|FR|cl.storagesense.setup.023|                    Sense\Parameters\StoragePolicy, values 01 = 1, 04 = 1,
+::X|FR|cl.storagesense.setup.024|                    2048 = 30, 32 = 0, 512 = 0. OPTY.bat lines 891 to 900,
+::X|FR|cl.storagesense.setup.025|                    through the :regset helper. No file is deleted at this
+::X|FR|cl.storagesense.setup.026|                    step; Windows does the deleting later, on its own
+::X|FR|cl.storagesense.setup.027|                    schedule.
+::T|EN|cl.storagesense.setup.001|STORAGE SENSE AUTOMATIC CLEANUP
+::T|EN|cl.storagesense.setup.002|
+::T|EN|cl.storagesense.setup.003|  What it is      : Storage Sense is the built-in Windows feature that
+::T|EN|cl.storagesense.setup.004|                    deletes temporary files and empties the Recycle Bin on
+::T|EN|cl.storagesense.setup.005|                    a schedule. OPTY turns it on for the current user with
+::T|EN|cl.storagesense.setup.006|                    a 30-day cadence.
+::T|EN|cl.storagesense.setup.007|
+::T|EN|cl.storagesense.setup.008|  Actual effect   : Writes five values under HKCU
+::T|EN|cl.storagesense.setup.009|                    ...\StorageSense\Parameters\StoragePolicy: 01 = 1
+::T|EN|cl.storagesense.setup.010|                    turns it on, 04 = 1 cleans temporary files, 2048 = 30
+::T|EN|cl.storagesense.setup.011|                    sets the cadence to every 30 days, and 32 = 0 with 512
+::T|EN|cl.storagesense.setup.012|                    = 0 pin the Downloads rule and its age threshold
+::T|EN|cl.storagesense.setup.013|                    firmly off. The HKLM policy key is deliberately
+::T|EN|cl.storagesense.setup.014|                    avoided, because setting it greys the Settings toggle
+::T|EN|cl.storagesense.setup.015|                    out with managed by your organization and takes the
+::T|EN|cl.storagesense.setup.016|                    control away from you. This is HKCU, so it applies to
+::T|EN|cl.storagesense.setup.017|                    the account running OPTY and to no other profile on
+::T|EN|cl.storagesense.setup.018|                    the machine.
+::T|EN|cl.storagesense.setup.019|
+::T|EN|cl.storagesense.setup.020|  Gain            : Windows keeps temporary files under control by itself
+::T|EN|cl.storagesense.setup.021|                    between OPTY runs. Modest in megabytes, but it is the
+::T|EN|cl.storagesense.setup.022|                    one step in this batch that keeps working after you
+::T|EN|cl.storagesense.setup.023|                    close the script - which matters most for the person
+::T|EN|cl.storagesense.setup.024|                    who will not run OPTY again for six months.
+::T|EN|cl.storagesense.setup.025|
+::T|EN|cl.storagesense.setup.026|  Cost            : Turning Storage Sense on gives Windows standing
+::T|EN|cl.storagesense.setup.027|                    permission to delete things on a schedule, and you
+::T|EN|cl.storagesense.setup.028|                    should note exactly what OPTY does and does not pin.
+::T|EN|cl.storagesense.setup.029|                    The Downloads rule, values 32 and 512, is explicitly
+::T|EN|cl.storagesense.setup.030|                    forced off. The Recycle Bin rule, values 08 and 256,
+::T|EN|cl.storagesense.setup.031|                    is not written at all, so it keeps whatever this
+::T|EN|cl.storagesense.setup.032|                    machine already had - here, on, with a 30-day
+::T|EN|cl.storagesense.setup.033|                    threshold. If you use the Recycle Bin as a long-term
+::T|EN|cl.storagesense.setup.034|                    safety net, go and check that rule in Settings,
+::T|EN|cl.storagesense.setup.035|                    System, Storage, Storage Sense after the run. Nothing
+::T|EN|cl.storagesense.setup.036|                    is deleted at the moment this step executes.
+::T|EN|cl.storagesense.setup.037|
+::T|EN|cl.storagesense.setup.038|  Windows default : Varies by image. The toggle ships Off on some clean
+::T|EN|cl.storagesense.setup.039|                    Windows 11 installs, On after OOBE on some OEM images,
+::T|EN|cl.storagesense.setup.040|                    and Windows can enable it by itself when free space
+::T|EN|cl.storagesense.setup.041|                    runs low. The part that is confirmed off by default is
+::T|EN|cl.storagesense.setup.042|                    the Downloads auto-delete rule, values 32 and 512:
+::T|EN|cl.storagesense.setup.043|                    Windows never deletes your Downloads unless you opt
+::T|EN|cl.storagesense.setup.044|                    in.
+::T|EN|cl.storagesense.setup.045|
+::T|EN|cl.storagesense.setup.046|  Possible values:
+::T|EN|cl.storagesense.setup.047|    DELETE               : Turn Storage Sense on for your account with a
+::T|EN|cl.storagesense.setup.048|                           30-day cadence and temp-file cleaning enabled,
+::T|EN|cl.storagesense.setup.049|                           and pin the Downloads rule off. From then on
+::T|EN|cl.storagesense.setup.050|                           Windows removes temporary files by itself,
+::T|EN|cl.storagesense.setup.051|                           without OPTY.
+::T|EN|cl.storagesense.setup.052|    KEEP                 : Do not write these five values. Temporary files
+::T|EN|cl.storagesense.setup.053|                           then accumulate until something else clears
+::T|EN|cl.storagesense.setup.054|                           them - a manual Disk Cleanup, or the next OPTY
+::T|EN|cl.storagesense.setup.055|                           run. Nothing breaks, the disk just fills more
+::T|EN|cl.storagesense.setup.056|                           slowly than it empties.
+::T|EN|cl.storagesense.setup.057|    ASK                  : Not used. The one genuinely surprising part -
+::T|EN|cl.storagesense.setup.058|                           that the Recycle Bin rule is inherited rather
+::T|EN|cl.storagesense.setup.059|                           than chosen - is a thing to check in Settings
+::T|EN|cl.storagesense.setup.060|                           afterwards, not a reason to stop the run.
+::X|EN|cl.storagesense.setup.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.storagesense.setup.002|                       because automatic temp-file cleaning is worth the
+::X|EN|cl.storagesense.setup.003|                       same on every machine role - there is no latency,
+::X|EN|cl.storagesense.setup.004|                       throughput or battery angle here, and pretending
+::X|EN|cl.storagesense.setup.005|                       otherwise would be invention. WINDOWS is KEEP
+::X|EN|cl.storagesense.setup.006|                       because the shipped state is not a fixed value to
+::X|EN|cl.storagesense.setup.007|                       re-assert but something that varies by image, so
+::X|EN|cl.storagesense.setup.008|                       the only coherent do-nothing answer is to write
+::X|EN|cl.storagesense.setup.009|                       nothing at all.
+::X|EN|cl.storagesense.setup.010|
+::X|EN|cl.storagesense.setup.011|  Unverified      : The shipped values for 04, 2048 and 512 on a clean
+::X|EN|cl.storagesense.setup.012|                    Windows 11 25H2 install were not verified; this
+::X|EN|cl.storagesense.setup.013|                    machine has already been through OPTY, so its current
+::X|EN|cl.storagesense.setup.014|                    values prove nothing. Only value 32, the Downloads
+::X|EN|cl.storagesense.setup.015|                    rule, is confirmed off by default. Separately, OPTY
+::X|EN|cl.storagesense.setup.016|                    pins the Downloads rule off but never writes the
+::X|EN|cl.storagesense.setup.017|                    Recycle Bin rule, so that one is inherited rather than
+::X|EN|cl.storagesense.setup.018|                    chosen.
+::X|EN|cl.storagesense.setup.019|
+::X|EN|cl.storagesense.setup.020|  Target          : HKCU\Software\Microsoft\Windows\CurrentVersion\Storage
+::X|EN|cl.storagesense.setup.021|                    Sense\Parameters\StoragePolicy, values 01 = 1, 04 = 1,
+::X|EN|cl.storagesense.setup.022|                    2048 = 30, 32 = 0, 512 = 0. OPTY.bat lines 891 to 900,
+::X|EN|cl.storagesense.setup.023|                    through the :regset helper. No file is deleted at this
+::X|EN|cl.storagesense.setup.024|                    step; Windows does the deleting later, on its own
+::X|EN|cl.storagesense.setup.025|                    schedule.
+::
+:: ---- cl.wupdate.download (cleanup) -------------------------------
+::P|cl.wupdate.download|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.wupdate.download.001|CACHE DE TÉLÉCHARGEMENT DE WINDOWS UPDATE
+::T|FR|cl.wupdate.download.002|
+::T|FR|cl.wupdate.download.003|  Ce que c est    : C:\Windows\SoftwareDistribution\Download est l'endroit
+::T|FR|cl.wupdate.download.004|                    où Windows Update dépose les paquets de mise à jour
+::T|FR|cl.wupdate.download.005|                    téléchargés, avant et après leur installation. OPTY
+::T|FR|cl.wupdate.download.006|                    arrête le service wuauserv, vide ce dossier, puis
+::T|FR|cl.wupdate.download.007|                    relance le service.
+::T|FR|cl.wupdate.download.008|
+::T|FR|cl.wupdate.download.009|  Effet reel      : Trois lignes : net stop wuauserv, del /S /F /Q sur le
+::T|FR|cl.wupdate.download.010|                    contenu du dossier, net start wuauserv. Seuls les
+::T|FR|cl.wupdate.download.011|                    paquets téléchargés partent. Le type de démarrage du
+::T|FR|cl.wupdate.download.012|                    service n'est pas modifié, aucune mise à jour n'est
+::T|FR|cl.wupdate.download.013|                    désinstallée et l'historique des mises à jour n'est
+::T|FR|cl.wupdate.download.014|                    pas touché. Deux réserves honnêtes sur ce qui se passe
+::T|FR|cl.wupdate.download.015|                    réellement. D'abord, del supprime les fichiers mais
+::T|FR|cl.wupdate.download.016|                    pas les dossiers : l'arborescence reste en place,
+::T|FR|cl.wupdate.download.017|                    vide. Ensuite, tout ce qui est encore ouvert - un
+::T|FR|cl.wupdate.download.018|                    transfert BITS en cours, ou le service si le net stop
+::T|FR|cl.wupdate.download.019|                    n'a pas complètement abouti - échoue simplement à être
+::T|FR|cl.wupdate.download.020|                    supprimé et reste, et comme la ligne 905 n'a aucune
+::T|FR|cl.wupdate.download.021|                    redirection de sortie, vous verrez défiler les
+::T|FR|cl.wupdate.download.022|                    messages d'accès refusé dans la console. Rien n'est
+::T|FR|cl.wupdate.download.023|                    déverrouillé de force.
+::T|FR|cl.wupdate.download.024|
+::T|FR|cl.wupdate.download.025|  Gain            : Récupère de la place, souvent 500 Mo à plusieurs Go
+::T|FR|cl.wupdate.download.026|                    sur une machine ayant reçu une mise à jour de
+::T|FR|cl.wupdate.download.027|                    fonctionnalité, et quelques centaines de Mo sur une
+::T|FR|cl.wupdate.download.028|                    machine qui n'a connu que les cumulatives mensuelles.
+::T|FR|cl.wupdate.download.029|                    C'est aussi le premier remède classique quand une mise
+::T|FR|cl.wupdate.download.030|                    à jour reste bloquée à un pourcentage ou échoue
+::T|FR|cl.wupdate.download.031|                    toujours de la même façon. Aucun gain de vitesse,
+::T|FR|cl.wupdate.download.032|                    d'aucune sorte.
+::T|FR|cl.wupdate.download.033|
+::T|FR|cl.wupdate.download.034|  Cout            : Une mise à jour téléchargée mais pas encore installée
+::T|FR|cl.wupdate.download.035|                    sera retéléchargée à la prochaine analyse. C'est de la
+::T|FR|cl.wupdate.download.036|                    bande passante, pas une casse : quelques centaines de
+::T|FR|cl.wupdate.download.037|                    Mo en général, jusqu'à plusieurs Go si une mise à jour
+::T|FR|cl.wupdate.download.038|                    de fonctionnalité était préparée. Windows purge par
+::T|FR|cl.wupdate.download.039|                    ailleurs ce dossier tout seul au bout d'une dizaine de
+::T|FR|cl.wupdate.download.040|                    jours, donc sur une machine bien portante on ne fait
+::T|FR|cl.wupdate.download.041|                    qu'accélérer les choses. Rien de ce qui vous
+::T|FR|cl.wupdate.download.042|                    appartient ne se trouve dans ce dossier.
+::T|FR|cl.wupdate.download.043|
+::T|FR|cl.wupdate.download.044|  Defaut Windows  : Sans objet. C'est un cache régénérable, géré et purgé
+::T|FR|cl.wupdate.download.045|                    par Windows selon sa propre planification.
+::T|FR|cl.wupdate.download.046|
+::T|FR|cl.wupdate.download.047|  Valeurs possibles :
+::T|FR|cl.wupdate.download.048|    DELETE               : Arrêter wuauserv, vider le dossier Download,
+::T|FR|cl.wupdate.download.049|                           relancer wuauserv. Rien n'est désinstallé et
+::T|FR|cl.wupdate.download.050|                           aucun historique de mise à jour n'est perdu ;
+::T|FR|cl.wupdate.download.051|                           seuls les paquets téléchargés partent, et ils
+::T|FR|cl.wupdate.download.052|                           sont récupérés à nouveau s'ils sont encore
+::T|FR|cl.wupdate.download.053|                           nécessaires.
+::T|FR|cl.wupdate.download.054|    KEEP                 : Laisser le dossier tranquille. Windows le purge
+::T|FR|cl.wupdate.download.055|                           tout seul au bout d'une dizaine de jours : sur
+::T|FR|cl.wupdate.download.056|                           une machine saine, vous n'y perdez que la place
+::T|FR|cl.wupdate.download.057|                           pendant ce laps de temps.
+::T|FR|cl.wupdate.download.058|    ASK                  : Non utilisé. Le seul mauvais moment, c'est une
+::T|FR|cl.wupdate.download.059|                           grosse mise à jour en cours de téléchargement
+::T|FR|cl.wupdate.download.060|                           sur une liaison lente ou limitée, ce qui relève
+::T|FR|cl.wupdate.download.061|                           du calendrier et non d'un arbitrage de profil.
+::X|FR|cl.wupdate.download.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.wupdate.download.002|                         identiques parce qu'un retéléchargement coûte la
+::X|FR|cl.wupdate.download.003|                         même chose partout et qu'aucun usage de la
+::X|FR|cl.wupdate.download.004|                         machine ne change cela : la seule vraie variable,
+::X|FR|cl.wupdate.download.005|                         une connexion lente ou limitée, relève du réseau
+::X|FR|cl.wupdate.download.006|                         et non du profil, et elle est signalée dans le
+::X|FR|cl.wupdate.download.007|                         coût plutôt que déguisée en colonne. WINDOWS est
+::X|FR|cl.wupdate.download.008|                         à KEEP parce que laisser le dossier vieillir tout
+::X|FR|cl.wupdate.download.009|                         seul est réellement le comportement d'origine.
+::X|FR|cl.wupdate.download.010|
+::X|FR|cl.wupdate.download.011|  Problemes connus : Le chemin est écrit en dur C:\Windows au lieu de
+::X|FR|cl.wupdate.download.012|                     %WINDIR%. Sans conséquence sur la quasi-totalité des
+::X|FR|cl.wupdate.download.013|                     machines, faux sur une machine où Windows n'est pas
+::X|FR|cl.wupdate.download.014|                     sur C:. La même ligne n'a aucune redirection >nul,
+::X|FR|cl.wupdate.download.015|                     contrairement à presque toutes les autres
+::X|FR|cl.wupdate.download.016|                     suppressions du fichier : ses erreurs sont donc
+::X|FR|cl.wupdate.download.017|                     affichées au lieu d'être journalisées.
+::X|FR|cl.wupdate.download.018|
+::X|FR|cl.wupdate.download.019|  Cible           : C:\Windows\SoftwareDistribution\Download\* - net stop
+::X|FR|cl.wupdate.download.020|                    wuauserv at line 903, del /S /F /Q at line 905, net
+::X|FR|cl.wupdate.download.021|                    start wuauserv at line 907, all inside the :delete
+::X|FR|cl.wupdate.download.022|                    block of OPTY.bat.
+::T|EN|cl.wupdate.download.001|WINDOWS UPDATE DOWNLOAD CACHE
+::T|EN|cl.wupdate.download.002|
+::T|EN|cl.wupdate.download.003|  What it is      : C:\Windows\SoftwareDistribution\Download is where
+::T|EN|cl.wupdate.download.004|                    Windows Update parks the update packages it has
+::T|EN|cl.wupdate.download.005|                    downloaded, before and after installing them. OPTY
+::T|EN|cl.wupdate.download.006|                    stops the wuauserv service, empties that folder and
+::T|EN|cl.wupdate.download.007|                    starts the service again.
+::T|EN|cl.wupdate.download.008|
+::T|EN|cl.wupdate.download.009|  Actual effect   : Three lines: net stop wuauserv, del /S /F /Q on the
+::T|EN|cl.wupdate.download.010|                    folder contents, net start wuauserv. Only the
+::T|EN|cl.wupdate.download.011|                    downloaded payloads go. The service start type is not
+::T|EN|cl.wupdate.download.012|                    changed, no update is uninstalled and nothing in your
+::T|EN|cl.wupdate.download.013|                    update history is touched. Two honest caveats about
+::T|EN|cl.wupdate.download.014|                    what actually happens. First, del removes files but
+::T|EN|cl.wupdate.download.015|                    not folders, so the directory tree is still there
+::T|EN|cl.wupdate.download.016|                    afterwards, just empty. Second, anything still held
+::T|EN|cl.wupdate.download.017|                    open - by a BITS transfer in flight, or by the service
+::T|EN|cl.wupdate.download.018|                    if net stop did not fully take - simply fails to
+::T|EN|cl.wupdate.download.019|                    delete and stays, and because line 905 has no output
+::T|EN|cl.wupdate.download.020|                    redirection you will see the access-denied lines
+::T|EN|cl.wupdate.download.021|                    scroll past on the console. Nothing is force-unlocked.
+::T|EN|cl.wupdate.download.022|
+::T|EN|cl.wupdate.download.023|  Gain            : Reclaims disk space, commonly 500 MB to several GB on
+::T|EN|cl.wupdate.download.024|                    a machine that has taken a feature update, and a
+::T|EN|cl.wupdate.download.025|                    couple of hundred MB on one that has only seen monthly
+::T|EN|cl.wupdate.download.026|                    cumulative updates. It is also the standard first fix
+::T|EN|cl.wupdate.download.027|                    for an update stuck at a percentage or failing with
+::T|EN|cl.wupdate.download.028|                    the same error every time. No speed benefit
+::T|EN|cl.wupdate.download.029|                    whatsoever.
+::T|EN|cl.wupdate.download.030|
+::T|EN|cl.wupdate.download.031|  Cost            : An update that was downloaded but not yet installed is
+::T|EN|cl.wupdate.download.032|                    downloaded again on the next scan. That is bandwidth,
+::T|EN|cl.wupdate.download.033|                    not breakage - typically a few hundred MB, up to
+::T|EN|cl.wupdate.download.034|                    several GB if a feature update was staged. Windows
+::T|EN|cl.wupdate.download.035|                    also prunes this folder on its own after roughly ten
+::T|EN|cl.wupdate.download.036|                    days, so on a well-behaved machine this is a shortcut
+::T|EN|cl.wupdate.download.037|                    rather than a necessity. Nothing user-owned is in that
+::T|EN|cl.wupdate.download.038|                    folder.
+::T|EN|cl.wupdate.download.039|
+::T|EN|cl.wupdate.download.040|  Windows default : Not applicable. It is a regenerable cache that Windows
+::T|EN|cl.wupdate.download.041|                    manages and prunes on its own schedule.
+::T|EN|cl.wupdate.download.042|
+::T|EN|cl.wupdate.download.043|  Possible values:
+::T|EN|cl.wupdate.download.044|    DELETE               : Stop wuauserv, empty the Download folder, start
+::T|EN|cl.wupdate.download.045|                           wuauserv again. Nothing is uninstalled and no
+::T|EN|cl.wupdate.download.046|                           update history is lost; only the downloaded
+::T|EN|cl.wupdate.download.047|                           packages go, and they are fetched again if
+::T|EN|cl.wupdate.download.048|                           still needed.
+::T|EN|cl.wupdate.download.049|    KEEP                 : Leave the folder alone. Windows prunes it by
+::T|EN|cl.wupdate.download.050|                           itself after roughly ten days, so on a healthy
+::T|EN|cl.wupdate.download.051|                           machine the only thing you lose is the space in
+::T|EN|cl.wupdate.download.052|                           the meantime.
+::T|EN|cl.wupdate.download.053|    ASK                  : Not used. The only bad moment is a large update
+::T|EN|cl.wupdate.download.054|                           mid-download on a slow or metered link, and
+::T|EN|cl.wupdate.download.055|                           that is a matter of timing rather than a
+::T|EN|cl.wupdate.download.056|                           decision a profile has to arbitrate.
+::X|EN|cl.wupdate.download.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.wupdate.download.002|                       because a re-download costs the same everywhere and
+::X|EN|cl.wupdate.download.003|                       no machine role changes it - the one real variable,
+::X|EN|cl.wupdate.download.004|                       a metered or slow connection, belongs to the
+::X|EN|cl.wupdate.download.005|                       network rather than to the profile, and it is
+::X|EN|cl.wupdate.download.006|                       called out in the cost instead of being faked into
+::X|EN|cl.wupdate.download.007|                       a column. WINDOWS is KEEP because letting the
+::X|EN|cl.wupdate.download.008|                       folder age out by itself really is the shipped
+::X|EN|cl.wupdate.download.009|                       behaviour.
+::X|EN|cl.wupdate.download.010|
+::X|EN|cl.wupdate.download.011|  Known problems  : The path is hardcoded as C:\Windows rather than
+::X|EN|cl.wupdate.download.012|                    %WINDIR%. Harmless on virtually every machine, wrong
+::X|EN|cl.wupdate.download.013|                    on one where Windows is not on C:. The same line has
+::X|EN|cl.wupdate.download.014|                    no >nul redirection, unlike almost every other delete
+::X|EN|cl.wupdate.download.015|                    in the file, so its errors are printed rather than
+::X|EN|cl.wupdate.download.016|                    logged.
+::X|EN|cl.wupdate.download.017|
+::X|EN|cl.wupdate.download.018|  Target          : C:\Windows\SoftwareDistribution\Download\* - net stop
+::X|EN|cl.wupdate.download.019|                    wuauserv at line 903, del /S /F /Q at line 905, net
+::X|EN|cl.wupdate.download.020|                    start wuauserv at line 907, all inside the :delete
+::X|EN|cl.wupdate.download.021|                    block of OPTY.bat.
+::
+:: ---- cl.drivesweep.fixed (risky) -------------------------------
+::P|cl.drivesweep.fixed|ASK|ASK|ASK|ASK|KEEP|
+::T|FR|cl.drivesweep.fixed.001|CACHES DE MISE À JOUR ET RÉSIDUS D'UPGRADE, SUR CHAQUE DISQUE
+::T|FR|cl.drivesweep.fixed.002|
+::T|FR|cl.drivesweep.fixed.003|  Ce que c est    : Windows ne place pas toujours ses caches Delivery
+::T|FR|cl.drivesweep.fixed.004|                    Optimization et ses paquets de mise à jour sur C:. Il
+::T|FR|cl.drivesweep.fixed.005|                    choisit le volume qui avait de la place. Cette étape
+::T|FR|cl.drivesweep.fixed.006|                    passe sur chaque disque INTERNE, vide
+::T|FR|cl.drivesweep.fixed.007|                    DeliveryOptimization, WUDownloadCache et .cache, puis
+::T|FR|cl.drivesweep.fixed.008|                    supprime les dossiers de préparation abandonnés
+::T|FR|cl.drivesweep.fixed.009|                    $WINDOWS.~BT, $Windows.~WS et $WinREAgent.
+::T|FR|cl.drivesweep.fixed.010|
+::T|FR|cl.drivesweep.fixed.011|  Effet reel      : Les lettres de lecteur sont collectées en comparant le
+::T|FR|cl.drivesweep.fixed.012|                    type de lecteur renvoyé par fsutil à celui de
+::T|FR|cl.drivesweep.fixed.013|                    %SystemDrive%, ce qui rend la comparaison insensible à
+::T|FR|cl.drivesweep.fixed.014|                    la langue de Windows. Les lecteurs réseau sont
+::T|FR|cl.drivesweep.fixed.015|                    volontairement ignorés : un partage SMB déconnecté
+::T|FR|cl.drivesweep.fixed.016|                    coûte 30 secondes de délai par accès et bloquerait
+::T|FR|cl.drivesweep.fixed.017|                    toute l'exécution. Ensuite, par disque : quatre del /F
+::T|FR|cl.drivesweep.fixed.018|                    /S /Q sur les chemins de cache, puis rd /S /Q sur les
+::T|FR|cl.drivesweep.fixed.019|                    trois dossiers de préparation, sans condition, dès que
+::T|FR|cl.drivesweep.fixed.020|                    chacun existe. Le chemin .cache reçoit d'abord un
+::T|FR|cl.drivesweep.fixed.021|                    relevé de taille via :bigcache, qui affiche un
+::T|FR|cl.drivesweep.fixed.022|                    avertissement au-delà d'environ 2000 Mo - lisez bien
+::T|FR|cl.drivesweep.fixed.023|                    cette ligne, car ce n'est qu'un avertissement. La
+::T|FR|cl.drivesweep.fixed.024|                    suppression, à la ligne suivante, a lieu quelle que
+::T|FR|cl.drivesweep.fixed.025|                    soit la taille.
+::T|FR|cl.drivesweep.fixed.026|
+::T|FR|cl.drivesweep.fixed.027|  Gain            : Potentiellement le plus gros gain de place d'un
+::T|FR|cl.drivesweep.fixed.028|                    nettoyage : $WINDOWS.~BT fait souvent plusieurs Go à
+::T|FR|cl.drivesweep.fixed.029|                    lui seul, et Delivery Optimization peut stocker des
+::T|FR|cl.drivesweep.fixed.030|                    gigaoctets de données partagées entre PC. Sur un
+::T|FR|cl.drivesweep.fixed.031|                    portable de 256 Go qui vient de recevoir une mise à
+::T|FR|cl.drivesweep.fixed.032|                    jour de fonctionnalité, 5 à 15 Go récupérés sont
+::T|FR|cl.drivesweep.fixed.033|                    réalistes. Sur une machine sans mise à niveau récente,
+::T|FR|cl.drivesweep.fixed.034|                    ces chemins sont souvent vides et l'étape ne libère
+::T|FR|cl.drivesweep.fixed.035|                    strictement rien : n'attendez pas un chiffre du simple
+::T|FR|cl.drivesweep.fixed.036|                    fait qu'elle s'est exécutée.
+::T|FR|cl.drivesweep.fixed.037|
+::T|FR|cl.drivesweep.fixed.038|  Cout            : Trois des quatre chemins de cache ne contiennent que
+::T|FR|cl.drivesweep.fixed.039|                    des paquets Windows Update et reviennent à la demande.
+::T|FR|cl.drivesweep.fixed.040|                    Le quatrième est un simple <disque>:\.cache à la
+::T|FR|cl.drivesweep.fixed.041|                    racine, reconnu par son seul nom. Sur une machine de
+::T|FR|cl.drivesweep.fixed.042|                    développement, c'est très souvent un cache d'outils -
+::T|FR|cl.drivesweep.fixed.043|                    Bazel, Yarn, Cargo, pip, modèles Hugging Face - et le
+::T|FR|cl.drivesweep.fixed.044|                    vider signifie plusieurs gigaoctets à retélécharger,
+::T|FR|cl.drivesweep.fixed.045|                    pas un nettoyage gratuit. OPTY ne sait pas distinguer
+::T|FR|cl.drivesweep.fixed.046|                    les deux ; il se contente d'afficher la taille au
+::T|FR|cl.drivesweep.fixed.047|                    passage. Vérifiez si l'un de vos disques possède un
+::T|FR|cl.drivesweep.fixed.048|                    dossier .cache à sa racine avant de répondre oui : si
+::T|FR|cl.drivesweep.fixed.049|                    c'est le cas, refusez cette étape et videz
+::T|FR|cl.drivesweep.fixed.050|                    DeliveryOptimization et WUDownloadCache à la main. Par
+::T|FR|cl.drivesweep.fixed.051|                    ailleurs, $WINDOWS.~BT et $Windows.~WS font partie de
+::T|FR|cl.drivesweep.fixed.052|                    ce dont a besoin Paramètres, Récupération, Revenir en
+::T|FR|cl.drivesweep.fixed.053|                    arrière. Si vous avez basculé sur une nouvelle version
+::T|FR|cl.drivesweep.fixed.054|                    de Windows dans les dix derniers jours, les supprimer
+::T|FR|cl.drivesweep.fixed.055|                    vous retire la possibilité d'annuler cette mise à
+::T|FR|cl.drivesweep.fixed.056|                    niveau, exactement comme supprimer Windows.old. Et
+::T|FR|cl.drivesweep.fixed.057|                    rien ne vérifie qu'une mise à niveau est déjà
+::T|FR|cl.drivesweep.fixed.058|                    téléchargée et attend un redémarrage : supprimez ces
+::T|FR|cl.drivesweep.fixed.059|                    dossiers en pleine mise à niveau et Windows
+::T|FR|cl.drivesweep.fixed.060|                    retéléchargera toute la mise à jour de fonctionnalité.
+::T|FR|cl.drivesweep.fixed.061|
+::T|FR|cl.drivesweep.fixed.062|  Defaut Windows  : Sans objet en tant que réglage. Ce sont des caches et
+::T|FR|cl.drivesweep.fixed.063|                    des dossiers de préparation que Windows abandonne puis
+::T|FR|cl.drivesweep.fixed.064|                    supprime de lui-même, une dizaine de jours après la
+::T|FR|cl.drivesweep.fixed.065|                    mise à niveau.
+::T|FR|cl.drivesweep.fixed.066|
+::T|FR|cl.drivesweep.fixed.067|  Valeurs possibles :
+::T|FR|cl.drivesweep.fixed.068|    DELETE               : Vider les quatre chemins de cache et supprimer
+::T|FR|cl.drivesweep.fixed.069|                           les trois dossiers de préparation sur chaque
+::T|FR|cl.drivesweep.fixed.070|                           disque interne. À ne choisir qu'après avoir
+::T|FR|cl.drivesweep.fixed.071|                           vérifié qu'aucun disque n'a de dossier .cache à
+::T|FR|cl.drivesweep.fixed.072|                           sa racine et que vous n'avez pas mis Windows à
+::T|FR|cl.drivesweep.fixed.073|                           niveau dans les dix derniers jours.
+::T|FR|cl.drivesweep.fixed.074|    KEEP                 : Laisser tous ces chemins tranquilles. Windows
+::T|FR|cl.drivesweep.fixed.075|                           supprime $WINDOWS.~BT et $Windows.~WS lui-même
+::T|FR|cl.drivesweep.fixed.076|                           une dizaine de jours après une mise à niveau,
+::T|FR|cl.drivesweep.fixed.077|                           une fois la fenêtre de retour arrière refermée,
+::T|FR|cl.drivesweep.fixed.078|                           et $WinREAgent une fois la maintenance de WinRE
+::T|FR|cl.drivesweep.fixed.079|                           terminée. Ne rien faire vous coûte la place
+::T|FR|cl.drivesweep.fixed.080|                           disque pendant ces dix jours, rien de plus.
+::T|FR|cl.drivesweep.fixed.081|    ASK                  : La seule réponse défendable pour les quatre
+::T|FR|cl.drivesweep.fixed.082|                           profils de machine réelle, et pour deux raisons
+::T|FR|cl.drivesweep.fixed.083|                           indépendantes. Un .cache à la racine est
+::T|FR|cl.drivesweep.fixed.084|                           reconnu par son seul nom, et sur une machine de
+::T|FR|cl.drivesweep.fixed.085|                           développement c'est couramment un dépôt Bazel,
+::T|FR|cl.drivesweep.fixed.086|                           Yarn, Cargo, pip ou Hugging Face : des dizaines
+::T|FR|cl.drivesweep.fixed.087|                           de Go à retélécharger, et non des paquets
+::T|FR|cl.drivesweep.fixed.088|                           Windows Update. Par ailleurs, les dossiers de
+::T|FR|cl.drivesweep.fixed.089|                           préparation font partie de ce dont a besoin
+::T|FR|cl.drivesweep.fixed.090|                           Paramètres, Récupération, Revenir en arrière.
+::T|FR|cl.drivesweep.fixed.091|                           Ni l'un ni l'autre ne dépend de l'usage de la
+::T|FR|cl.drivesweep.fixed.092|                           machine ; les deux dépendent de faits que vous
+::T|FR|cl.drivesweep.fixed.093|                           seul pouvez vérifier.
+::X|FR|cl.drivesweep.fixed.001|  Pourquoi ces profils : Quatre ASK et un KEEP. Quatre colonnes identiques
+::X|FR|cl.drivesweep.fixed.002|                         sont ici le résultat honnête, parce que les deux
+::X|FR|cl.drivesweep.fixed.003|                         dangers - un cache d'outils à la racine d'un
+::X|FR|cl.drivesweep.fixed.004|                         disque, et une fenêtre de retour arrière peut-
+::X|FR|cl.drivesweep.fixed.005|                         être encore ouverte - sont des faits concernant
+::X|FR|cl.drivesweep.fixed.006|                         les dix derniers jours de cette machine précise,
+::X|FR|cl.drivesweep.fixed.007|                         et non le fait qu'elle serve à jouer ou à
+::X|FR|cl.drivesweep.fixed.008|                         héberger Plex. WINDOWS est à KEEP, et c'est une
+::X|FR|cl.drivesweep.fixed.009|                         vraie réponse : Windows nettoie effectivement ces
+::X|FR|cl.drivesweep.fixed.010|                         dossiers lui-même une fois la fenêtre de retour
+::X|FR|cl.drivesweep.fixed.011|                         arrière refermée.
+::X|FR|cl.drivesweep.fixed.012|
+::X|FR|cl.drivesweep.fixed.013|  Problemes connus : L'étape est livrée en application automatique en mode
+::X|FR|cl.drivesweep.fixed.014|                     manuel, Auto lite et Auto full : le rd /S /Q
+::X|FR|cl.drivesweep.fixed.015|                     inconditionnel sur les trois dossiers de préparation
+::X|FR|cl.drivesweep.fixed.016|                     et la suppression de <disque>:\.cache s'exécutent
+::X|FR|cl.drivesweep.fixed.017|                     donc sans surveillance et sans question. La carte
+::X|FR|cl.drivesweep.fixed.018|                     jumelle qui documente le même code, helper-
+::X|FR|cl.drivesweep.fixed.019|                     drivesweep-caches, est en ask-no-default : deux
+::X|FR|cl.drivesweep.fixed.020|                     cartes décrivent un même bloc avec des niveaux de
+::X|FR|cl.drivesweep.fixed.021|                     risque opposés. La ligne .cache entre en outre en
+::X|FR|cl.drivesweep.fixed.022|                     collision frontale avec la règle permanente de ce
+::X|FR|cl.drivesweep.fixed.023|                     projet, qui interdit à OPTY de vider les caches de
+::X|FR|cl.drivesweep.fixed.024|                     développement. Idéalement, le code devrait abandonner
+::X|FR|cl.drivesweep.fixed.025|                     la ligne <disque>:\.cache et séparer la suppression
+::X|FR|cl.drivesweep.fixed.026|                     des dossiers de préparation du balayage des caches.
+::X|FR|cl.drivesweep.fixed.027|
+::X|FR|cl.drivesweep.fixed.028|  Non verifie (en)  : Whether root-level DeliveryOptimization and
+::X|FR|cl.drivesweep.fixed.029|                      WUDownloadCache folders exist at all on a current
+::X|FR|cl.drivesweep.fixed.030|                      Windows 11 25H2 machine was not verified. On several
+::X|FR|cl.drivesweep.fixed.031|                      builds the Delivery Optimization cache lives
+::X|FR|cl.drivesweep.fixed.032|                      elsewhere, which would mean three of the four cache
+::X|FR|cl.drivesweep.fixed.033|                      lines match nothing and the only line that actually
+::X|FR|cl.drivesweep.fixed.034|                      deletes anything is <drive>:\.cache - the one line
+::X|FR|cl.drivesweep.fixed.035|                      that should not be there. Check the log for the
+::X|FR|cl.drivesweep.fixed.036|                      Cache emptied entries after a run before believing
+::X|FR|cl.drivesweep.fixed.037|                      the multi-GB figure.
+::X|FR|cl.drivesweep.fixed.038|
+::X|FR|cl.drivesweep.fixed.039|  Cible           : On every FIXED drive letter:
+::X|FR|cl.drivesweep.fixed.040|                    <d>:\DeliveryOptimization\*, <d>:\WUDownloadCache\*, <
+::X|FR|cl.drivesweep.fixed.041|                    d>:\ProgramData\Microsoft\Windows\DeliveryOptimization
+::X|FR|cl.drivesweep.fixed.042|                    \Cache\*, <d>:\.cache\*, then rd /S /Q on
+::X|FR|cl.drivesweep.fixed.043|                    <d>:\$WINDOWS.~BT, <d>:\$Windows.~WS and
+::X|FR|cl.drivesweep.fixed.044|                    <d>:\$WinREAgent. Label :drivesweep, OPTY.bat lines
+::X|FR|cl.drivesweep.fixed.045|                    3335 to 3360, called once per drive from line 916.
+::T|EN|cl.drivesweep.fixed.001|PER-DRIVE UPDATE CACHES AND UPGRADE LEFTOVERS
+::T|EN|cl.drivesweep.fixed.002|
+::T|EN|cl.drivesweep.fixed.003|  What it is      : Windows does not always put its Delivery Optimization
+::T|EN|cl.drivesweep.fixed.004|                    and update payload caches on C:. It picks whichever
+::T|EN|cl.drivesweep.fixed.005|                    volume had room. This step visits every FIXED drive,
+::T|EN|cl.drivesweep.fixed.006|                    clears DeliveryOptimization, WUDownloadCache and
+::T|EN|cl.drivesweep.fixed.007|                    .cache, and removes the leftover staging folders
+::T|EN|cl.drivesweep.fixed.008|                    $WINDOWS.~BT, $Windows.~WS and $WinREAgent.
+::T|EN|cl.drivesweep.fixed.009|
+::T|EN|cl.drivesweep.fixed.010|  Actual effect   : Drive letters are collected by comparing each letter's
+::T|EN|cl.drivesweep.fixed.011|                    fsutil drive type against the type of %SystemDrive%,
+::T|EN|cl.drivesweep.fixed.012|                    so the comparison survives a localised Windows.
+::T|EN|cl.drivesweep.fixed.013|                    Network drives are skipped on purpose, because a dead
+::T|EN|cl.drivesweep.fixed.014|                    SMB mapping costs a 30-second timeout per access and
+::T|EN|cl.drivesweep.fixed.015|                    would stall the run. Then per drive: four del /F /S /Q
+::T|EN|cl.drivesweep.fixed.016|                    on the cache paths, then rd /S /Q on the three staging
+::T|EN|cl.drivesweep.fixed.017|                    folders, unconditionally, as soon as each exists. The
+::T|EN|cl.drivesweep.fixed.018|                    .cache path gets a size report first, via :bigcache,
+::T|EN|cl.drivesweep.fixed.019|                    which prints a warning when the folder exceeds about
+::T|EN|cl.drivesweep.fixed.020|                    2000 MB - read that line carefully, because it is a
+::T|EN|cl.drivesweep.fixed.021|                    warning only. The delete on the next line happens
+::T|EN|cl.drivesweep.fixed.022|                    regardless of the size.
+::T|EN|cl.drivesweep.fixed.023|
+::T|EN|cl.drivesweep.fixed.024|  Gain            : Potentially the biggest space win of a cleanup run:
+::T|EN|cl.drivesweep.fixed.025|                    $WINDOWS.~BT alone is often several GB, and Delivery
+::T|EN|cl.drivesweep.fixed.026|                    Optimization can hold gigabytes of peer-shared update
+::T|EN|cl.drivesweep.fixed.027|                    data. On a 256 GB laptop that has recently taken a
+::T|EN|cl.drivesweep.fixed.028|                    feature update, 5 to 15 GB back is realistic. On a
+::T|EN|cl.drivesweep.fixed.029|                    machine that has not upgraded recently, these paths
+::T|EN|cl.drivesweep.fixed.030|                    are frequently empty and the step frees nothing at all
+::T|EN|cl.drivesweep.fixed.031|                    - do not expect a number just because the step ran.
+::T|EN|cl.drivesweep.fixed.032|
+::T|EN|cl.drivesweep.fixed.033|  Cost            : Three of the four cache paths are pure Windows Update
+::T|EN|cl.drivesweep.fixed.034|                    payload and come back on demand. The fourth is a bare
+::T|EN|cl.drivesweep.fixed.035|                    <drive>:\.cache at the root, matched by name alone. On
+::T|EN|cl.drivesweep.fixed.036|                    a developer machine that is very often a tool cache -
+::T|EN|cl.drivesweep.fixed.037|                    Bazel, Yarn, Cargo, pip, Hugging Face models - and
+::T|EN|cl.drivesweep.fixed.038|                    emptying it means a multi-gigabyte re-download, not a
+::T|EN|cl.drivesweep.fixed.039|                    free cleanup. OPTY cannot tell the two apart; it only
+::T|EN|cl.drivesweep.fixed.040|                    prints the size on the way past. Check whether any of
+::T|EN|cl.drivesweep.fixed.041|                    your drives has a .cache folder at its root before
+::T|EN|cl.drivesweep.fixed.042|                    answering yes, and if one does, decline this step and
+::T|EN|cl.drivesweep.fixed.043|                    empty DeliveryOptimization and WUDownloadCache by
+::T|EN|cl.drivesweep.fixed.044|                    hand. Separately, $WINDOWS.~BT and $Windows.~WS are
+::T|EN|cl.drivesweep.fixed.045|                    part of what Settings, Recovery, Go back needs. If you
+::T|EN|cl.drivesweep.fixed.046|                    upgraded to a new Windows build in the last ten days,
+::T|EN|cl.drivesweep.fixed.047|                    deleting them removes your ability to roll that
+::T|EN|cl.drivesweep.fixed.048|                    upgrade back, exactly like deleting Windows.old. And
+::T|EN|cl.drivesweep.fixed.049|                    there is no check for an upgrade that is already
+::T|EN|cl.drivesweep.fixed.050|                    downloaded and waiting for a reboot: delete these mid-
+::T|EN|cl.drivesweep.fixed.051|                    upgrade and Windows re-downloads the whole feature
+::T|EN|cl.drivesweep.fixed.052|                    update.
+::T|EN|cl.drivesweep.fixed.053|
+::T|EN|cl.drivesweep.fixed.054|  Windows default : Not applicable as a setting. These are caches and
+::T|EN|cl.drivesweep.fixed.055|                    post-upgrade staging folders that Windows abandons and
+::T|EN|cl.drivesweep.fixed.056|                    then removes on its own, roughly ten days after the
+::T|EN|cl.drivesweep.fixed.057|                    upgrade.
+::T|EN|cl.drivesweep.fixed.058|
+::T|EN|cl.drivesweep.fixed.059|  Possible values:
+::T|EN|cl.drivesweep.fixed.060|    DELETE               : Empty all four cache paths and remove the three
+::T|EN|cl.drivesweep.fixed.061|                           staging folders on every internal drive. Only
+::T|EN|cl.drivesweep.fixed.062|                           pick this once you have checked that no drive
+::T|EN|cl.drivesweep.fixed.063|                           has a .cache folder at its root and that you
+::T|EN|cl.drivesweep.fixed.064|                           have not upgraded Windows in the last ten days.
+::T|EN|cl.drivesweep.fixed.065|    KEEP                 : Leave every one of those paths alone. Windows
+::T|EN|cl.drivesweep.fixed.066|                           removes $WINDOWS.~BT and $Windows.~WS itself
+::T|EN|cl.drivesweep.fixed.067|                           about ten days after an upgrade, once the
+::T|EN|cl.drivesweep.fixed.068|                           rollback window has closed, and $WinREAgent
+::T|EN|cl.drivesweep.fixed.069|                           once WinRE servicing finishes. Doing nothing
+::T|EN|cl.drivesweep.fixed.070|                           costs you the disk space for those ten days and
+::T|EN|cl.drivesweep.fixed.071|                           nothing else.
+::T|EN|cl.drivesweep.fixed.072|    ASK                  : The only defensible answer for all four real-
+::T|EN|cl.drivesweep.fixed.073|                           machine profiles, and for two independent
+::T|EN|cl.drivesweep.fixed.074|                           reasons. A root-level .cache is matched by name
+::T|EN|cl.drivesweep.fixed.075|                           alone, and on a developer machine that is
+::T|EN|cl.drivesweep.fixed.076|                           routinely a Bazel, Yarn, Cargo, pip or Hugging
+::T|EN|cl.drivesweep.fixed.077|                           Face store - tens of GB of re-download, not
+::T|EN|cl.drivesweep.fixed.078|                           Windows Update payload. And the staging folders
+::T|EN|cl.drivesweep.fixed.079|                           are part of what Settings, Recovery, Go back
+::T|EN|cl.drivesweep.fixed.080|                           needs. Neither depends on what the machine is
+::T|EN|cl.drivesweep.fixed.081|                           for; both depend on facts only you can check.
+::X|EN|cl.drivesweep.fixed.001|  Why these profiles : Four ASK and one KEEP. Four identical columns is
+::X|EN|cl.drivesweep.fixed.002|                       the honest outcome here, because both hazards - a
+::X|EN|cl.drivesweep.fixed.003|                       tool cache at the root of a drive, and a rollback
+::X|EN|cl.drivesweep.fixed.004|                       window that may still be open - are facts about
+::X|EN|cl.drivesweep.fixed.005|                       this particular machine's last ten days, not about
+::X|EN|cl.drivesweep.fixed.006|                       whether it plays games or serves Plex. WINDOWS is
+::X|EN|cl.drivesweep.fixed.007|                       KEEP and that is a real answer: Windows genuinely
+::X|EN|cl.drivesweep.fixed.008|                       does clear these folders itself once the rollback
+::X|EN|cl.drivesweep.fixed.009|                       window closes.
+::X|EN|cl.drivesweep.fixed.010|
+::X|EN|cl.drivesweep.fixed.011|  Known problems  : The step ships as apply in manual, Auto lite and Auto
+::X|EN|cl.drivesweep.fixed.012|                    full, which means the unconditional rd /S /Q on the
+::X|EN|cl.drivesweep.fixed.013|                    three staging folders and the delete of
+::X|EN|cl.drivesweep.fixed.014|                    <drive>:\.cache both run unattended with no question
+::X|EN|cl.drivesweep.fixed.015|                    asked. The sibling card that documents the same code,
+::X|EN|cl.drivesweep.fixed.016|                    helper-drivesweep-caches, is ask-no-default - two
+::X|EN|cl.drivesweep.fixed.017|                    cards describing one block with opposite risk levels.
+::X|EN|cl.drivesweep.fixed.018|                    The .cache line also collides head-on with this
+::X|EN|cl.drivesweep.fixed.019|                    project's own standing rule that OPTY must not clear
+::X|EN|cl.drivesweep.fixed.020|                    development caches. Ideally the code should drop the
+::X|EN|cl.drivesweep.fixed.021|                    <drive>:\.cache line entirely and split the staging-
+::X|EN|cl.drivesweep.fixed.022|                    folder removal out of the cache sweep.
+::X|EN|cl.drivesweep.fixed.023|
+::X|EN|cl.drivesweep.fixed.024|  Unverified      : Whether root-level DeliveryOptimization and
+::X|EN|cl.drivesweep.fixed.025|                    WUDownloadCache folders exist at all on a current
+::X|EN|cl.drivesweep.fixed.026|                    Windows 11 25H2 machine was not verified. On several
+::X|EN|cl.drivesweep.fixed.027|                    builds the Delivery Optimization cache lives
+::X|EN|cl.drivesweep.fixed.028|                    elsewhere, which would mean three of the four cache
+::X|EN|cl.drivesweep.fixed.029|                    lines match nothing and the only line that actually
+::X|EN|cl.drivesweep.fixed.030|                    deletes anything is <drive>:\.cache - the one line
+::X|EN|cl.drivesweep.fixed.031|                    that should not be there. Check the log for the Cache
+::X|EN|cl.drivesweep.fixed.032|                    emptied entries after a run before believing the
+::X|EN|cl.drivesweep.fixed.033|                    multi-GB figure.
+::X|EN|cl.drivesweep.fixed.034|
+::X|EN|cl.drivesweep.fixed.035|  Target          : On every FIXED drive letter:
+::X|EN|cl.drivesweep.fixed.036|                    <d>:\DeliveryOptimization\*, <d>:\WUDownloadCache\*, <
+::X|EN|cl.drivesweep.fixed.037|                    d>:\ProgramData\Microsoft\Windows\DeliveryOptimization
+::X|EN|cl.drivesweep.fixed.038|                    \Cache\*, <d>:\.cache\*, then rd /S /Q on
+::X|EN|cl.drivesweep.fixed.039|                    <d>:\$WINDOWS.~BT, <d>:\$Windows.~WS and
+::X|EN|cl.drivesweep.fixed.040|                    <d>:\$WinREAgent. Label :drivesweep, OPTY.bat lines
+::X|EN|cl.drivesweep.fixed.041|                    3335 to 3360, called once per drive from line 916.
+::
+:: ---- cl.temp.windir (cleanup) ------------------------------------
+::P|cl.temp.windir|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.temp.windir.001|DOSSIER TEMPORAIRE SYSTÈME
+::T|FR|cl.temp.windir.002|
+::T|FR|cl.temp.windir.003|  Ce que c est    : %WINDIR%\Temp est le dossier de travail où écrivent
+::T|FR|cl.temp.windir.004|                    les services Windows et les installateurs qui tournent
+::T|FR|cl.temp.windir.005|                    en tant que SYSTEM. Rien d'important n'y est stocké
+::T|FR|cl.temp.windir.006|                    durablement.
+::T|FR|cl.temp.windir.007|
+::T|FR|cl.temp.windir.008|  Effet reel      : Une seule ligne : del /S /F /Q sur le contenu du
+::T|FR|cl.temp.windir.009|                    dossier, de façon récursive. Deux points méritent
+::T|FR|cl.temp.windir.010|                    d'être connus sur ce que cela fait vraiment. Les
+::T|FR|cl.temp.windir.011|                    fichiers ouverts par un processus en cours ne peuvent
+::T|FR|cl.temp.windir.012|                    pas être supprimés et sont ignorés - rien n'est
+::T|FR|cl.temp.windir.013|                    déverrouillé de force - et comme cette ligne n'a
+::T|FR|cl.temp.windir.014|                    aucune redirection de sortie, vous verrez ces échecs
+::T|FR|cl.temp.windir.015|                    défiler dans la console au lieu d'être masqués. Par
+::T|FR|cl.temp.windir.016|                    ailleurs, del supprime des fichiers et non des
+::T|FR|cl.temp.windir.017|                    dossiers : l'arborescence des sous-dossiers subsiste,
+::T|FR|cl.temp.windir.018|                    et le dossier paraît encore rempli dans l'Explorateur
+::T|FR|cl.temp.windir.019|                    alors qu'il est vide de contenu.
+::T|FR|cl.temp.windir.020|
+::T|FR|cl.temp.windir.021|  Gain            : De la place disque, typiquement de quelques dizaines à
+::T|FR|cl.temp.windir.022|                    quelques centaines de Mo. Aucun gain de vitesse : un
+::T|FR|cl.temp.windir.023|                    dossier temp plein ne ralentit pas Windows, il occupe
+::T|FR|cl.temp.windir.024|                    juste le disque. Si vous espérez sentir une différence
+::T|FR|cl.temp.windir.025|                    grâce à cette ligne, il n'y en aura pas.
+::T|FR|cl.temp.windir.026|
+::T|FR|cl.temp.windir.027|  Cout            : Pratiquement rien sur une machine au repos. Si un
+::T|FR|cl.temp.windir.028|                    service ou un installateur est en pleine opération,
+::T|FR|cl.temp.windir.029|                    ses fichiers de travail sont verrouillés et survivent
+::T|FR|cl.temp.windir.030|                    : rien n'est cassé non plus, et le pire cas réaliste
+::T|FR|cl.temp.windir.031|                    est un installateur à relancer. Ce dossier ne contient
+::T|FR|cl.temp.windir.032|                    ni données personnelles, ni réglages, ni historique.
+::T|FR|cl.temp.windir.033|
+::T|FR|cl.temp.windir.034|  Defaut Windows  : Sans objet. C'est un dossier de travail sans contenu
+::T|FR|cl.temp.windir.035|                    d'origine ; Windows ne le vide lui-même que lorsque le
+::T|FR|cl.temp.windir.036|                    gestionnaire de nettoyage Fichiers temporaires
+::T|FR|cl.temp.windir.037|                    s'exécute.
+::T|FR|cl.temp.windir.038|
+::T|FR|cl.temp.windir.039|  Valeurs possibles :
+::T|FR|cl.temp.windir.040|    DELETE               : Vider le contenu de C:\Windows\Temp. Les
+::T|FR|cl.temp.windir.041|                           fichiers actuellement ouverts par un service ou
+::T|FR|cl.temp.windir.042|                           un installateur ne peuvent pas être supprimés
+::T|FR|cl.temp.windir.043|                           et sont ignorés : une machine occupée conserve
+::T|FR|cl.temp.windir.044|                           donc simplement ces quelques fichiers.
+::T|FR|cl.temp.windir.045|    KEEP                 : Ne pas y toucher. Rien de fâcheux ne se produit
+::T|FR|cl.temp.windir.046|                           ; le dossier continue de grossir lentement et
+::T|FR|cl.temp.windir.047|                           Windows ne l'allège que lorsque l'Assistant de
+::T|FR|cl.temp.windir.048|                           stockage ou le Nettoyage de disque exécute le
+::T|FR|cl.temp.windir.049|                           gestionnaire Fichiers temporaires.
+::T|FR|cl.temp.windir.050|    ASK                  : Non utilisé, et rien ne le justifierait
+::T|FR|cl.temp.windir.051|                           honnêtement. Il n'y a ici ni données
+::T|FR|cl.temp.windir.052|                           personnelles ni configuration, et le pire d'une
+::T|FR|cl.temp.windir.053|                           exécution mal placée est un installateur à
+::T|FR|cl.temp.windir.054|                           relancer.
+::X|FR|cl.temp.windir.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.temp.windir.002|                         identiques et il n'y a aucune distinction à
+::X|FR|cl.temp.windir.003|                         inventer : quelques centaines de Mo de fichiers
+::X|FR|cl.temp.windir.004|                         de travail SYSTEM pèsent pareil sur n'importe
+::X|FR|cl.temp.windir.005|                         quelle machine, et ni la latence, ni le débit, ni
+::X|FR|cl.temp.windir.006|                         l'autonomie n'entrent en jeu. WINDOWS est à KEEP
+::X|FR|cl.temp.windir.007|                         parce que le comportement d'origine consiste à
+::X|FR|cl.temp.windir.008|                         laisser le dossier s'accumuler jusqu'au passage
+::X|FR|cl.temp.windir.009|                         d'un gestionnaire de nettoyage, ce qui est une
+::X|FR|cl.temp.windir.010|                         vraie différence et non du remplissage.
+::X|FR|cl.temp.windir.011|
+::X|FR|cl.temp.windir.012|  Cible           : %WINDIR%\Temp\* - a single del /S /F /Q at OPTY.bat
+::X|FR|cl.temp.windir.013|                    line 921, inside the :delete block.
+::T|EN|cl.temp.windir.001|SYSTEM TEMP FOLDER
+::T|EN|cl.temp.windir.002|
+::T|EN|cl.temp.windir.003|  What it is      : %WINDIR%\Temp is the scratch folder that Windows
+::T|EN|cl.temp.windir.004|                    services and installers running as SYSTEM write into.
+::T|EN|cl.temp.windir.005|                    Nothing that matters is stored here permanently.
+::T|EN|cl.temp.windir.006|
+::T|EN|cl.temp.windir.007|  Actual effect   : One line: del /S /F /Q on the folder contents,
+::T|EN|cl.temp.windir.008|                    recursively. Two things are worth knowing about what
+::T|EN|cl.temp.windir.009|                    that actually does. Files currently held open by a
+::T|EN|cl.temp.windir.010|                    running process fail to delete and are skipped -
+::T|EN|cl.temp.windir.011|                    nothing is force-unlocked - and because this line has
+::T|EN|cl.temp.windir.012|                    no output redirection you will see those failures
+::T|EN|cl.temp.windir.013|                    scroll past the console rather than being hidden. And
+::T|EN|cl.temp.windir.014|                    del deletes files, not folders, so the subdirectory
+::T|EN|cl.temp.windir.015|                    tree survives and the folder still looks populated in
+::T|EN|cl.temp.windir.016|                    Explorer afterwards even though it is empty of
+::T|EN|cl.temp.windir.017|                    content.
+::T|EN|cl.temp.windir.018|
+::T|EN|cl.temp.windir.019|  Gain            : Disk space, typically tens to a few hundred MB. No
+::T|EN|cl.temp.windir.020|                    speed benefit at all: a full temp folder does not slow
+::T|EN|cl.temp.windir.021|                    Windows down, it simply occupies the disk. If you are
+::T|EN|cl.temp.windir.022|                    hoping to feel a difference from this line, you will
+::T|EN|cl.temp.windir.023|                    not.
+::T|EN|cl.temp.windir.024|
+::T|EN|cl.temp.windir.025|  Cost            : Effectively nothing on an idle machine. If a service
+::T|EN|cl.temp.windir.026|                    or an installer is mid-operation right now, its
+::T|EN|cl.temp.windir.027|                    scratch files are locked and survive, so it is not
+::T|EN|cl.temp.windir.028|                    broken either - the realistic worst case is an
+::T|EN|cl.temp.windir.029|                    installer that has to be run again. No user data, no
+::T|EN|cl.temp.windir.030|                    settings, no history is in that folder.
+::T|EN|cl.temp.windir.031|
+::T|EN|cl.temp.windir.032|  Windows default : Not applicable. It is a scratch folder with no shipped
+::T|EN|cl.temp.windir.033|                    content; Windows itself only empties it when the
+::T|EN|cl.temp.windir.034|                    Temporary Files cleanup handler runs.
+::T|EN|cl.temp.windir.035|
+::T|EN|cl.temp.windir.036|  Possible values:
+::T|EN|cl.temp.windir.037|    DELETE               : Empty the contents of C:\Windows\Temp. Files a
+::T|EN|cl.temp.windir.038|                           running service or installer currently holds
+::T|EN|cl.temp.windir.039|                           open fail to delete and are skipped, so a busy
+::T|EN|cl.temp.windir.040|                           machine simply keeps those few files.
+::T|EN|cl.temp.windir.041|    KEEP                 : Leave it. Nothing bad happens; the folder keeps
+::T|EN|cl.temp.windir.042|                           growing slowly and Windows only trims it when
+::T|EN|cl.temp.windir.043|                           Storage Sense or Disk Cleanup runs the
+::T|EN|cl.temp.windir.044|                           Temporary Files handler.
+::T|EN|cl.temp.windir.045|    ASK                  : Not used, and there is no honest case for it.
+::T|EN|cl.temp.windir.046|                           Nothing here is user data, nothing is
+::T|EN|cl.temp.windir.047|                           configuration, and the worst outcome of a badly
+::T|EN|cl.temp.windir.048|                           timed run is an installer that has to be
+::T|EN|cl.temp.windir.049|                           started again.
+::X|EN|cl.temp.windir.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.temp.windir.002|                       and there is no distinction to invent: a few
+::X|EN|cl.temp.windir.003|                       hundred MB of SYSTEM scratch weighs the same on
+::X|EN|cl.temp.windir.004|                       every kind of machine, and nothing about latency,
+::X|EN|cl.temp.windir.005|                       throughput or battery is involved. WINDOWS is KEEP
+::X|EN|cl.temp.windir.006|                       because the shipped behaviour is to let the folder
+::X|EN|cl.temp.windir.007|                       accumulate until a cleanup handler runs, which is a
+::X|EN|cl.temp.windir.008|                       real difference rather than filler.
+::X|EN|cl.temp.windir.009|
+::X|EN|cl.temp.windir.010|  Target          : %WINDIR%\Temp\* - a single del /S /F /Q at OPTY.bat
+::X|EN|cl.temp.windir.011|                    line 921, inside the :delete block.
+::
+:: ---- cl.temp.userall (cleanup) -----------------------------------
+::P|cl.temp.userall|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.temp.userall.001|DOSSIER TEMP DE TOUS LES COMPTES UTILISATEUR
+::T|FR|cl.temp.userall.002|
+::T|FR|cl.temp.userall.003|  Ce que c est    : Chaque compte Windows possède son propre
+::T|FR|cl.temp.userall.004|                    %LOCALAPPDATA%\Temp. Cette étape vide ce dossier pour
+::T|FR|cl.temp.userall.005|                    chaque dossier de profil sous C:\Users, et pas
+::T|FR|cl.temp.userall.006|                    seulement pour le compte qui lance OPTY.
+::T|FR|cl.temp.userall.007|
+::T|FR|cl.temp.userall.008|  Effet reel      : Une boucle for /D sur C:\Users\* qui lance del /S /F
+::T|FR|cl.temp.userall.009|                    /Q sur le AppData\Local\Temp de chaque profil. Elle
+::T|FR|cl.temp.userall.010|                    parcourt tous les dossiers présents, y compris Public
+::T|FR|cl.temp.userall.011|                    et Default, qui n'ont simplement rien à faire
+::T|FR|cl.temp.userall.012|                    correspondre. Les fichiers verrouillés sont ignorés et
+::T|FR|cl.temp.userall.013|                    non déverrouillés de force, et comme pour le temp
+::T|FR|cl.temp.userall.014|                    système il n'y a aucune redirection de sortie : les
+::T|FR|cl.temp.userall.015|                    échecs s'affichent dans la console. Les fichiers sont
+::T|FR|cl.temp.userall.016|                    supprimés, pas les dossiers, donc l'arborescence vide
+::T|FR|cl.temp.userall.017|                    subsiste. Aucune autre partie des profils n'est
+::T|FR|cl.temp.userall.018|                    touchée : ni Documents, ni le bureau, ni AppData en
+::T|FR|cl.temp.userall.019|                    dehors de Temp.
+::T|FR|cl.temp.userall.020|
+::T|FR|cl.temp.userall.021|  Gain            : Souvent le plus gros gain parmi les dossiers
+::T|FR|cl.temp.userall.022|                    temporaires, parce que les navigateurs, Office et les
+::T|FR|cl.temp.userall.023|                    launchers de jeux déversent tous là-dedans sans que
+::T|FR|cl.temp.userall.024|                    personne n'y regarde. Comptez de quelques centaines de
+::T|FR|cl.temp.userall.025|                    Mo à deux Go sur un compte principal très utilisé, et
+::T|FR|cl.temp.userall.026|                    presque rien pour un profil qui ne se connecte
+::T|FR|cl.temp.userall.027|                    quasiment jamais. Sur un PC familial à quatre comptes,
+::T|FR|cl.temp.userall.028|                    cela finit par faire plusieurs Go. Aucun gain de
+::T|FR|cl.temp.userall.029|                    vitesse.
+::T|FR|cl.temp.userall.030|
+::T|FR|cl.temp.userall.031|  Cout            : Certains installateurs décompressent leur contenu dans
+::T|FR|cl.temp.userall.032|                    %TEMP% et le relisent en cours d'installation : lancer
+::T|FR|cl.temp.userall.033|                    ceci pendant un setup peut réellement casser cette
+::T|FR|cl.temp.userall.034|                    installation, et le remède est de relancer
+::T|FR|cl.temp.userall.035|                    l'installateur, ce qui est agaçant plutôt que grave.
+::T|FR|cl.temp.userall.036|                    L'étape va aussi dans les profils des autres, bon à
+::T|FR|cl.temp.userall.037|                    savoir sur une machine partagée : vous supprimez dans
+::T|FR|cl.temp.userall.038|                    des comptes qui ne sont pas les vôtres, et si l'un de
+::T|FR|cl.temp.userall.039|                    ces utilisateurs est connecté avec du travail en
+::T|FR|cl.temp.userall.040|                    cours, les fichiers de travail de ses applications
+::T|FR|cl.temp.userall.041|                    sont également concernés. Tout ce qui est en cours
+::T|FR|cl.temp.userall.042|                    d'utilisation survit, et ni données personnelles, ni
+::T|FR|cl.temp.userall.043|                    réglages, ni identifiants enregistrés ne sont
+::T|FR|cl.temp.userall.044|                    concernés.
+::T|FR|cl.temp.userall.045|
+::T|FR|cl.temp.userall.046|  Defaut Windows  : Sans objet. C'est un dossier de travail propre à
+::T|FR|cl.temp.userall.047|                    chaque compte, et Windows ne le vide que lorsque le
+::T|FR|cl.temp.userall.048|                    gestionnaire de nettoyage Fichiers temporaires
+::T|FR|cl.temp.userall.049|                    s'exécute.
+::T|FR|cl.temp.userall.050|
+::T|FR|cl.temp.userall.051|  Valeurs possibles :
+::T|FR|cl.temp.userall.052|    DELETE               : Vider %LOCALAPPDATA%\Temp pour chaque dossier
+::T|FR|cl.temp.userall.053|                           de profil sous C:\Users, et pas seulement pour
+::T|FR|cl.temp.userall.054|                           le compte qui lance OPTY. Les fichiers
+::T|FR|cl.temp.userall.055|                           verrouillés sont ignorés. À faire applications
+::T|FR|cl.temp.userall.056|                           fermées et sans installation en cours.
+::T|FR|cl.temp.userall.057|    KEEP                 : Laisser le dossier Temp de chaque utilisateur
+::T|FR|cl.temp.userall.058|                           tranquille. C'est celui qui grossit le plus
+::T|FR|cl.temp.userall.059|                           vite et que personne n'ouvre jamais : le coût
+::T|FR|cl.temp.userall.060|                           de le conserver se mesure en Go, pas en risque.
+::T|FR|cl.temp.userall.061|    ASK                  : Non utilisé, même si un cas s'en approche : une
+::T|FR|cl.temp.userall.062|                           machine professionnelle où vous n'êtes pas
+::T|FR|cl.temp.userall.063|                           propriétaire des autres profils. Cela relève de
+::T|FR|cl.temp.userall.064|                           la propriété du PC et non de son usage, d'où
+::T|FR|cl.temp.userall.065|                           une mention dans le coût plutôt qu'une colonne.
+::X|FR|cl.temp.userall.001|  Pourquoi ces profils : Quatre DELETE et un KEEP. Les quatre sont
+::X|FR|cl.temp.userall.002|                         identiques parce que la taille et le risque sont
+::X|FR|cl.temp.userall.003|                         les mêmes quel que soit l'usage quotidien de la
+::X|FR|cl.temp.userall.004|                         machine : la seule vraie variable est de savoir
+::X|FR|cl.temp.userall.005|                         si les autres profils vous appartiennent, et cela
+::X|FR|cl.temp.userall.006|                         relève du foyer ou du bureau, pas de l'échelle
+::X|FR|cl.temp.userall.007|                         des profils. WINDOWS est à KEEP parce que laisser
+::X|FR|cl.temp.userall.008|                         faire le gestionnaire Fichiers temporaires est le
+::X|FR|cl.temp.userall.009|                         comportement d'origine.
+::X|FR|cl.temp.userall.010|
+::X|FR|cl.temp.userall.011|  Problemes connus : C:\Users est écrit en dur au lieu d'être déduit de
+::X|FR|cl.temp.userall.012|                     %SystemDrive% ou de la valeur ProfilesDirectory : une
+::X|FR|cl.temp.userall.013|                     machine dont les profils sont ailleurs est
+::X|FR|cl.temp.userall.014|                     silencieusement ignorée, et l'étape annonce sa
+::X|FR|cl.temp.userall.015|                     réussite sans avoir rien fait.
+::X|FR|cl.temp.userall.016|
+::X|FR|cl.temp.userall.017|  Cible           : C:\Users\<every profile folder>\AppData\Local\Temp\* -
+::X|FR|cl.temp.userall.018|                    a for /D loop over C:\Users\* running del /S /F /Q on
+::X|FR|cl.temp.userall.019|                    each, OPTY.bat lines 925 to 928.
+::T|EN|cl.temp.userall.001|TEMP FOLDER OF EVERY USER ACCOUNT
+::T|EN|cl.temp.userall.002|
+::T|EN|cl.temp.userall.003|  What it is      : Each Windows account has its own %LOCALAPPDATA%\Temp.
+::T|EN|cl.temp.userall.004|                    This step empties that folder for every profile folder
+::T|EN|cl.temp.userall.005|                    under C:\Users, not only for the account running OPTY.
+::T|EN|cl.temp.userall.006|
+::T|EN|cl.temp.userall.007|  Actual effect   : A for /D loop over C:\Users\* running del /S /F /Q on
+::T|EN|cl.temp.userall.008|                    each profile's AppData\Local\Temp. It walks whatever
+::T|EN|cl.temp.userall.009|                    folders are there, including Public and Default, which
+::T|EN|cl.temp.userall.010|                    simply have nothing to match. Locked files are skipped
+::T|EN|cl.temp.userall.011|                    rather than force-unlocked, and as with the system
+::T|EN|cl.temp.userall.012|                    temp line there is no output redirection, so failures
+::T|EN|cl.temp.userall.013|                    print to the console. Files are deleted, folders are
+::T|EN|cl.temp.userall.014|                    not, so the empty subdirectory tree remains. No other
+::T|EN|cl.temp.userall.015|                    part of any profile is touched - not Documents, not
+::T|EN|cl.temp.userall.016|                    the desktop, not AppData outside Temp.
+::T|EN|cl.temp.userall.017|
+::T|EN|cl.temp.userall.018|  Gain            : Usually the largest of the temp wins, because
+::T|EN|cl.temp.userall.019|                    browsers, Office and game launchers all dump here and
+::T|EN|cl.temp.userall.020|                    nobody ever looks. Expect a few hundred MB to a couple
+::T|EN|cl.temp.userall.021|                    of GB on a heavily used main account, and close to
+::T|EN|cl.temp.userall.022|                    nothing for a profile that barely logs in. On a family
+::T|EN|cl.temp.userall.023|                    PC with four accounts it adds up to several GB. No
+::T|EN|cl.temp.userall.024|                    speed benefit.
+::T|EN|cl.temp.userall.025|
+::T|EN|cl.temp.userall.026|  Cost            : Some installers unpack their payload into %TEMP% and
+::T|EN|cl.temp.userall.027|                    read it back mid-install, so running this while a
+::T|EN|cl.temp.userall.028|                    setup is in progress can genuinely break that
+::T|EN|cl.temp.userall.029|                    installation - and the fix is to run the installer
+::T|EN|cl.temp.userall.030|                    again, which is annoying rather than serious. It also
+::T|EN|cl.temp.userall.031|                    reaches into other people's profiles, which is worth
+::T|EN|cl.temp.userall.032|                    knowing on a shared machine: you are deleting from
+::T|EN|cl.temp.userall.033|                    accounts that are not yours, and if one of those users
+::T|EN|cl.temp.userall.034|                    is logged in with work in progress, their
+::T|EN|cl.temp.userall.035|                    application's scratch files are in range too. Anything
+::T|EN|cl.temp.userall.036|                    currently in use survives, and no user data, settings
+::T|EN|cl.temp.userall.037|                    or saved logins are involved.
+::T|EN|cl.temp.userall.038|
+::T|EN|cl.temp.userall.039|  Windows default : Not applicable. It is a scratch folder per account,
+::T|EN|cl.temp.userall.040|                    and Windows only clears it when the Temporary Files
+::T|EN|cl.temp.userall.041|                    cleanup handler runs.
+::T|EN|cl.temp.userall.042|
+::T|EN|cl.temp.userall.043|  Possible values:
+::T|EN|cl.temp.userall.044|    DELETE               : Empty %LOCALAPPDATA%\Temp for every profile
+::T|EN|cl.temp.userall.045|                           folder under C:\Users, not only the account
+::T|EN|cl.temp.userall.046|                           running OPTY. Locked files are skipped. Do it
+::T|EN|cl.temp.userall.047|                           with your applications closed and no
+::T|EN|cl.temp.userall.048|                           installation in progress.
+::T|EN|cl.temp.userall.049|    KEEP                 : Leave every user's Temp folder alone. It is the
+::T|EN|cl.temp.userall.050|                           folder that grows fastest and that nobody ever
+::T|EN|cl.temp.userall.051|                           opens, so the cost of keeping it is measured in
+::T|EN|cl.temp.userall.052|                           GB rather than in risk.
+::T|EN|cl.temp.userall.053|    ASK                  : Not used, though there is one situation that
+::T|EN|cl.temp.userall.054|                           comes close: a work machine where you are not
+::T|EN|cl.temp.userall.055|                           the owner of the other profiles. That is about
+::T|EN|cl.temp.userall.056|                           who owns the PC rather than what it is for, so
+::T|EN|cl.temp.userall.057|                           it is stated in the cost instead of being
+::T|EN|cl.temp.userall.058|                           turned into a column.
+::X|EN|cl.temp.userall.001|  Why these profiles : Four DELETE and one KEEP. The four are identical
+::X|EN|cl.temp.userall.002|                       because the size and the risk are the same
+::X|EN|cl.temp.userall.003|                       regardless of what the machine does all day - the
+::X|EN|cl.temp.userall.004|                       one genuine variable is whether you own the other
+::X|EN|cl.temp.userall.005|                       profiles, and that is a property of the household
+::X|EN|cl.temp.userall.006|                       or office, not of the profile scale. WINDOWS is
+::X|EN|cl.temp.userall.007|                       KEEP because leaving it to the Temporary Files
+::X|EN|cl.temp.userall.008|                       handler is the shipped behaviour.
+::X|EN|cl.temp.userall.009|
+::X|EN|cl.temp.userall.010|  Known problems  : C:\Users is hardcoded rather than derived from
+::X|EN|cl.temp.userall.011|                    %SystemDrive% or the ProfilesDirectory value, so a
+::X|EN|cl.temp.userall.012|                    machine whose profiles live elsewhere is silently
+::X|EN|cl.temp.userall.013|                    skipped and the step reports success having done
+::X|EN|cl.temp.userall.014|                    nothing.
+::X|EN|cl.temp.userall.015|
+::X|EN|cl.temp.userall.016|  Target          : C:\Users\<every profile folder>\AppData\Local\Temp\* -
+::X|EN|cl.temp.userall.017|                    a for /D loop over C:\Users\* running del /S /F /Q on
+::X|EN|cl.temp.userall.018|                    each, OPTY.bat lines 925 to 928.
+::
+:: ---- cl.gpu.shadercache (cleanup) --------------------------------
+::P|cl.gpu.shadercache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.gpu.shadercache.001|CACHES DE SHADERS GPU (AMD, NVIDIA, INTEL, DIRECTX)
+::T|FR|cl.gpu.shadercache.002|
+::T|FR|cl.gpu.shadercache.003|  Ce que c est    : Quand un jeu ou une application compile un shader, le
+::T|FR|cl.gpu.shadercache.004|                    pilote garde le résultat compilé pour ne pas refaire
+::T|FR|cl.gpu.shadercache.005|                    le travail. Ces résultats vivent dans les dossiers
+::T|FR|cl.gpu.shadercache.006|                    constructeurs de votre profil - DxCache et VkCache
+::T|FR|cl.gpu.shadercache.007|                    chez AMD, DXCache chez NVIDIA, ShaderCache chez Intel
+::T|FR|cl.gpu.shadercache.008|                    - plus les deux dossiers gérés par Windows, D3DSCache
+::T|FR|cl.gpu.shadercache.009|                    et DirectX Shader Cache. L'étape les vide sans jamais
+::T|FR|cl.gpu.shadercache.010|                    supprimer les dossiers eux-mêmes : certaines versions
+::T|FR|cl.gpu.shadercache.011|                    du pilote AMD ne recréent pas un dossier absent, et on
+::T|FR|cl.gpu.shadercache.012|                    récolte un stuttering permanent au lieu d'une simple
+::T|FR|cl.gpu.shadercache.013|                    recompilation.
+::T|FR|cl.gpu.shadercache.014|
+::T|FR|cl.gpu.shadercache.015|  Effet reel      : Supprime les fichiers contenus dans ces dossiers,
+::T|FR|cl.gpu.shadercache.016|                    uniquement pour le compte qui exécute OPTY - les
+::T|FR|cl.gpu.shadercache.017|                    autres comptes Windows gardent les leurs. Les sous-
+::T|FR|cl.gpu.shadercache.018|                    dossiers vides restent en place, del /S ne supprimant
+::T|FR|cl.gpu.shadercache.019|                    que des fichiers. Sur une machine au repos, la
+::T|FR|cl.gpu.shadercache.020|                    suppression aboutit vraiment : plus rien ne tient ces
+::T|FR|cl.gpu.shadercache.021|                    fichiers ouverts une fois l'application 3D fermée. Si
+::T|FR|cl.gpu.shadercache.022|                    un jeu, le panneau Radeon ou un navigateur en
+::T|FR|cl.gpu.shadercache.023|                    accélération GPU tourne pendant le passage d'OPTY, ses
+::T|FR|cl.gpu.shadercache.024|                    fichiers de cache sont ouverts et ces suppressions-là
+::T|FR|cl.gpu.shadercache.025|                    échouent en silence - aucun garde-fou, aucun message.
+::T|FR|cl.gpu.shadercache.026|                    Fermez vos applications 3D si vous voulez que tout
+::T|FR|cl.gpu.shadercache.027|                    parte.
+::T|FR|cl.gpu.shadercache.028|
+::T|FR|cl.gpu.shadercache.029|  Gain            : Deux choses, et une seule est de la place. La place :
+::T|FR|cl.gpu.shadercache.030|                    couramment 100 à 800 Mo sur une installation normale,
+::T|FR|cl.gpu.shadercache.031|                    plusieurs Go sur une machine à grosse ludothèque, le
+::T|FR|cl.gpu.shadercache.032|                    DXCache de NVIDIA pouvant à lui seul atteindre
+::T|FR|cl.gpu.shadercache.033|                    plusieurs gigaoctets. Sur un PC bureautique qui ne
+::T|FR|cl.gpu.shadercache.034|                    rend rien, quelques dizaines de Mo tout au plus. Le
+::T|FR|cl.gpu.shadercache.035|                    remède : un cache de shaders corrompu est une cause
+::T|FR|cl.gpu.shadercache.036|                    classique d'artefacts, de saccades et de jeux qui
+::T|FR|cl.gpu.shadercache.037|                    refusent de démarrer, et le vider est le correctif
+::T|FR|cl.gpu.shadercache.038|                    publié par les fabricants eux-mêmes. Sur une machine
+::T|FR|cl.gpu.shadercache.039|                    saine, il n'y a aucun gain de vitesse : un cache
+::T|FR|cl.gpu.shadercache.040|                    fraîchement vidé est strictement plus lent tant qu'il
+::T|FR|cl.gpu.shadercache.041|                    ne s'est pas rempli.
+::T|FR|cl.gpu.shadercache.042|
+::T|FR|cl.gpu.shadercache.043|  Cout            : Le premier lancement de chaque jeu recompile ses
+::T|FR|cl.gpu.shadercache.044|                    shaders : quelques secondes pour un petit titre,
+::T|FR|cl.gpu.shadercache.045|                    jusqu'à deux minutes pour un gros, avec des saccades
+::T|FR|cl.gpu.shadercache.046|                    visibles pendant ce temps. Le panneau Radeon
+::T|FR|cl.gpu.shadercache.047|                    reconstruit son cache d'interface à la première
+::T|FR|cl.gpu.shadercache.048|                    ouverture. Rien de ce que vous avez créé n'est touché
+::T|FR|cl.gpu.shadercache.049|                    et rien n'a besoin d'être téléchargé : on reste
+::T|FR|cl.gpu.shadercache.050|                    largement sous la règle des trente minutes de
+::T|FR|cl.gpu.shadercache.051|                    régénération. Non touchés : fichiers de jeu,
+::T|FR|cl.gpu.shadercache.052|                    sauvegardes, réglages et profils.
+::T|FR|cl.gpu.shadercache.053|
+::T|FR|cl.gpu.shadercache.054|  Defaut Windows  : À moitié applicable. D3DSCache et DirectX Shader Cache
+::T|FR|cl.gpu.shadercache.055|                    sont gérés par Windows et le Nettoyage de disque
+::T|FR|cl.gpu.shadercache.056|                    possède un gestionnaire pour eux. Les dossiers
+::T|FR|cl.gpu.shadercache.057|                    constructeurs sont écrits par le pilote, et rien dans
+::T|FR|cl.gpu.shadercache.058|                    Windows ne les vide jamais.
+::T|FR|cl.gpu.shadercache.059|
+::T|FR|cl.gpu.shadercache.060|  Valeurs possibles :
+::T|FR|cl.gpu.shadercache.061|    DELETE               : Vider maintenant les dossiers de cache de
+::T|FR|cl.gpu.shadercache.062|                           shaders et laisser chaque jeu recompiler ses
+::T|FR|cl.gpu.shadercache.063|                           shaders au prochain lancement.
+::T|FR|cl.gpu.shadercache.064|    KEEP                 : Laisser les shaders compilés en place. Les
+::T|FR|cl.gpu.shadercache.065|                           premiers lancements restent rapides, et un
+::T|FR|cl.gpu.shadercache.066|                           cache devenu corrompu le reste.
+::T|FR|cl.gpu.shadercache.067|    ASK                  : S'arrêter et demander. N'a de sens que si vous
+::T|FR|cl.gpu.shadercache.068|                           êtes sur le point de jouer ou de faire un
+::T|FR|cl.gpu.shadercache.069|                           benchmark et ne voulez pas payer la
+::T|FR|cl.gpu.shadercache.070|                           recompilation à cet instant.
+::X|FR|cl.gpu.shadercache.001|  Pourquoi ces profils : Quatre colonnes identiques, parce que le
+::X|FR|cl.gpu.shadercache.002|                         mécanisme se moque de l'usage de la machine.
+::X|FR|cl.gpu.shadercache.003|                         GAMING gagne le correctif anti-corruption et paie
+::X|FR|cl.gpu.shadercache.004|                         la recompilation : à faire après une mise à jour
+::X|FR|cl.gpu.shadercache.005|                         de pilote, pas un quart d'heure avant une
+::X|FR|cl.gpu.shadercache.006|                         session. SERVEUR et BUREAU n'ont quasiment rien
+::X|FR|cl.gpu.shadercache.007|                         dans ces dossiers, l'étape y est presque sans
+::X|FR|cl.gpu.shadercache.008|                         effet. PORTABLE paie une seule fois une
+::X|FR|cl.gpu.shadercache.009|                         recompilation de CPU et de GPU sur batterie.
+::X|FR|cl.gpu.shadercache.010|                         WINDOWS veut dire ne touchez à rien : Windows ne
+::X|FR|cl.gpu.shadercache.011|                         vide jamais ces dossiers tout seul, donc ne rien
+::X|FR|cl.gpu.shadercache.012|                         faire est une position parfaitement défendable.
+::X|FR|cl.gpu.shadercache.013|
+::X|FR|cl.gpu.shadercache.014|  Non verifie (en)  : No byte count was measured on this machine for this
+::X|FR|cl.gpu.shadercache.015|                      step, so the sizes quoted are ranges from typical
+::X|FR|cl.gpu.shadercache.016|                      installs, not a measurement. How often a shader
+::X|FR|cl.gpu.shadercache.017|                      cache actually goes bad is anecdotal - it is a well-
+::X|FR|cl.gpu.shadercache.018|                      known failure mode and the vendors' own first fix,
+::X|FR|cl.gpu.shadercache.019|                      but most machines never need it. The AMD claim that
+::X|FR|cl.gpu.shadercache.020|                      a missing DxCache folder is not recreated by some
+::X|FR|cl.gpu.shadercache.021|                      driver builds is the reason for the contents-only
+::X|FR|cl.gpu.shadercache.022|                      design; it was reported, not re-tested here.
+::X|FR|cl.gpu.shadercache.023|
+::X|FR|cl.gpu.shadercache.024|  Cible           : OPTY.bat lines 942-961. del /S /F /Q on the CONTENTS
+::X|FR|cl.gpu.shadercache.025|                    of %LOCALAPPDATA%\AMD\DxCache, DxcCache, DX9Cache,
+::X|FR|cl.gpu.shadercache.026|                    OglCache, VkCache, cl.cache, Radeonsoftware\cache,
+::X|FR|cl.gpu.shadercache.027|                    AMDRSSrcExt\cache;
+::X|FR|cl.gpu.shadercache.028|                    %USERPROFILE%\AppData\LocalLow\AMD\DxCache;
+::X|FR|cl.gpu.shadercache.029|                    %LOCALAPPDATA%\NVIDIA\GLCache, DXCache, ComputeCache,
+::X|FR|cl.gpu.shadercache.030|                    OptixCache; %ProgramData%\NVIDIA Corporation\NV_Cache;
+::X|FR|cl.gpu.shadercache.031|                    %LOCALAPPDATA%\Intel\ShaderCache;
+::X|FR|cl.gpu.shadercache.032|                    %LOCALAPPDATA%\D3DSCache;
+::X|FR|cl.gpu.shadercache.033|                    %LOCALAPPDATA%\Microsoft\DirectX Shader Cache. There
+::X|FR|cl.gpu.shadercache.034|                    is no rd anywhere in the block - the folders
+::X|FR|cl.gpu.shadercache.035|                    themselves always survive.
+::T|EN|cl.gpu.shadercache.001|GPU SHADER CACHES (AMD, NVIDIA, INTEL, DIRECTX)
+::T|EN|cl.gpu.shadercache.002|
+::T|EN|cl.gpu.shadercache.003|  What it is      : When a game or app compiles a shader, the driver
+::T|EN|cl.gpu.shadercache.004|                    stores the compiled result so it does not have to do
+::T|EN|cl.gpu.shadercache.005|                    the work again. Those results sit in the vendor
+::T|EN|cl.gpu.shadercache.006|                    folders under your profile - AMD DxCache and VkCache,
+::T|EN|cl.gpu.shadercache.007|                    NVIDIA DXCache, Intel ShaderCache - plus the two
+::T|EN|cl.gpu.shadercache.008|                    Windows-managed ones, D3DSCache and DirectX Shader
+::T|EN|cl.gpu.shadercache.009|                    Cache. The step empties them and never removes the
+::T|EN|cl.gpu.shadercache.010|                    folders, because some AMD driver builds do not
+::T|EN|cl.gpu.shadercache.011|                    recreate a missing folder and you get permanent
+::T|EN|cl.gpu.shadercache.012|                    stutter instead of a one-off recompile.
+::T|EN|cl.gpu.shadercache.013|
+::T|EN|cl.gpu.shadercache.014|  Actual effect   : Deletes the files inside those folders, for the
+::T|EN|cl.gpu.shadercache.015|                    account running OPTY only - other Windows accounts
+::T|EN|cl.gpu.shadercache.016|                    keep their own caches. Empty subfolders are left
+::T|EN|cl.gpu.shadercache.017|                    behind, since del /S removes files and not
+::T|EN|cl.gpu.shadercache.018|                    directories. The deletes do succeed on an idle
+::T|EN|cl.gpu.shadercache.019|                    machine: nothing holds these files open once the 3D
+::T|EN|cl.gpu.shadercache.020|                    app has exited. If a game, the Radeon panel or a GPU-
+::T|EN|cl.gpu.shadercache.021|                    accelerated browser is running while OPTY passes, its
+::T|EN|cl.gpu.shadercache.022|                    cache files are open and those particular deletes fail
+::T|EN|cl.gpu.shadercache.023|                    silently - there is no guard and no message, so close
+::T|EN|cl.gpu.shadercache.024|                    your 3D apps first if you want the whole thing gone.
+::T|EN|cl.gpu.shadercache.025|
+::T|EN|cl.gpu.shadercache.026|  Gain            : Two things, and only one of them is space. Space:
+::T|EN|cl.gpu.shadercache.027|                    commonly 100 to 800 MB on a normal install, and
+::T|EN|cl.gpu.shadercache.028|                    several GB on a machine with a large game library,
+::T|EN|cl.gpu.shadercache.029|                    since NVIDIA DXCache alone is allowed to grow into the
+::T|EN|cl.gpu.shadercache.030|                    gigabytes. On an office PC that never renders
+::T|EN|cl.gpu.shadercache.031|                    anything, tens of MB at most. Fix: a corrupted shader
+::T|EN|cl.gpu.shadercache.032|                    cache is a classic cause of artifacts, stutter and
+::T|EN|cl.gpu.shadercache.033|                    games that refuse to start, and clearing it is the fix
+::T|EN|cl.gpu.shadercache.034|                    the vendors themselves publish. On a healthy machine
+::T|EN|cl.gpu.shadercache.035|                    there is no speed gain of any kind - a freshly emptied
+::T|EN|cl.gpu.shadercache.036|                    cache is strictly slower until it refills.
+::T|EN|cl.gpu.shadercache.037|
+::T|EN|cl.gpu.shadercache.038|  Cost            : The first launch of each game after this recompiles
+::T|EN|cl.gpu.shadercache.039|                    its shaders: seconds for a small title, up to a couple
+::T|EN|cl.gpu.shadercache.040|                    of minutes for a big one, with visible stutter while
+::T|EN|cl.gpu.shadercache.041|                    it happens. The Radeon panel rebuilds its own UI cache
+::T|EN|cl.gpu.shadercache.042|                    the first time you open it. Nothing you created is
+::T|EN|cl.gpu.shadercache.043|                    touched and nothing has to be downloaded, so this is
+::T|EN|cl.gpu.shadercache.044|                    well inside the thirty-minute regeneration rule. Not
+::T|EN|cl.gpu.shadercache.045|                    touched: game files, save games, settings and
+::T|EN|cl.gpu.shadercache.046|                    profiles.
+::T|EN|cl.gpu.shadercache.047|
+::T|EN|cl.gpu.shadercache.048|  Windows default : Half applies. D3DSCache and DirectX Shader Cache are
+::T|EN|cl.gpu.shadercache.049|                    Windows-managed and Disk Cleanup has a handler for
+::T|EN|cl.gpu.shadercache.050|                    them. The vendor folders are written by the driver,
+::T|EN|cl.gpu.shadercache.051|                    and nothing in Windows ever empties them.
+::T|EN|cl.gpu.shadercache.052|
+::T|EN|cl.gpu.shadercache.053|  Possible values:
+::T|EN|cl.gpu.shadercache.054|    DELETE               : Empty the shader cache folders now and let
+::T|EN|cl.gpu.shadercache.055|                           every game recompile its shaders on its next
+::T|EN|cl.gpu.shadercache.056|                           launch.
+::T|EN|cl.gpu.shadercache.057|    KEEP                 : Leave the compiled shaders in place. First
+::T|EN|cl.gpu.shadercache.058|                           launches stay fast, and a cache that has gone
+::T|EN|cl.gpu.shadercache.059|                           bad stays bad.
+::T|EN|cl.gpu.shadercache.060|    ASK                  : Stop and ask. Sensible only when you are about
+::T|EN|cl.gpu.shadercache.061|                           to play or benchmark and do not want to pay a
+::T|EN|cl.gpu.shadercache.062|                           recompile at that moment.
+::X|EN|cl.gpu.shadercache.001|  Why these profiles : Four identical columns, because the mechanism does
+::X|EN|cl.gpu.shadercache.002|                       not care what the machine is for. GAMING gains the
+::X|EN|cl.gpu.shadercache.003|                       corruption fix and pays the recompile, so run it
+::X|EN|cl.gpu.shadercache.004|                       after a driver update and not fifteen minutes
+::X|EN|cl.gpu.shadercache.005|                       before a session. SERVER and OFFICE rarely have
+::X|EN|cl.gpu.shadercache.006|                       anything in these folders, so the step is nearly a
+::X|EN|cl.gpu.shadercache.007|                       no-op there. LAPTOP pays one recompile of CPU and
+::X|EN|cl.gpu.shadercache.008|                       GPU time on battery, once. WINDOWS means leave it
+::X|EN|cl.gpu.shadercache.009|                       alone: Windows never empties these by itself, so
+::X|EN|cl.gpu.shadercache.010|                       doing nothing is a real, defensible position.
+::X|EN|cl.gpu.shadercache.011|
+::X|EN|cl.gpu.shadercache.012|  Unverified      : No byte count was measured on this machine for this
+::X|EN|cl.gpu.shadercache.013|                    step, so the sizes quoted are ranges from typical
+::X|EN|cl.gpu.shadercache.014|                    installs, not a measurement. How often a shader cache
+::X|EN|cl.gpu.shadercache.015|                    actually goes bad is anecdotal - it is a well-known
+::X|EN|cl.gpu.shadercache.016|                    failure mode and the vendors' own first fix, but most
+::X|EN|cl.gpu.shadercache.017|                    machines never need it. The AMD claim that a missing
+::X|EN|cl.gpu.shadercache.018|                    DxCache folder is not recreated by some driver builds
+::X|EN|cl.gpu.shadercache.019|                    is the reason for the contents-only design; it was
+::X|EN|cl.gpu.shadercache.020|                    reported, not re-tested here.
+::X|EN|cl.gpu.shadercache.021|
+::X|EN|cl.gpu.shadercache.022|  Target          : OPTY.bat lines 942-961. del /S /F /Q on the CONTENTS
+::X|EN|cl.gpu.shadercache.023|                    of %LOCALAPPDATA%\AMD\DxCache, DxcCache, DX9Cache,
+::X|EN|cl.gpu.shadercache.024|                    OglCache, VkCache, cl.cache, Radeonsoftware\cache,
+::X|EN|cl.gpu.shadercache.025|                    AMDRSSrcExt\cache;
+::X|EN|cl.gpu.shadercache.026|                    %USERPROFILE%\AppData\LocalLow\AMD\DxCache;
+::X|EN|cl.gpu.shadercache.027|                    %LOCALAPPDATA%\NVIDIA\GLCache, DXCache, ComputeCache,
+::X|EN|cl.gpu.shadercache.028|                    OptixCache; %ProgramData%\NVIDIA Corporation\NV_Cache;
+::X|EN|cl.gpu.shadercache.029|                    %LOCALAPPDATA%\Intel\ShaderCache;
+::X|EN|cl.gpu.shadercache.030|                    %LOCALAPPDATA%\D3DSCache;
+::X|EN|cl.gpu.shadercache.031|                    %LOCALAPPDATA%\Microsoft\DirectX Shader Cache. There
+::X|EN|cl.gpu.shadercache.032|                    is no rd anywhere in the block - the folders
+::X|EN|cl.gpu.shadercache.033|                    themselves always survive.
+::
+:: ---- cl.iconcache.noop (cleanup) ---------------------------------
+::P|cl.iconcache.noop|KEEP|KEEP|KEEP|KEEP|KEEP|
+::T|FR|cl.iconcache.noop.001|CACHE D'ICÔNES DE L'EXPLORATEUR (SUPPRESSION RETIRÉE, L'ÉTAPE NE FAIT RIEN)
+::T|FR|cl.iconcache.noop.002|
+::T|FR|cl.iconcache.noop.003|  Ce que c est    : L'Explorateur conserve une base de toutes les icônes
+::T|FR|cl.iconcache.noop.004|                    qu'il a affichées, dans iconcache_16.db,
+::T|FR|cl.iconcache.noop.005|                    iconcache_32.db, iconcache_48.db, iconcache_256.db et
+::T|FR|cl.iconcache.noop.006|                    iconcache_idx.db, sous
+::T|FR|cl.iconcache.noop.007|                    %LOCALAPPDATA%\Microsoft\Windows\Explorer. Une base
+::T|FR|cl.iconcache.noop.008|                    périmée, c'est l'icône blanche vide ou l'icône du
+::T|FR|cl.iconcache.noop.009|                    mauvais programme sur un raccourci. OPTY supprimait
+::T|FR|cl.iconcache.noop.010|                    ces fichiers autrefois. Ce n'est plus le cas, et cette
+::T|FR|cl.iconcache.noop.011|                    fiche est là pour le dire.
+::T|FR|cl.iconcache.noop.012|
+::T|FR|cl.iconcache.noop.013|  Effet reel      : Aucun fichier n'est supprimé. Le bloc n'est plus que
+::T|FR|cl.iconcache.noop.014|                    des commentaires et une ligne de journal. Quand la
+::T|FR|cl.iconcache.noop.015|                    suppression existait encore, elle a été mesurée sur
+::T|FR|cl.iconcache.noop.016|                    une machine réelle : les cinq fichiers qui portent
+::T|FR|cl.iconcache.noop.017|                    réellement les données, 11,2 Mo au total, sont ouverts
+::T|FR|cl.iconcache.noop.018|                    par l'explorer.exe en cours d'exécution sans partage,
+::T|FR|cl.iconcache.noop.019|                    donc la suppression ne les a jamais touchés. Les dix
+::T|FR|cl.iconcache.noop.020|                    fichiers effectivement supprimés étaient des souches
+::T|FR|cl.iconcache.noop.021|                    de 0 octet. La ligne signalait un succès à chaque
+::T|FR|cl.iconcache.noop.022|                    passage et libérait environ 240 octets.
+::T|FR|cl.iconcache.noop.023|
+::T|FR|cl.iconcache.noop.024|  Gain            : Aucun. Zéro octet, aucun changement de vitesse, aucune
+::T|FR|cl.iconcache.noop.025|                    icône réparée. C'est tout l'objet de cette fiche : la
+::T|FR|cl.iconcache.noop.026|                    version précédente de l'étape annonçait un nettoyage
+::T|FR|cl.iconcache.noop.027|                    qu'elle ne faisait pas.
+::T|FR|cl.iconcache.noop.028|
+::T|FR|cl.iconcache.noop.029|  Cout            : Aucun, puisque rien ne s'exécute. Ce que vous perdez,
+::T|FR|cl.iconcache.noop.030|                    c'est la possibilité de réparer un cache d'icônes
+::T|FR|cl.iconcache.noop.031|                    réellement corrompu depuis ce passage. Le faire pour
+::T|FR|cl.iconcache.noop.032|                    de vrai suppose d'arrêter explorer.exe, ce qui ferme
+::T|FR|cl.iconcache.noop.033|                    toutes les fenêtres de l'Explorateur et toute boîte de
+::T|FR|cl.iconcache.noop.034|                    dialogue hébergée par le shell - trop brutal pour une
+::T|FR|cl.iconcache.noop.035|                    exécution sans surveillance, et un cache d'icônes
+::T|FR|cl.iconcache.noop.036|                    corrompu reste une panne rare. Le thumbcache_*.db n'a
+::T|FR|cl.iconcache.noop.037|                    jamais été visé non plus : le reconstruire régénère
+::T|FR|cl.iconcache.noop.038|                    visiblement chaque miniature de photo et de vidéo dans
+::T|FR|cl.iconcache.noop.039|                    les gros dossiers.
+::T|FR|cl.iconcache.noop.040|
+::T|FR|cl.iconcache.noop.041|  Defaut Windows  : Sans objet au sens registre. L'Explorateur régénère
+::T|FR|cl.iconcache.noop.042|                    ses entrées d'icônes tout seul, et Windows ne supprime
+::T|FR|cl.iconcache.noop.043|                    jamais la base en bloc.
+::T|FR|cl.iconcache.noop.044|
+::T|FR|cl.iconcache.noop.045|  Valeurs possibles :
+::T|FR|cl.iconcache.noop.046|    DELETE               : Reviendrait à remettre le del de
+::T|FR|cl.iconcache.noop.047|                           iconcache_*.db. Mesuré ici : cela libère
+::T|FR|cl.iconcache.noop.048|                           environ 240 octets et ne corrige rien, les cinq
+::T|FR|cl.iconcache.noop.049|                           fichiers qui portent les données étant ouverts
+::T|FR|cl.iconcache.noop.050|                           par explorer.exe. Le faire pour de vrai suppose
+::T|FR|cl.iconcache.noop.051|                           d'arrêter explorer.exe.
+::T|FR|cl.iconcache.noop.052|    KEEP                 : Ce que fait le code aujourd'hui : rien du tout.
+::T|FR|cl.iconcache.noop.053|                           L'Explorateur garde sa base d'icônes et
+::T|FR|cl.iconcache.noop.054|                           régénère les entrées périmées tout seul.
+::T|FR|cl.iconcache.noop.055|    ASK                  : La seule façon honnête de le faire vraiment :
+::T|FR|cl.iconcache.noop.056|                           demander, prévenir qu'explorer.exe sera arrêté
+::T|FR|cl.iconcache.noop.057|                           et que toutes les fenêtres de l'Explorateur et
+::T|FR|cl.iconcache.noop.058|                           boîtes de dialogue du shell se fermeront, puis
+::T|FR|cl.iconcache.noop.059|                           supprimer et relancer explorer.exe.
+::X|FR|cl.iconcache.noop.001|  Pourquoi ces profils : Cinq colonnes identiques, et inventer une
+::X|FR|cl.iconcache.noop.002|                         différence serait pire que d'admettre qu'il n'y
+::X|FR|cl.iconcache.noop.003|                         en a pas. Aucun profil ne supprime quoi que ce
+::X|FR|cl.iconcache.noop.004|                         soit ici, puisque le code ne supprime rien. Si
+::X|FR|cl.iconcache.noop.005|                         vos icônes sont vraiment cassées, la manipulation
+::X|FR|cl.iconcache.noop.006|                         manuelle consiste à fermer vos fenêtres de
+::X|FR|cl.iconcache.noop.007|                         l'Explorateur, arrêter explorer.exe depuis le
+::X|FR|cl.iconcache.noop.008|                         Gestionnaire des tâches, supprimer
+::X|FR|cl.iconcache.noop.009|                         iconcache_*.db, puis relancer explorer.exe.
+::X|FR|cl.iconcache.noop.010|
+::X|FR|cl.iconcache.noop.011|  Problemes connus : La ligne 989 journalise toujours « Deleting icon
+::X|FR|cl.iconcache.noop.012|                     cache (thumbnails kept) » alors que plus rien n'est
+::X|FR|cl.iconcache.noop.013|                     supprimé. Le journal annonce donc un nettoyage qui
+::X|FR|cl.iconcache.noop.014|                     n'a jamais lieu, précisément le défaut pour lequel
+::X|FR|cl.iconcache.noop.015|                     cette étape a été retirée. Il faut supprimer cet
+::X|FR|cl.iconcache.noop.016|                     echo, ou le reformuler pour dire que le cache
+::X|FR|cl.iconcache.noop.017|                     d'icônes est volontairement laissé tranquille.
+::X|FR|cl.iconcache.noop.018|
+::X|FR|cl.iconcache.noop.019|  Non verifie (en)  : The 11.2 MB and 240 byte figures come from one
+::X|FR|cl.iconcache.noop.020|                      measurement on the maintainer's machine. The general
+::X|FR|cl.iconcache.noop.021|                      shape - the populated iconcache files are open by
+::X|FR|cl.iconcache.noop.022|                      explorer.exe with no sharing - is how the shell
+::X|FR|cl.iconcache.noop.023|                      works, but the exact sizes are that machine's.
+::X|FR|cl.iconcache.noop.024|
+::X|FR|cl.iconcache.noop.025|  Cible           : OPTY.bat lines 988-1001. Line 989 still writes
+::X|FR|cl.iconcache.noop.026|                    "Deleting icon cache (thumbnails kept)" to the log;
+::X|FR|cl.iconcache.noop.027|                    lines 990-1001 are comments explaining why the del of 
+::X|FR|cl.iconcache.noop.028|                    %LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.
+::X|FR|cl.iconcache.noop.029|                    db was removed. There is no del, no rd and no reg
+::X|FR|cl.iconcache.noop.030|                    command left in this block. thumbcache_*.db was never
+::X|FR|cl.iconcache.noop.031|                    targeted.
+::T|EN|cl.iconcache.noop.001|EXPLORER ICON CACHE (DELETION REMOVED, STEP DOES NOTHING)
+::T|EN|cl.iconcache.noop.002|
+::T|EN|cl.iconcache.noop.003|  What it is      : Explorer keeps a database of every icon it has drawn,
+::T|EN|cl.iconcache.noop.004|                    in iconcache_16.db, iconcache_32.db, iconcache_48.db,
+::T|EN|cl.iconcache.noop.005|                    iconcache_256.db and iconcache_idx.db under
+::T|EN|cl.iconcache.noop.006|                    %LOCALAPPDATA%\Microsoft\Windows\Explorer. A stale one
+::T|EN|cl.iconcache.noop.007|                    is why you sometimes see a blank white icon or another
+::T|EN|cl.iconcache.noop.008|                    program's icon on a shortcut. OPTY used to delete
+::T|EN|cl.iconcache.noop.009|                    those files. It no longer does, and this card exists
+::T|EN|cl.iconcache.noop.010|                    to say so.
+::T|EN|cl.iconcache.noop.011|
+::T|EN|cl.iconcache.noop.012|  Actual effect   : No files are deleted. The block is comments plus one
+::T|EN|cl.iconcache.noop.013|                    log line. When the delete was still there it was
+::T|EN|cl.iconcache.noop.014|                    measured on a live machine: the five files that
+::T|EN|cl.iconcache.noop.015|                    actually hold the data, 11.2 MB together, are open by
+::T|EN|cl.iconcache.noop.016|                    the running explorer.exe with no sharing, so the
+::T|EN|cl.iconcache.noop.017|                    delete never touched them. The ten files it did remove
+::T|EN|cl.iconcache.noop.018|                    were 0-byte stubs. The line reported success every
+::T|EN|cl.iconcache.noop.019|                    time and freed about 240 bytes.
+::T|EN|cl.iconcache.noop.020|
+::T|EN|cl.iconcache.noop.021|  Gain            : None. Zero bytes, no speed change, no icons fixed.
+::T|EN|cl.iconcache.noop.022|                    That is the whole point of the card: the previous
+::T|EN|cl.iconcache.noop.023|                    version of this step reported a clean it was not
+::T|EN|cl.iconcache.noop.024|                    performing.
+::T|EN|cl.iconcache.noop.025|
+::T|EN|cl.iconcache.noop.026|  Cost            : None, because nothing runs. What you give up is the
+::T|EN|cl.iconcache.noop.027|                    ability to fix a genuinely corrupt icon cache from
+::T|EN|cl.iconcache.noop.028|                    this pass. Doing that for real means stopping
+::T|EN|cl.iconcache.noop.029|                    explorer.exe, which closes every open Explorer window
+::T|EN|cl.iconcache.noop.030|                    and any dialog hosted by the shell - too disruptive
+::T|EN|cl.iconcache.noop.031|                    for an unattended run, and a corrupt icon cache is a
+::T|EN|cl.iconcache.noop.032|                    rare failure. thumbcache_*.db was never in scope
+::T|EN|cl.iconcache.noop.033|                    either: rebuilding it visibly regenerates every photo
+::T|EN|cl.iconcache.noop.034|                    and video thumbnail in large folders.
+::T|EN|cl.iconcache.noop.035|
+::T|EN|cl.iconcache.noop.036|  Windows default : Not applicable in the registry sense. Explorer
+::T|EN|cl.iconcache.noop.037|                    regenerates icon entries on its own, and Windows never
+::T|EN|cl.iconcache.noop.038|                    bulk-deletes the database.
+::T|EN|cl.iconcache.noop.039|
+::T|EN|cl.iconcache.noop.040|  Possible values:
+::T|EN|cl.iconcache.noop.041|    DELETE               : Would mean putting the del of iconcache_*.db
+::T|EN|cl.iconcache.noop.042|                           back. Measured here, that frees about 240 bytes
+::T|EN|cl.iconcache.noop.043|                           and fixes nothing, because the five files
+::T|EN|cl.iconcache.noop.044|                           holding the data are open by explorer.exe.
+::T|EN|cl.iconcache.noop.045|                           Doing it for real means stopping explorer.exe.
+::T|EN|cl.iconcache.noop.046|    KEEP                 : What the code does today: nothing at all.
+::T|EN|cl.iconcache.noop.047|                           Explorer keeps its icon database and rebuilds
+::T|EN|cl.iconcache.noop.048|                           stale entries by itself.
+::T|EN|cl.iconcache.noop.049|    ASK                  : The only honest way to actually do it: ask,
+::T|EN|cl.iconcache.noop.050|                           warn that Explorer will be stopped and every
+::T|EN|cl.iconcache.noop.051|                           open Explorer window and shell dialog will
+::T|EN|cl.iconcache.noop.052|                           close, then delete and restart explorer.exe.
+::X|EN|cl.iconcache.noop.001|  Why these profiles : Five identical columns, and inventing a difference
+::X|EN|cl.iconcache.noop.002|                       would be worse than admitting there is none. No
+::X|EN|cl.iconcache.noop.003|                       profile deletes anything here, because the code
+::X|EN|cl.iconcache.noop.004|                       deletes nothing. If your icons are actually broken,
+::X|EN|cl.iconcache.noop.005|                       the manual fix is to close your Explorer windows,
+::X|EN|cl.iconcache.noop.006|                       end explorer.exe from Task Manager, delete
+::X|EN|cl.iconcache.noop.007|                       iconcache_*.db and start explorer.exe again.
+::X|EN|cl.iconcache.noop.008|
+::X|EN|cl.iconcache.noop.009|  Known problems  : Line 989 still logs "Deleting icon cache (thumbnails
+::X|EN|cl.iconcache.noop.010|                    kept)" although nothing is deleted any more. The log
+::X|EN|cl.iconcache.noop.011|                    therefore claims a clean that never happens, which is
+::X|EN|cl.iconcache.noop.012|                    exactly the failure this step was removed for. The
+::X|EN|cl.iconcache.noop.013|                    echo should be dropped, or reworded to say the icon
+::X|EN|cl.iconcache.noop.014|                    cache is deliberately left alone.
+::X|EN|cl.iconcache.noop.015|
+::X|EN|cl.iconcache.noop.016|  Unverified      : The 11.2 MB and 240 byte figures come from one
+::X|EN|cl.iconcache.noop.017|                    measurement on the maintainer's machine. The general
+::X|EN|cl.iconcache.noop.018|                    shape - the populated iconcache files are open by
+::X|EN|cl.iconcache.noop.019|                    explorer.exe with no sharing - is how the shell works,
+::X|EN|cl.iconcache.noop.020|                    but the exact sizes are that machine's.
+::X|EN|cl.iconcache.noop.021|
+::X|EN|cl.iconcache.noop.022|  Target          : OPTY.bat lines 988-1001. Line 989 still writes
+::X|EN|cl.iconcache.noop.023|                    "Deleting icon cache (thumbnails kept)" to the log;
+::X|EN|cl.iconcache.noop.024|                    lines 990-1001 are comments explaining why the del of 
+::X|EN|cl.iconcache.noop.025|                    %LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.
+::X|EN|cl.iconcache.noop.026|                    db was removed. There is no del, no rd and no reg
+::X|EN|cl.iconcache.noop.027|                    command left in this block. thumbcache_*.db was never
+::X|EN|cl.iconcache.noop.028|                    targeted.
+::
+:: ---- cl.wer.dumps (cleanup) --------------------------------------
+::P|cl.wer.dumps|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.wer.dumps.001|FILES DE RAPPORTS D'ERREURS WINDOWS ET DUMPS D'APPLICATIONS
+::T|FR|cl.wer.dumps.002|
+::T|FR|cl.wer.dumps.003|  Ce que c est    : WER est la mécanique derrière « Cette application a
+::T|FR|cl.wer.dumps.004|                    cessé de fonctionner ». Les rapports s'empilent dans
+::T|FR|cl.wer.dumps.005|                    %ProgramData%\Microsoft\Windows\WER et dans votre
+::T|FR|cl.wer.dumps.006|                    profil, et les dumps par application atterrissent dans
+::T|FR|cl.wer.dumps.007|                    %LOCALAPPDATA%\CrashDumps. Si les rapports ne sont
+::T|FR|cl.wer.dumps.008|                    jamais envoyés, rien ne les purge en fonction de leur
+::T|FR|cl.wer.dumps.009|                    taille.
+::T|FR|cl.wer.dumps.010|
+::T|FR|cl.wer.dumps.011|  Effet reel      : Supprime les fichiers des deux arborescences WER et de
+::T|FR|cl.wer.dumps.012|                    CrashDumps. Comme del /S ne supprime que des fichiers,
+::T|FR|cl.wer.dumps.013|                    la charpente de dossiers reste : vous pouvez vous
+::T|FR|cl.wer.dumps.014|                    retrouver avec des centaines de dossiers ReportQueue
+::T|FR|cl.wer.dumps.015|                    et ReportArchive vides, qui ne pèsent pratiquement
+::T|FR|cl.wer.dumps.016|                    rien. Un rapport en cours d'écriture par WerFault.exe
+::T|FR|cl.wer.dumps.017|                    à cet instant précis est verrouillé et ignoré, en
+::T|FR|cl.wer.dumps.018|                    silence. Les deux lignes de niveau utilisateur ne
+::T|FR|cl.wer.dumps.019|                    couvrent que le profil C:\Users\compt codé en dur, pas
+::T|FR|cl.wer.dumps.020|                    tous les comptes. WER lui-même continue exactement
+::T|FR|cl.wer.dumps.021|                    comme avant.
+::T|FR|cl.wer.dumps.022|
+::T|FR|cl.wer.dumps.023|  Gain            : La file de ProgramData fait en général 5 à 100 Mo.
+::T|FR|cl.wer.dumps.024|                    C'est CrashDumps qui peut être gros : chaque dump est
+::T|FR|cl.wer.dumps.025|                    une photographie du processus planté, donc une
+::T|FR|cl.wer.dumps.026|                    application 64 bits capricieuse laisse 200 Mo à plus
+::T|FR|cl.wer.dumps.027|                    de 1 Go par plantage, et plusieurs Go si elle plante
+::T|FR|cl.wer.dumps.028|                    en boucle. Sur une machine qui ne plante pas, les deux
+::T|FR|cl.wer.dumps.029|                    sont quasi vides et la réponse honnête est que vous ne
+::T|FR|cl.wer.dumps.030|                    récupérerez presque rien.
+::T|FR|cl.wer.dumps.031|
+::T|FR|cl.wer.dumps.032|  Cout            : Vous perdez définitivement la trace locale de ce qui
+::T|FR|cl.wer.dumps.033|                    plante : rien ne régénère le dump d'un plantage déjà
+::T|FR|cl.wer.dumps.034|                    passé. Si un éditeur vous a réclamé un .dmp, envoyez-
+::T|FR|cl.wer.dumps.035|                    le avant. Non touchés : vos fichiers, vos réglages,
+::T|FR|cl.wer.dumps.036|                    les journaux d'événements, et les minidumps noyau, qui
+::T|FR|cl.wer.dumps.037|                    relèvent d'une autre étape. Rien à retélécharger,
+::T|FR|cl.wer.dumps.038|                    aucun temps de reconstruction.
+::T|FR|cl.wer.dumps.039|
+::T|FR|cl.wer.dumps.040|  Defaut Windows  : Windows limite la file WER au nombre d'entrées, jamais
+::T|FR|cl.wer.dumps.041|                    à la taille, et %LOCALAPPDATA%\CrashDumps n'est pas
+::T|FR|cl.wer.dumps.042|                    purgé du tout. Le Nettoyage de disque propose la même
+::T|FR|cl.wer.dumps.043|                    chose sous « Fichiers d'archive des rapports d'erreurs
+::T|FR|cl.wer.dumps.044|                    Windows ».
+::T|FR|cl.wer.dumps.045|
+::T|FR|cl.wer.dumps.046|  Valeurs possibles :
+::T|FR|cl.wer.dumps.047|    DELETE               : Vider les files de rapports WER et les dumps
+::T|FR|cl.wer.dumps.048|                           d'applications. WER continue de fonctionner,
+::T|FR|cl.wer.dumps.049|                           vous perdez seulement l'arriéré.
+::T|FR|cl.wer.dumps.050|    KEEP                 : Le bon choix quand une application plante et
+::T|FR|cl.wer.dumps.051|                           qu'un éditeur vous a demandé les fichiers .dmp,
+::T|FR|cl.wer.dumps.052|                           ou quand vous voulez constater vous-même ce qui
+::T|FR|cl.wer.dumps.053|                           plante.
+::T|FR|cl.wer.dumps.054|    ASK                  : Une question utile sur une machine en cours de
+::T|FR|cl.wer.dumps.055|                           diagnostic : les dumps sont la preuve, et rien
+::T|FR|cl.wer.dumps.056|                           ne les régénère.
+::X|FR|cl.wer.dumps.001|  Pourquoi ces profils : Quatre colonnes identiques, parce qu'un dump est
+::X|FR|cl.wer.dumps.002|                         soit une preuve utile, soit du poids mort, et
+::X|FR|cl.wer.dumps.003|                         cela dépend de votre situation, pas du rôle de la
+::X|FR|cl.wer.dumps.004|                         machine. SERVEUR est le seul cas où réfléchir :
+::X|FR|cl.wer.dumps.005|                         une machine sans surveillance qui plante à 4 h du
+::X|FR|cl.wer.dumps.006|                         matin ne laisse de trace qu'ici. Sur GAMING,
+::X|FR|cl.wer.dumps.007|                         BUREAU et PORTABLE, ce sont presque toujours de
+::X|FR|cl.wer.dumps.008|                         vieux rapports que personne n'ouvrira jamais.
+::X|FR|cl.wer.dumps.009|                         WINDOWS veut dire ne touchez à rien et laissez la
+::X|FR|cl.wer.dumps.010|                         file où elle est : cela ne vous coûte que du
+::X|FR|cl.wer.dumps.011|                         disque.
+::X|FR|cl.wer.dumps.012|
+::X|FR|cl.wer.dumps.013|  Problemes connus : Les deux chemins de niveau utilisateur utilisent le
+::X|FR|cl.wer.dumps.014|                     %USERHOME% codé en dur (C:\Users\compt) au lieu de la
+::X|FR|cl.wer.dumps.015|                     boucle sur C:\Users\* qu'emploie l'étape Temp. Sur
+::X|FR|cl.wer.dumps.016|                     tout autre compte, ou toute autre machine, ces deux
+::X|FR|cl.wer.dumps.017|                     lignes ne suppriment rien en silence alors que
+::X|FR|cl.wer.dumps.018|                     l'exécution annonce un nettoyage.
+::X|FR|cl.wer.dumps.019|
+::X|FR|cl.wer.dumps.020|  Non verifie (en)  : WER has per-queue entry-count limits in its own
+::X|FR|cl.wer.dumps.021|                      configuration, so the queue is not literally
+::X|FR|cl.wer.dumps.022|                      unlimited on every machine; what it has no notion of
+::X|FR|cl.wer.dumps.023|                      is a size budget, and CrashDumps has neither. The
+::X|FR|cl.wer.dumps.024|                      sizes below are ranges from ordinary installs, not a
+::X|FR|cl.wer.dumps.025|                      measurement of this machine.
+::X|FR|cl.wer.dumps.026|
+::X|FR|cl.wer.dumps.027|  Cible           : OPTY.bat lines 1003-1007. del /F /S /Q on
+::X|FR|cl.wer.dumps.028|                    %ProgramData%\Microsoft\Windows\WER\*,
+::X|FR|cl.wer.dumps.029|                    %USERHOME%\AppData\Local\Microsoft\Windows\WER\* and
+::X|FR|cl.wer.dumps.030|                    %USERHOME%\AppData\Local\CrashDumps\*. USERHOME is
+::X|FR|cl.wer.dumps.031|                    hardcoded at line 81 to C:\Users\compt. Kernel dumps
+::X|FR|cl.wer.dumps.032|                    are a different step: %SystemRoot%\Minidump and
+::X|FR|cl.wer.dumps.033|                    MEMORY.DMP are deleted at lines 974-976.
+::T|EN|cl.wer.dumps.001|WINDOWS ERROR REPORTING QUEUES AND APPLICATION CRASH DUMPS
+::T|EN|cl.wer.dumps.002|
+::T|EN|cl.wer.dumps.003|  What it is      : WER is the machinery behind "This app has stopped
+::T|EN|cl.wer.dumps.004|                    working". Reports queue under
+::T|EN|cl.wer.dumps.005|                    %ProgramData%\Microsoft\Windows\WER and under your
+::T|EN|cl.wer.dumps.006|                    profile, and per-application crash dumps land in
+::T|EN|cl.wer.dumps.007|                    %LOCALAPPDATA%\CrashDumps. If reports are never sent,
+::T|EN|cl.wer.dumps.008|                    nothing prunes them by size.
+::T|EN|cl.wer.dumps.009|
+::T|EN|cl.wer.dumps.010|  Actual effect   : Deletes the files under the two WER trees and under
+::T|EN|cl.wer.dumps.011|                    CrashDumps. Because del /S removes files and not
+::T|EN|cl.wer.dumps.012|                    directories, the folder skeleton stays behind - you
+::T|EN|cl.wer.dumps.013|                    can be left with hundreds of empty ReportQueue and
+::T|EN|cl.wer.dumps.014|                    ReportArchive folders taking essentially no space. A
+::T|EN|cl.wer.dumps.015|                    report being written at that exact moment by
+::T|EN|cl.wer.dumps.016|                    WerFault.exe is locked and skipped, silently. The two
+::T|EN|cl.wer.dumps.017|                    user-level lines only cover the hardcoded
+::T|EN|cl.wer.dumps.018|                    C:\Users\compt profile, not every account. WER itself
+::T|EN|cl.wer.dumps.019|                    keeps running exactly as before.
+::T|EN|cl.wer.dumps.020|
+::T|EN|cl.wer.dumps.021|  Gain            : The ProgramData queue is usually 5 to 100 MB.
+::T|EN|cl.wer.dumps.022|                    CrashDumps is the one that can be large: each dump is
+::T|EN|cl.wer.dumps.023|                    a snapshot of the crashed process, so one badly
+::T|EN|cl.wer.dumps.024|                    behaved 64-bit application can leave 200 MB to over 1
+::T|EN|cl.wer.dumps.025|                    GB per crash, and several GB if it crashes in a loop.
+::T|EN|cl.wer.dumps.026|                    On a machine that does not crash, both are near empty
+::T|EN|cl.wer.dumps.027|                    and the honest answer is that you will reclaim almost
+::T|EN|cl.wer.dumps.028|                    nothing.
+::T|EN|cl.wer.dumps.029|
+::T|EN|cl.wer.dumps.030|  Cost            : You lose the local record of what has been crashing,
+::T|EN|cl.wer.dumps.031|                    permanently - nothing regenerates a dump of a crash
+::T|EN|cl.wer.dumps.032|                    that already happened. If a vendor asked you for a
+::T|EN|cl.wer.dumps.033|                    .dmp, send it before running this. Not touched: your
+::T|EN|cl.wer.dumps.034|                    files, settings, event logs, and the kernel minidumps,
+::T|EN|cl.wer.dumps.035|                    which are handled by a different step. There is
+::T|EN|cl.wer.dumps.036|                    nothing to re-download and no rebuild time.
+::T|EN|cl.wer.dumps.037|
+::T|EN|cl.wer.dumps.038|  Windows default : Windows caps the WER queue by number of entries, never
+::T|EN|cl.wer.dumps.039|                    by size, and %LOCALAPPDATA%\CrashDumps is not pruned
+::T|EN|cl.wer.dumps.040|                    at all. Disk Cleanup offers the same thing under
+::T|EN|cl.wer.dumps.041|                    "Windows Error Reporting Files".
+::T|EN|cl.wer.dumps.042|
+::T|EN|cl.wer.dumps.043|  Possible values:
+::T|EN|cl.wer.dumps.044|    DELETE               : Empty the WER report queues and the per-
+::T|EN|cl.wer.dumps.045|                           application crash dumps. WER keeps working; you
+::T|EN|cl.wer.dumps.046|                           simply lose the backlog.
+::T|EN|cl.wer.dumps.047|    KEEP                 : Right when an application is crashing and a
+::T|EN|cl.wer.dumps.048|                           vendor has asked you for the .dmp files, or
+::T|EN|cl.wer.dumps.049|                           when you want to see for yourself what has been
+::T|EN|cl.wer.dumps.050|                           crashing.
+::T|EN|cl.wer.dumps.051|    ASK                  : Worth asking on a machine you are actively
+::T|EN|cl.wer.dumps.052|                           troubleshooting, since the dumps are the
+::T|EN|cl.wer.dumps.053|                           evidence and nothing regenerates them.
+::X|EN|cl.wer.dumps.001|  Why these profiles : Four identical columns because the file is either
+::X|EN|cl.wer.dumps.002|                       useful evidence or dead weight, and that depends on
+::X|EN|cl.wer.dumps.003|                       your situation, not on the machine's role. SERVER
+::X|EN|cl.wer.dumps.004|                       is the one place to think twice: an unattended box
+::X|EN|cl.wer.dumps.005|                       that crashes at 4 in the morning leaves its only
+::X|EN|cl.wer.dumps.006|                       trace here. On GAMING, OFFICE and LAPTOP these are
+::X|EN|cl.wer.dumps.007|                       almost always stale reports nobody will ever open.
+::X|EN|cl.wer.dumps.008|                       WINDOWS means leave it alone and let the queue sit
+::X|EN|cl.wer.dumps.009|                       there, which costs you nothing but disk.
+::X|EN|cl.wer.dumps.010|
+::X|EN|cl.wer.dumps.011|  Known problems  : The two user-level paths use the hardcoded %USERHOME%
+::X|EN|cl.wer.dumps.012|                    (C:\Users\compt) instead of the loop over C:\Users\*
+::X|EN|cl.wer.dumps.013|                    that the Temp step uses. On any other account, or any
+::X|EN|cl.wer.dumps.014|                    other machine, those two lines silently delete nothing
+::X|EN|cl.wer.dumps.015|                    while the run still reports a clean.
+::X|EN|cl.wer.dumps.016|
+::X|EN|cl.wer.dumps.017|  Unverified      : WER has per-queue entry-count limits in its own
+::X|EN|cl.wer.dumps.018|                    configuration, so the queue is not literally unlimited
+::X|EN|cl.wer.dumps.019|                    on every machine; what it has no notion of is a size
+::X|EN|cl.wer.dumps.020|                    budget, and CrashDumps has neither. The sizes below
+::X|EN|cl.wer.dumps.021|                    are ranges from ordinary installs, not a measurement
+::X|EN|cl.wer.dumps.022|                    of this machine.
+::X|EN|cl.wer.dumps.023|
+::X|EN|cl.wer.dumps.024|  Target          : OPTY.bat lines 1003-1007. del /F /S /Q on
+::X|EN|cl.wer.dumps.025|                    %ProgramData%\Microsoft\Windows\WER\*,
+::X|EN|cl.wer.dumps.026|                    %USERHOME%\AppData\Local\Microsoft\Windows\WER\* and
+::X|EN|cl.wer.dumps.027|                    %USERHOME%\AppData\Local\CrashDumps\*. USERHOME is
+::X|EN|cl.wer.dumps.028|                    hardcoded at line 81 to C:\Users\compt. Kernel dumps
+::X|EN|cl.wer.dumps.029|                    are a different step: %SystemRoot%\Minidump and
+::X|EN|cl.wer.dumps.030|                    MEMORY.DMP are deleted at lines 974-976.
+::
+:: ---- cl.logs.unbounded (cleanup) ---------------------------------
+::P|cl.logs.unbounded|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.logs.unbounded.001|JOURNAUX EN AJOUT CONTINU ET TRACES ETL QUE RIEN NE PURGE
+::T|FR|cl.logs.unbounded.002|
+::T|FR|cl.logs.unbounded.003|  Ce que c est    : Une liste courte de fichiers qui grossissent sans fin
+::T|FR|cl.logs.unbounded.004|                    parce que ni Windows ni le pilote AMD ne les rognent
+::T|FR|cl.logs.unbounded.005|                    jamais : les CSV de télémétrie d'usage d'AMD
+::T|FR|cl.logs.unbounded.006|                    Adrenalin, les fichiers de trace WMI en rotation, les
+::T|FR|cl.logs.unbounded.007|                    traces de diagnostic AutoLogger, les traces de
+::T|FR|cl.logs.unbounded.008|                    l'orchestrateur de mises à jour, les journaux DISM et
+::T|FR|cl.logs.unbounded.009|                    de maintenance, et les deux journaux d'installation de
+::T|FR|cl.logs.unbounded.010|                    périphériques setupapi. Seuls des fichiers nommés et
+::T|FR|cl.logs.unbounded.011|                    des motifs étroits sont visés : les dossiers WMI et
+::T|FR|cl.logs.unbounded.012|                    RtBackup ne sont jamais supprimés, et %WINDIR%\inf
+::T|FR|cl.logs.unbounded.013|                    conserve tous les vrais INF de pilotes.
+::T|FR|cl.logs.unbounded.014|
+::T|FR|cl.logs.unbounded.015|  Effet reel      : Supprime exactement ces fichiers. La plupart partent
+::T|FR|cl.logs.unbounded.016|                    proprement sur une machine au repos. Deux résistent
+::T|FR|cl.logs.unbounded.017|                    parfois : le motif WMI est volontairement *.etl.*, il
+::T|FR|cl.logs.unbounded.018|                    prend donc les fichiers en rotation et laisse la trace
+::T|FR|cl.logs.unbounded.019|                    active, que la session ETW tient de toute façon
+::T|FR|cl.logs.unbounded.020|                    ouverte ; et dans %WINDIR%\Logs\WindowsUpdate, une
+::T|FR|cl.logs.unbounded.021|                    session de trace en cours verrouille son .etl le plus
+::T|FR|cl.logs.unbounded.022|                    récent, qui est ignoré sans message. L'étape exige les
+::T|FR|cl.logs.unbounded.023|                    droits administrateur : sans eux, toutes les lignes
+::T|FR|cl.logs.unbounded.024|                    %WINDIR% échouent en silence. Les dossiers survivent
+::T|FR|cl.logs.unbounded.025|                    toujours, et chaque sous-système repart simplement sur
+::T|FR|cl.logs.unbounded.026|                    un fichier neuf.
+::T|FR|cl.logs.unbounded.027|
+::T|FR|cl.logs.unbounded.028|  Gain            : Réel, mesurable, et aucun nettoyeur standard n'y
+::T|FR|cl.logs.unbounded.029|                    touche. Sur la machine pour laquelle la règle a été
+::T|FR|cl.logs.unbounded.030|                    écrite : 317 Mo de CSV de télémétrie AMD, 228 Mo de
+::T|FR|cl.logs.unbounded.031|                    traces WMI en rotation, 86 Mo de journaux
+::T|FR|cl.logs.unbounded.032|                    d'orchestrateur - environ 630 Mo en un passage. Sur
+::T|FR|cl.logs.unbounded.033|                    une machine récemment installée, ou sans Adrenalin,
+::T|FR|cl.logs.unbounded.034|                    comptez plutôt quelques dizaines de Mo. Aucun effet
+::T|FR|cl.logs.unbounded.035|                    sur les performances : ces fichiers sont écrits,
+::T|FR|cl.logs.unbounded.036|                    jamais relus par quoi que ce soit que vous utilisez.
+::T|FR|cl.logs.unbounded.037|
+::T|FR|cl.logs.unbounded.038|  Cout            : Vous perdez l'historique d'installation des pilotes,
+::T|FR|cl.logs.unbounded.039|                    ce qui compte plus qu'il n'y paraît - setupapi.dev.log
+::T|FR|cl.logs.unbounded.040|                    est le fichier qui explique pourquoi un périphérique a
+::T|FR|cl.logs.unbounded.041|                    cessé de fonctionner après une mise à jour - et
+::T|FR|cl.logs.unbounded.042|                    l'historique de maintenance. Rien de tout cela
+::T|FR|cl.logs.unbounded.043|                    n'affecte le fonctionnement de la machine, et rien
+::T|FR|cl.logs.unbounded.044|                    n'est à retélécharger. Ce qui revient revient dans les
+::T|FR|cl.logs.unbounded.045|                    minutes suivant la prochaine mise à jour ou le
+::T|FR|cl.logs.unbounded.046|                    prochain changement de matériel : la règle des trente
+::T|FR|cl.logs.unbounded.047|                    minutes est largement respectée. Non touchés :
+::T|FR|cl.logs.unbounded.048|                    USOPrivate\UpdateStore, le dossier RtBackup, le
+::T|FR|cl.logs.unbounded.049|                    magasin d'INF, et le journal CBS actif.
+::T|FR|cl.logs.unbounded.050|
+::T|FR|cl.logs.unbounded.051|  Defaut Windows  : Sans objet. Ces fichiers grossissent sans limite par
+::T|FR|cl.logs.unbounded.052|                    conception, et aucun composant de Windows ne les
+::T|FR|cl.logs.unbounded.053|                    rogne.
+::T|FR|cl.logs.unbounded.054|
+::T|FR|cl.logs.unbounded.055|  Valeurs possibles :
+::T|FR|cl.logs.unbounded.056|    DELETE               : Supprimer ces fichiers de journal et de trace
+::T|FR|cl.logs.unbounded.057|                           nommés. Les sous-systèmes qui les écrivent
+::T|FR|cl.logs.unbounded.058|                           continuent et ouvrent des fichiers neufs.
+::T|FR|cl.logs.unbounded.059|    KEEP                 : La bonne réponse tant que vous cherchez
+::T|FR|cl.logs.unbounded.060|                           pourquoi un périphérique refuse de s'installer
+::T|FR|cl.logs.unbounded.061|                           : setupapi.dev.log est justement le fichier qui
+::T|FR|cl.logs.unbounded.062|                           le dit.
+::T|FR|cl.logs.unbounded.063|    ASK                  : Une question qui ne vaut que sur une machine en
+::T|FR|cl.logs.unbounded.064|                           cours de diagnostic : l'historique
+::T|FR|cl.logs.unbounded.065|                           d'installation des pilotes et de maintenance
+::T|FR|cl.logs.unbounded.066|                           part définitivement.
+::X|FR|cl.logs.unbounded.001|  Pourquoi ces profils : Quatre colonnes identiques, parce que le
+::X|FR|cl.logs.unbounded.002|                         mécanisme est le même partout : un journal que
+::X|FR|cl.logs.unbounded.003|                         personne ne lit. SERVEUR en profite le plus en
+::X|FR|cl.logs.unbounded.004|                         valeur absolue, une machine allumée en permanence
+::X|FR|cl.logs.unbounded.005|                         accumulant les traces le plus vite. GAMING sur
+::X|FR|cl.logs.unbounded.006|                         carte AMD est l'origine des 317 Mo de CSV
+::X|FR|cl.logs.unbounded.007|                         Adrenalin. BUREAU et PORTABLE y gagnent
+::X|FR|cl.logs.unbounded.008|                         simplement de la place. WINDOWS veut dire ne
+::X|FR|cl.logs.unbounded.009|                         touchez à rien : rien ne casse, les fichiers
+::X|FR|cl.logs.unbounded.010|                         continuent juste de grossir.
+::X|FR|cl.logs.unbounded.011|
+::X|FR|cl.logs.unbounded.012|  Non verifie (en)  : The sizes quoted - AMD PPC 317 MB, WMI ETL 228 MB,
+::X|FR|cl.logs.unbounded.013|                      USOShared 86 MB - were measured once, on the
+::X|FR|cl.logs.unbounded.014|                      maintainer's machine. Yours will differ, possibly by
+::X|FR|cl.logs.unbounded.015|                      an order of magnitude in either direction. The AMD
+::X|FR|cl.logs.unbounded.016|                      PPC files only exist if Adrenalin is installed.
+::X|FR|cl.logs.unbounded.017|                      Reports of those CSVs reaching tens of GB come from
+::X|FR|cl.logs.unbounded.018|                      the field, not from a measurement here.
+::X|FR|cl.logs.unbounded.019|
+::X|FR|cl.logs.unbounded.020|  Cible           : OPTY.bat lines 1009-1036. Named files and globs only:
+::X|FR|cl.logs.unbounded.021|                    %LOCALAPPDATA%\AMD\PPC\sdkusage.csv, apprecord.csv,
+::X|FR|cl.logs.unbounded.022|                    driverworkloadstats.csv;
+::X|FR|cl.logs.unbounded.023|                    %LOCALAPPDATA%\AMD\CN\RSX_*.log*;
+::X|FR|cl.logs.unbounded.024|                    %WINDIR%\System32\LogFiles\WMI\*.etl.* (no /S, so
+::X|FR|cl.logs.unbounded.025|                    RtBackup is never entered); %ProgramData%\Microsoft\Di
+::X|FR|cl.logs.unbounded.026|                    agnosis\ETLLogs\AutoLogger\*.etl;
+::X|FR|cl.logs.unbounded.027|                    %ProgramData%\USOShared\Logs\*.etl;
+::X|FR|cl.logs.unbounded.028|                    %WINDIR%\Logs\DISM\dism.log; %WINDIR%\Logs\waasmedic,
+::X|FR|cl.logs.unbounded.029|                    SIH and NetSetup; %WINDIR%\Logs\WindowsUpdate\*.etl;
+::X|FR|cl.logs.unbounded.030|                    %WINDIR%\inf\setupapi.dev.log and setupapi.app.log;
+::X|FR|cl.logs.unbounded.031|                    %WINDIR%\debug\wiatrace.log. No folder is ever
+::X|FR|cl.logs.unbounded.032|                    removed.
+::T|EN|cl.logs.unbounded.001|APPEND-ONLY LOGS AND ETL TRACES NOTHING EVER PRUNES
+::T|EN|cl.logs.unbounded.002|
+::T|EN|cl.logs.unbounded.003|  What it is      : A short list of files that grow forever because
+::T|EN|cl.logs.unbounded.004|                    neither Windows nor the AMD driver ever trims them:
+::T|EN|cl.logs.unbounded.005|                    AMD Adrenalin usage telemetry CSVs, rotated WMI trace
+::T|EN|cl.logs.unbounded.006|                    files, the AutoLogger diagnostics traces, update-
+::T|EN|cl.logs.unbounded.007|                    orchestrator traces, DISM and servicing logs, and the
+::T|EN|cl.logs.unbounded.008|                    two setupapi device-install logs. Only named files and
+::T|EN|cl.logs.unbounded.009|                    narrow globs are targeted - the WMI and RtBackup
+::T|EN|cl.logs.unbounded.010|                    folders themselves are never removed, and %WINDIR%\inf
+::T|EN|cl.logs.unbounded.011|                    keeps every real driver INF.
+::T|EN|cl.logs.unbounded.012|
+::T|EN|cl.logs.unbounded.013|  Actual effect   : Deletes exactly those files. Most of them delete
+::T|EN|cl.logs.unbounded.014|                    cleanly on an idle machine. Two do not always: the WMI
+::T|EN|cl.logs.unbounded.015|                    glob is *.etl.* deliberately, so it takes the rotated
+::T|EN|cl.logs.unbounded.016|                    files and leaves the live trace, which the ETW session
+::T|EN|cl.logs.unbounded.017|                    holds open anyway; and in %WINDIR%\Logs\WindowsUpdate
+::T|EN|cl.logs.unbounded.018|                    an active trace session keeps its newest .etl locked,
+::T|EN|cl.logs.unbounded.019|                    so that one is skipped without a message. The step
+::T|EN|cl.logs.unbounded.020|                    needs administrator rights - without them the %WINDIR%
+::T|EN|cl.logs.unbounded.021|                    lines all fail silently. Folders always survive, and
+::T|EN|cl.logs.unbounded.022|                    each subsystem simply starts a new file.
+::T|EN|cl.logs.unbounded.023|
+::T|EN|cl.logs.unbounded.024|  Gain            : Real, measurable, and no standard cleaner touches it.
+::T|EN|cl.logs.unbounded.025|                    On the machine the rule was written for: 317 MB of AMD
+::T|EN|cl.logs.unbounded.026|                    telemetry CSVs, 228 MB of rotated WMI traces, 86 MB of
+::T|EN|cl.logs.unbounded.027|                    update-orchestrator logs - roughly 630 MB in one pass.
+::T|EN|cl.logs.unbounded.028|                    On a recently installed machine, or one without
+::T|EN|cl.logs.unbounded.029|                    Adrenalin, expect tens of MB instead. No performance
+::T|EN|cl.logs.unbounded.030|                    effect at all: these files are written and never read
+::T|EN|cl.logs.unbounded.031|                    back by anything you run.
+::T|EN|cl.logs.unbounded.032|
+::T|EN|cl.logs.unbounded.033|  Cost            : You lose driver-install history, which matters more
+::T|EN|cl.logs.unbounded.034|                    than it sounds - setupapi.dev.log is the file that
+::T|EN|cl.logs.unbounded.035|                    explains why a device stopped working after an update
+::T|EN|cl.logs.unbounded.036|                    - and you lose servicing history. None of it affects
+::T|EN|cl.logs.unbounded.037|                    how the machine runs, and nothing has to be
+::T|EN|cl.logs.unbounded.038|                    downloaded. What comes back does so within minutes of
+::T|EN|cl.logs.unbounded.039|                    the next update or device change, so this passes the
+::T|EN|cl.logs.unbounded.040|                    regeneration test easily. Not touched:
+::T|EN|cl.logs.unbounded.041|                    USOPrivate\UpdateStore, the RtBackup folder, the real
+::T|EN|cl.logs.unbounded.042|                    INF store, and the live CBS log.
+::T|EN|cl.logs.unbounded.043|
+::T|EN|cl.logs.unbounded.044|  Windows default : Not applicable. These grow without bound by design,
+::T|EN|cl.logs.unbounded.045|                    and no Windows component trims them.
+::T|EN|cl.logs.unbounded.046|
+::T|EN|cl.logs.unbounded.047|  Possible values:
+::T|EN|cl.logs.unbounded.048|    DELETE               : Remove those named log and trace files. The
+::T|EN|cl.logs.unbounded.049|                           subsystems that write them carry on and open
+::T|EN|cl.logs.unbounded.050|                           fresh files.
+::T|EN|cl.logs.unbounded.051|    KEEP                 : The right answer while you are chasing a device
+::T|EN|cl.logs.unbounded.052|                           that will not install: setupapi.dev.log is
+::T|EN|cl.logs.unbounded.053|                           precisely the file that tells you why.
+::T|EN|cl.logs.unbounded.054|    ASK                  : Only worth asking on a machine under active
+::T|EN|cl.logs.unbounded.055|                           diagnosis, since the driver-install and
+::T|EN|cl.logs.unbounded.056|                           servicing history goes for good.
+::X|EN|cl.logs.unbounded.001|  Why these profiles : Four identical columns because the mechanism is
+::X|EN|cl.logs.unbounded.002|                       identical everywhere: a log file nobody reads.
+::X|EN|cl.logs.unbounded.003|                       SERVER benefits most in absolute terms, since an
+::X|EN|cl.logs.unbounded.004|                       always-on machine accumulates traces fastest.
+::X|EN|cl.logs.unbounded.005|                       GAMING on an AMD card is where the 317 MB of
+::X|EN|cl.logs.unbounded.006|                       Adrenalin CSVs come from. OFFICE and LAPTOP simply
+::X|EN|cl.logs.unbounded.007|                       gain the space. WINDOWS means leave it alone:
+::X|EN|cl.logs.unbounded.008|                       nothing breaks, the files just keep growing.
+::X|EN|cl.logs.unbounded.009|
+::X|EN|cl.logs.unbounded.010|  Unverified      : The sizes quoted - AMD PPC 317 MB, WMI ETL 228 MB,
+::X|EN|cl.logs.unbounded.011|                    USOShared 86 MB - were measured once, on the
+::X|EN|cl.logs.unbounded.012|                    maintainer's machine. Yours will differ, possibly by
+::X|EN|cl.logs.unbounded.013|                    an order of magnitude in either direction. The AMD PPC
+::X|EN|cl.logs.unbounded.014|                    files only exist if Adrenalin is installed. Reports of
+::X|EN|cl.logs.unbounded.015|                    those CSVs reaching tens of GB come from the field,
+::X|EN|cl.logs.unbounded.016|                    not from a measurement here.
+::X|EN|cl.logs.unbounded.017|
+::X|EN|cl.logs.unbounded.018|  Target          : OPTY.bat lines 1009-1036. Named files and globs only:
+::X|EN|cl.logs.unbounded.019|                    %LOCALAPPDATA%\AMD\PPC\sdkusage.csv, apprecord.csv,
+::X|EN|cl.logs.unbounded.020|                    driverworkloadstats.csv;
+::X|EN|cl.logs.unbounded.021|                    %LOCALAPPDATA%\AMD\CN\RSX_*.log*;
+::X|EN|cl.logs.unbounded.022|                    %WINDIR%\System32\LogFiles\WMI\*.etl.* (no /S, so
+::X|EN|cl.logs.unbounded.023|                    RtBackup is never entered); %ProgramData%\Microsoft\Di
+::X|EN|cl.logs.unbounded.024|                    agnosis\ETLLogs\AutoLogger\*.etl;
+::X|EN|cl.logs.unbounded.025|                    %ProgramData%\USOShared\Logs\*.etl;
+::X|EN|cl.logs.unbounded.026|                    %WINDIR%\Logs\DISM\dism.log; %WINDIR%\Logs\waasmedic,
+::X|EN|cl.logs.unbounded.027|                    SIH and NetSetup; %WINDIR%\Logs\WindowsUpdate\*.etl;
+::X|EN|cl.logs.unbounded.028|                    %WINDIR%\inf\setupapi.dev.log and setupapi.app.log;
+::X|EN|cl.logs.unbounded.029|                    %WINDIR%\debug\wiatrace.log. No folder is ever
+::X|EN|cl.logs.unbounded.030|                    removed.
+::
+:: ---- cl.logs.cbspanther (cleanup) --------------------------------
+::P|cl.logs.cbspanther|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.logs.cbspanther.001|JOURNAUX DE MAINTENANCE CBS ARCHIVÉS ET JOURNAUX D'INSTALLATION PANTHER
+::T|FR|cl.logs.cbspanther.002|
+::T|FR|cl.logs.cbspanther.003|  Ce que c est    : CbsPersist_*.log et .cab sont les archives compressées
+::T|FR|cl.logs.cbspanther.004|                    du journal de maintenance des composants - la trace
+::T|FR|cl.logs.cbspanther.005|                    que laisse chaque mise à jour Windows.
+::T|FR|cl.logs.cbspanther.006|                    C:\Windows\Panther contient les journaux de la
+::T|FR|cl.logs.cbspanther.007|                    dernière installation ou mise à niveau sur place, dont
+::T|FR|cl.logs.cbspanther.008|                    setupact.log et setuperr.log. Seules les archives sont
+::T|FR|cl.logs.cbspanther.009|                    visées ; le CBS.log actif, que TrustedInstaller tient
+::T|FR|cl.logs.cbspanther.010|                    ouvert pendant la maintenance, n'est pas touché.
+::T|FR|cl.logs.cbspanther.011|
+::T|FR|cl.logs.cbspanther.012|  Effet reel      : Supprime les archives CbsPersist, ainsi que tous les
+::T|FR|cl.logs.cbspanther.013|                    fichiers de Panther et de ses sous-dossiers. Le
+::T|FR|cl.logs.cbspanther.014|                    dossier Panther et ses sous-dossiers restent en place,
+::T|FR|cl.logs.cbspanther.015|                    vides, del /S ne supprimant que des fichiers. Les deux
+::T|FR|cl.logs.cbspanther.016|                    chemins exigent les droits administrateur. Si une
+::T|FR|cl.logs.cbspanther.017|                    opération de maintenance tourne à cet instant, le
+::T|FR|cl.logs.cbspanther.018|                    fichier qu'elle écrit est verrouillé et ignoré sans
+::T|FR|cl.logs.cbspanther.019|                    message.
+::T|FR|cl.logs.cbspanther.020|
+::T|FR|cl.logs.cbspanther.021|  Gain            : De la place uniquement, et moins que ne le raconte la
+::T|FR|cl.logs.cbspanther.022|                    légende. CbsPersist a été mesuré à 93 Mo sur la
+::T|FR|cl.logs.cbspanther.023|                    machine visée par cette règle ; Panther pèse
+::T|FR|cl.logs.cbspanther.024|                    typiquement 5 à 100 Mo, quelques centaines de Mo sur
+::T|FR|cl.logs.cbspanther.025|                    une machine tout juste sortie d'une mise à niveau sur
+::T|FR|cl.logs.cbspanther.026|                    place. Au total, comptez 100 à 400 Mo dans le cas
+::T|FR|cl.logs.cbspanther.027|                    normal, pas des gigaoctets. Aucun effet sur les
+::T|FR|cl.logs.cbspanther.028|                    performances.
+::T|FR|cl.logs.cbspanther.029|
+::T|FR|cl.logs.cbspanther.030|  Cout            : Si une future mise à jour ou mise à niveau échoue, ce
+::T|FR|cl.logs.cbspanther.031|                    sont ces fichiers qu'un technicien lit pour
+::T|FR|cl.logs.cbspanther.032|                    comprendre, et l'historique des précédentes a disparu
+::T|FR|cl.logs.cbspanther.033|                    pour de bon : rien ne régénère le journal d'un
+::T|FR|cl.logs.cbspanther.034|                    événement passé. Windows en réécrit à la prochaine
+::T|FR|cl.logs.cbspanther.035|                    opération de maintenance, en quelques minutes. En
+::T|FR|cl.logs.cbspanther.036|                    pratique, presque personne ne les ouvre. Une chose à
+::T|FR|cl.logs.cbspanther.037|                    savoir : Panther met aussi en cache le fichier de
+::T|FR|cl.logs.cbspanther.038|                    réponses d'une installation sans assistance ou OEM ;
+::T|FR|cl.logs.cbspanther.039|                    si vous déployez cette image avec sysprep, allez voir
+::T|FR|cl.logs.cbspanther.040|                    dans Panther avant de le vider.
+::T|FR|cl.logs.cbspanther.041|
+::T|FR|cl.logs.cbspanther.042|  Defaut Windows  : Sans objet. Les archives CbsPersist s'accumulent
+::T|FR|cl.logs.cbspanther.043|                    indéfiniment, et Panther conserve les journaux de la
+::T|FR|cl.logs.cbspanther.044|                    dernière installation ou mise à niveau tant que rien
+::T|FR|cl.logs.cbspanther.045|                    ne les supprime.
+::T|FR|cl.logs.cbspanther.046|
+::T|FR|cl.logs.cbspanther.047|  Valeurs possibles :
+::T|FR|cl.logs.cbspanther.048|    DELETE               : Supprimer les journaux de maintenance archivés
+::T|FR|cl.logs.cbspanther.049|                           et le contenu du dossier d'installation
+::T|FR|cl.logs.cbspanther.050|                           Panther.
+::T|FR|cl.logs.cbspanther.051|    KEEP                 : La bonne réponse si une mise à jour ou une mise
+::T|FR|cl.logs.cbspanther.052|                           à niveau vient d'échouer et que quelqu'un va
+::T|FR|cl.logs.cbspanther.053|                           les lire pour comprendre.
+::T|FR|cl.logs.cbspanther.054|    ASK                  : Une question utile juste avant une
+::T|FR|cl.logs.cbspanther.055|                           réinstallation de réparation, quand la
+::T|FR|cl.logs.cbspanther.056|                           comparaison avant-après est précisément
+::T|FR|cl.logs.cbspanther.057|                           l'objectif.
+::X|FR|cl.logs.cbspanther.001|  Pourquoi ces profils : Quatre colonnes identiques : ce fichier est soit
+::X|FR|cl.logs.cbspanther.002|                         une trace de diagnostic, soit du poids mort, et
+::X|FR|cl.logs.cbspanther.003|                         cela n'a rien à voir avec le rôle de la machine.
+::X|FR|cl.logs.cbspanther.004|                         La seule vraie distinction est le calendrier, pas
+::X|FR|cl.logs.cbspanther.005|                         le profil - non tant qu'un problème de mise à
+::X|FR|cl.logs.cbspanther.006|                         niveau est ouvert, oui une fois que tout
+::X|FR|cl.logs.cbspanther.007|                         fonctionne. WINDOWS veut dire ne touchez à rien
+::X|FR|cl.logs.cbspanther.008|                         et gardez toute la piste de maintenance.
+::X|FR|cl.logs.cbspanther.009|
+::X|FR|cl.logs.cbspanther.010|  Non verifie (en)  : 93 MB of CbsPersist was measured once on the
+::X|FR|cl.logs.cbspanther.011|                      maintainer's machine. Panther's size depends
+::X|FR|cl.logs.cbspanther.012|                      entirely on how many in-place upgrades the machine
+::X|FR|cl.logs.cbspanther.013|                      has been through, and was not measured here. Whether
+::X|FR|cl.logs.cbspanther.014|                      a support engineer would still want these files
+::X|FR|cl.logs.cbspanther.015|                      months later is a judgement call, not a fact.
+::X|FR|cl.logs.cbspanther.016|
+::X|FR|cl.logs.cbspanther.017|  Cible           : OPTY.bat lines 1038-1042. del /F /Q on
+::X|FR|cl.logs.cbspanther.018|                    %WINDIR%\Logs\CBS\CbsPersist_*.log and
+::X|FR|cl.logs.cbspanther.019|                    CbsPersist_*.cab, then del /F /S /Q on
+::X|FR|cl.logs.cbspanther.020|                    %WINDIR%\Panther\*. The live %WINDIR%\Logs\CBS\CBS.log
+::X|FR|cl.logs.cbspanther.021|                    is not targeted. No folder is removed.
+::T|EN|cl.logs.cbspanther.001|ARCHIVED CBS SERVICING LOGS AND PANTHER SETUP LOGS
+::T|EN|cl.logs.cbspanther.002|
+::T|EN|cl.logs.cbspanther.003|  What it is      : CbsPersist_*.log and .cab are the compressed archives
+::T|EN|cl.logs.cbspanther.004|                    of the component servicing log - the trail every
+::T|EN|cl.logs.cbspanther.005|                    Windows update leaves behind. C:\Windows\Panther holds
+::T|EN|cl.logs.cbspanther.006|                    the logs of the last Windows install or in-place
+::T|EN|cl.logs.cbspanther.007|                    upgrade, setupact.log and setuperr.log among them.
+::T|EN|cl.logs.cbspanther.008|                    Only the archives are targeted; the live CBS.log,
+::T|EN|cl.logs.cbspanther.009|                    which TrustedInstaller holds open during servicing, is
+::T|EN|cl.logs.cbspanther.010|                    left alone.
+::T|EN|cl.logs.cbspanther.011|
+::T|EN|cl.logs.cbspanther.012|  Actual effect   : Deletes the CbsPersist archives, and every file under
+::T|EN|cl.logs.cbspanther.013|                    Panther and its subfolders. The Panther folder and its
+::T|EN|cl.logs.cbspanther.014|                    subfolders remain as empty directories, because del /S
+::T|EN|cl.logs.cbspanther.015|                    removes files only. Both paths need administrator
+::T|EN|cl.logs.cbspanther.016|                    rights. If a servicing operation is running at that
+::T|EN|cl.logs.cbspanther.017|                    moment, the file it is writing is locked and skipped
+::T|EN|cl.logs.cbspanther.018|                    without a message.
+::T|EN|cl.logs.cbspanther.019|
+::T|EN|cl.logs.cbspanther.020|  Gain            : Space only, and less than the folklore suggests.
+::T|EN|cl.logs.cbspanther.021|                    CbsPersist was measured at 93 MB on the machine this
+::T|EN|cl.logs.cbspanther.022|                    rule was written for; Panther is typically 5 to 100
+::T|EN|cl.logs.cbspanther.023|                    MB, and a few hundred MB on a machine freshly through
+::T|EN|cl.logs.cbspanther.024|                    an in-place upgrade. Together, expect 100 to 400 MB in
+::T|EN|cl.logs.cbspanther.025|                    the normal case rather than gigabytes. There is no
+::T|EN|cl.logs.cbspanther.026|                    performance effect whatsoever.
+::T|EN|cl.logs.cbspanther.027|
+::T|EN|cl.logs.cbspanther.028|  Cost            : If a future update or upgrade fails, these are the
+::T|EN|cl.logs.cbspanther.029|                    files a support engineer reads to find out why, and
+::T|EN|cl.logs.cbspanther.030|                    the record of the previous ones is gone for good -
+::T|EN|cl.logs.cbspanther.031|                    nothing regenerates a log of something that already
+::T|EN|cl.logs.cbspanther.032|                    happened. Windows writes new ones on the next
+::T|EN|cl.logs.cbspanther.033|                    servicing operation, within minutes. In practice
+::T|EN|cl.logs.cbspanther.034|                    almost nobody ever opens them. One thing to know:
+::T|EN|cl.logs.cbspanther.035|                    Panther also caches the answer file from an unattended
+::T|EN|cl.logs.cbspanther.036|                    or OEM install, so if you deploy this image with
+::T|EN|cl.logs.cbspanther.037|                    sysprep, look in Panther before wiping it.
+::T|EN|cl.logs.cbspanther.038|
+::T|EN|cl.logs.cbspanther.039|  Windows default : Not applicable. CbsPersist archives accumulate
+::T|EN|cl.logs.cbspanther.040|                    indefinitely, and Panther keeps the last install or
+::T|EN|cl.logs.cbspanther.041|                    upgrade logs until something removes them.
+::T|EN|cl.logs.cbspanther.042|
+::T|EN|cl.logs.cbspanther.043|  Possible values:
+::T|EN|cl.logs.cbspanther.044|    DELETE               : Remove the archived servicing logs and the
+::T|EN|cl.logs.cbspanther.045|                           contents of the Panther setup folder.
+::T|EN|cl.logs.cbspanther.046|    KEEP                 : The right answer if an update or an upgrade
+::T|EN|cl.logs.cbspanther.047|                           just failed and someone is going to read these
+::T|EN|cl.logs.cbspanther.048|                           to find out why.
+::T|EN|cl.logs.cbspanther.049|    ASK                  : Worth asking just before an in-place repair
+::T|EN|cl.logs.cbspanther.050|                           install, when the before-and-after comparison
+::T|EN|cl.logs.cbspanther.051|                           is the whole point.
+::X|EN|cl.logs.cbspanther.001|  Why these profiles : Four identical columns: the file is a diagnostic
+::X|EN|cl.logs.cbspanther.002|                       record or it is dead weight, and that has nothing
+::X|EN|cl.logs.cbspanther.003|                       to do with the machine's role. The only real
+::X|EN|cl.logs.cbspanther.004|                       distinction is timing, not profile - say no while
+::X|EN|cl.logs.cbspanther.005|                       an upgrade problem is still open, yes once
+::X|EN|cl.logs.cbspanther.006|                       everything works. WINDOWS means leave it alone and
+::X|EN|cl.logs.cbspanther.007|                       keep the full servicing trail.
+::X|EN|cl.logs.cbspanther.008|
+::X|EN|cl.logs.cbspanther.009|  Unverified      : 93 MB of CbsPersist was measured once on the
+::X|EN|cl.logs.cbspanther.010|                    maintainer's machine. Panther's size depends entirely
+::X|EN|cl.logs.cbspanther.011|                    on how many in-place upgrades the machine has been
+::X|EN|cl.logs.cbspanther.012|                    through, and was not measured here. Whether a support
+::X|EN|cl.logs.cbspanther.013|                    engineer would still want these files months later is
+::X|EN|cl.logs.cbspanther.014|                    a judgement call, not a fact.
+::X|EN|cl.logs.cbspanther.015|
+::X|EN|cl.logs.cbspanther.016|  Target          : OPTY.bat lines 1038-1042. del /F /Q on
+::X|EN|cl.logs.cbspanther.017|                    %WINDIR%\Logs\CBS\CbsPersist_*.log and
+::X|EN|cl.logs.cbspanther.018|                    CbsPersist_*.cab, then del /F /S /Q on
+::X|EN|cl.logs.cbspanther.019|                    %WINDIR%\Panther\*. The live %WINDIR%\Logs\CBS\CBS.log
+::X|EN|cl.logs.cbspanther.020|                    is not targeted. No folder is removed.
+::
+:: ---- cl.driver.unpack (cleanup) ----------------------------------
+::P|cl.driver.unpack|ASK|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.driver.unpack.001|DOSSIERS D'EXTRACTION DES INSTALLATEURS DE PILOTES (C:\NVIDIA, DEUX SOUS-DOSSIERS INTEL)
+::T|FR|cl.driver.unpack.002|
+::T|FR|cl.driver.unpack.003|  Ce que c est    : Les installateurs de pilotes NVIDIA et Intel se
+::T|FR|cl.driver.unpack.004|                    décompressent sur le disque avant d'installer, puis
+::T|FR|cl.driver.unpack.005|                    laissent la copie décompressée derrière eux. Ce ne
+::T|FR|cl.driver.unpack.006|                    sont pas les pilotes installés : les supprimer ne peut
+::T|FR|cl.driver.unpack.007|                    rien désinstaller ni perturber un pilote d'affichage
+::T|FR|cl.driver.unpack.008|                    en cours d'exécution. C:\AMD est volontairement
+::T|FR|cl.driver.unpack.009|                    conservé comme paquet de secours connu.
+::T|FR|cl.driver.unpack.010|
+::T|FR|cl.driver.unpack.011|  Effet reel      : C:\NVIDIA est supprimé purement et simplement, dossier
+::T|FR|cl.driver.unpack.012|                    compris. Côté Intel, seuls deux dossiers sont vidés,
+::T|FR|cl.driver.unpack.013|                    C:\Intel\GfxCPLBatchFiles et C:\Intel\Logs - le vrai
+::T|FR|cl.driver.unpack.014|                    dossier d'extraction Intel, C:\Intel\<nom du paquet>,
+::T|FR|cl.driver.unpack.015|                    n'est pas touché du tout. Sur une machine AMD sans
+::T|FR|cl.driver.unpack.016|                    C:\NVIDIA, et c'en est une, l'étape ne libère
+::T|FR|cl.driver.unpack.017|                    quasiment rien tout en journalisant un nettoyage.
+::T|FR|cl.driver.unpack.018|
+::T|FR|cl.driver.unpack.019|  Gain            : Sur une machine NVIDIA, du concret : 1 à 3 Go par
+::T|FR|cl.driver.unpack.020|                    version de pilote laissée là, et les dossiers
+::T|FR|cl.driver.unpack.021|                    s'empilent puisque chaque installateur en ajoute un.
+::T|FR|cl.driver.unpack.022|                    Côté Intel, des fichiers de commandes et des journaux
+::T|FR|cl.driver.unpack.023|                    texte - quelques Mo, parfois 20 Mo. Sur cette machine
+::T|FR|cl.driver.unpack.024|                    AMD, zéro en pratique. Aucun effet sur les
+::T|FR|cl.driver.unpack.025|                    performances dans un cas comme dans l'autre.
+::T|FR|cl.driver.unpack.026|
+::T|FR|cl.driver.unpack.027|  Cout            : Si vous aviez volontairement gardé un ancien paquet
+::T|FR|cl.driver.unpack.028|                    NVIDIA dans C:\NVIDIA pour pouvoir revenir en arrière,
+::T|FR|cl.driver.unpack.029|                    il disparaît et seul un téléchargement manuel sur
+::T|FR|cl.driver.unpack.030|                    nvidia.com le ramène - environ 1 Go, et personne ne le
+::T|FR|cl.driver.unpack.031|                    fera à votre place. Cela échoue au test du « ça
+::T|FR|cl.driver.unpack.032|                    revient tout seul », et c'est précisément pourquoi
+::T|FR|cl.driver.unpack.033|                    cette étape mérite une question plutôt qu'un
+::T|FR|cl.driver.unpack.034|                    présupposé. Rien d'autre n'est perdu : pilotes
+::T|FR|cl.driver.unpack.035|                    installés, réglages et profils sont intacts.
+::T|FR|cl.driver.unpack.036|
+::T|FR|cl.driver.unpack.037|  Defaut Windows  : Sans objet. Ces dossiers sont créés par les
+::T|FR|cl.driver.unpack.038|                    installateurs des fabricants, jamais par Windows, et
+::T|FR|cl.driver.unpack.039|                    aucun gestionnaire de nettoyage Windows ne les
+::T|FR|cl.driver.unpack.040|                    connaît.
+::T|FR|cl.driver.unpack.041|
+::T|FR|cl.driver.unpack.042|  Valeurs possibles :
+::T|FR|cl.driver.unpack.043|    DELETE               : Supprimer C:\NVIDIA et les deux petits sous-
+::T|FR|cl.driver.unpack.044|                           dossiers Intel. Rien n'est désinstallé et aucun
+::T|FR|cl.driver.unpack.045|                           pilote installé n'est affecté.
+::T|FR|cl.driver.unpack.046|    KEEP                 : Le bon choix si C:\NVIDIA est l'endroit où vous
+::T|FR|cl.driver.unpack.047|                           gardez la version de pilote que vous avez
+::T|FR|cl.driver.unpack.048|                           volontairement figée.
+::T|FR|cl.driver.unpack.049|    ASK                  : Le choix honnête sur une machine de jeu. Ce
+::T|FR|cl.driver.unpack.050|                           n'est pas un cache : rien ne retélécharge un
+::T|FR|cl.driver.unpack.051|                           paquet NVIDIA automatiquement, donc le
+::T|FR|cl.driver.unpack.052|                           supprimer signifie un téléchargement manuel
+::T|FR|cl.driver.unpack.053|                           d'environ 1 Go sur nvidia.com si vous le voulez
+::T|FR|cl.driver.unpack.054|                           de nouveau.
+::X|FR|cl.driver.unpack.001|  Pourquoi ces profils : La distinction ici n'est pas matérielle, elle est
+::X|FR|cl.driver.unpack.002|                         comportementale. GAMING est le profil où l'on
+::X|FR|cl.driver.unpack.003|                         fige volontairement une version de pilote et où
+::X|FR|cl.driver.unpack.004|                         l'on garde son installateur : il demande.
+::X|FR|cl.driver.unpack.005|                         SERVEUR, BUREAU et PORTABLE installent ce que
+::X|FR|cl.driver.unpack.006|                         propose le fabricant et ne rouvrent jamais
+::X|FR|cl.driver.unpack.007|                         C:\NVIDIA : ils suppriment. WINDOWS veut dire ne
+::X|FR|cl.driver.unpack.008|                         touchez à rien : rien dans Windows ne viendra
+::X|FR|cl.driver.unpack.009|                         jamais nettoyer ces dossiers pour vous.
+::X|FR|cl.driver.unpack.010|
+::X|FR|cl.driver.unpack.011|  Problemes connus : La fiche laissait entendre que le dossier
+::X|FR|cl.driver.unpack.012|                     d'extraction C:\Intel était vidé. Il ne l'est pas :
+::X|FR|cl.driver.unpack.013|                     seuls GfxCPLBatchFiles et Logs le sont, tous deux
+::X|FR|cl.driver.unpack.014|                     minuscules. Les installateurs Intel se décompressent
+::X|FR|cl.driver.unpack.015|                     en réalité dans C:\Intel\<nom du paquet> ou dans un
+::X|FR|cl.driver.unpack.016|                     dossier de téléchargement du Driver and Support
+::X|FR|cl.driver.unpack.017|                     Assistant, et ni l'un ni l'autre n'est visé : la
+::X|FR|cl.driver.unpack.018|                     place annoncée côté Intel n'est pas celle qui est
+::X|FR|cl.driver.unpack.019|                     libérée.
+::X|FR|cl.driver.unpack.020|
+::X|FR|cl.driver.unpack.021|  Non verifie (en)  : 1 to 3 GB per left-behind NVIDIA package is the
+::X|FR|cl.driver.unpack.022|                      usual range for a full GeForce driver of recent
+::X|FR|cl.driver.unpack.023|                      years, not a measurement of this machine - which is
+::X|FR|cl.driver.unpack.024|                      AMD and has no C:\NVIDIA at all, so the biggest line
+::X|FR|cl.driver.unpack.025|                      in this step frees nothing here.
+::X|FR|cl.driver.unpack.026|
+::X|FR|cl.driver.unpack.027|  Cible           : OPTY.bat lines 1049-1055. rd /S /Q "C:\NVIDIA" removes
+::X|FR|cl.driver.unpack.028|                    that folder outright; del /F /S /Q clears the contents
+::X|FR|cl.driver.unpack.029|                    of C:\Intel\GfxCPLBatchFiles and C:\Intel\Logs. C:\AMD
+::X|FR|cl.driver.unpack.030|                    is deliberately not touched.
+::T|EN|cl.driver.unpack.001|DRIVER INSTALLER UNPACK FOLDERS (C:\NVIDIA, TWO INTEL SUBFOLDERS)
+::T|EN|cl.driver.unpack.002|
+::T|EN|cl.driver.unpack.003|  What it is      : NVIDIA and Intel driver installers unpack themselves
+::T|EN|cl.driver.unpack.004|                    to disk before installing and then leave the unpacked
+::T|EN|cl.driver.unpack.005|                    copy behind. These are not the installed drivers -
+::T|EN|cl.driver.unpack.006|                    removing them cannot uninstall anything and cannot
+::T|EN|cl.driver.unpack.007|                    affect a running display driver. C:\AMD is
+::T|EN|cl.driver.unpack.008|                    deliberately kept as a known-good fallback package.
+::T|EN|cl.driver.unpack.009|
+::T|EN|cl.driver.unpack.010|  Actual effect   : C:\NVIDIA is removed outright, folder and all. On the
+::T|EN|cl.driver.unpack.011|                    Intel side only two folders are emptied,
+::T|EN|cl.driver.unpack.012|                    C:\Intel\GfxCPLBatchFiles and C:\Intel\Logs - the
+::T|EN|cl.driver.unpack.013|                    actual Intel unpack folder, C:\Intel\<package name>,
+::T|EN|cl.driver.unpack.014|                    is not touched at all. On an AMD machine with no
+::T|EN|cl.driver.unpack.015|                    C:\NVIDIA, and this is one, the step frees essentially
+::T|EN|cl.driver.unpack.016|                    nothing and still logs a clean.
+::T|EN|cl.driver.unpack.017|
+::T|EN|cl.driver.unpack.018|  Gain            : On an NVIDIA machine, real: 1 to 3 GB per driver
+::T|EN|cl.driver.unpack.019|                    version left behind, and the folders stack up because
+::T|EN|cl.driver.unpack.020|                    each installer adds another one. On the Intel side,
+::T|EN|cl.driver.unpack.021|                    batch files and text logs - typically a few MB,
+::T|EN|cl.driver.unpack.022|                    sometimes 20 MB. On this AMD machine, effectively
+::T|EN|cl.driver.unpack.023|                    zero. There is no performance effect either way.
+::T|EN|cl.driver.unpack.024|
+::T|EN|cl.driver.unpack.025|  Cost            : If you had deliberately kept an older NVIDIA package
+::T|EN|cl.driver.unpack.026|                    in C:\NVIDIA to roll back to, it is gone and only a
+::T|EN|cl.driver.unpack.027|                    manual download from nvidia.com brings it back -
+::T|EN|cl.driver.unpack.028|                    around 1 GB, and nothing does it for you. That fails
+::T|EN|cl.driver.unpack.029|                    the come-back-on-its-own test, which is exactly why
+::T|EN|cl.driver.unpack.030|                    this one deserves a question rather than an
+::T|EN|cl.driver.unpack.031|                    assumption. Nothing else is lost: installed drivers,
+::T|EN|cl.driver.unpack.032|                    settings and profiles are untouched.
+::T|EN|cl.driver.unpack.033|
+::T|EN|cl.driver.unpack.034|  Windows default : Not applicable. These folders are created by vendor
+::T|EN|cl.driver.unpack.035|                    installers, never by Windows, and no Windows cleanup
+::T|EN|cl.driver.unpack.036|                    handler knows about them.
+::T|EN|cl.driver.unpack.037|
+::T|EN|cl.driver.unpack.038|  Possible values:
+::T|EN|cl.driver.unpack.039|    DELETE               : Remove C:\NVIDIA and the two small Intel
+::T|EN|cl.driver.unpack.040|                           subfolders. Nothing is uninstalled and no
+::T|EN|cl.driver.unpack.041|                           installed driver is affected.
+::T|EN|cl.driver.unpack.042|    KEEP                 : Right if C:\NVIDIA is where you keep the driver
+::T|EN|cl.driver.unpack.043|                           version you have deliberately pinned.
+::T|EN|cl.driver.unpack.044|    ASK                  : The honest default on a gaming machine. This is
+::T|EN|cl.driver.unpack.045|                           not a cache: nothing refetches an NVIDIA
+::T|EN|cl.driver.unpack.046|                           package automatically, so deleting it means a
+::T|EN|cl.driver.unpack.047|                           manual download of roughly 1 GB from nvidia.com
+::T|EN|cl.driver.unpack.048|                           if you ever want it back.
+::X|EN|cl.driver.unpack.001|  Why these profiles : The distinction here is not hardware, it is habit.
+::X|EN|cl.driver.unpack.002|                       GAMING is the profile where people deliberately pin
+::X|EN|cl.driver.unpack.003|                       a driver version and keep its installer, so it
+::X|EN|cl.driver.unpack.004|                       asks. SERVER, OFFICE and LAPTOP install whatever
+::X|EN|cl.driver.unpack.005|                       the vendor offers and never look in C:\NVIDIA
+::X|EN|cl.driver.unpack.006|                       again, so they delete. WINDOWS means leave it
+::X|EN|cl.driver.unpack.007|                       alone: nothing in Windows will ever clean these up
+::X|EN|cl.driver.unpack.008|                       for you.
+::X|EN|cl.driver.unpack.009|
+::X|EN|cl.driver.unpack.010|  Known problems  : The card previously implied the C:\Intel unpack folder
+::X|EN|cl.driver.unpack.011|                    was cleared. It is not: only GfxCPLBatchFiles and Logs
+::X|EN|cl.driver.unpack.012|                    are, both small. Intel installers actually unpack into
+::X|EN|cl.driver.unpack.013|                    C:\Intel\<package name> or a Driver and Support
+::X|EN|cl.driver.unpack.014|                    Assistant download folder, and neither is targeted, so
+::X|EN|cl.driver.unpack.015|                    the space this step claims for Intel is not the space
+::X|EN|cl.driver.unpack.016|                    it frees.
+::X|EN|cl.driver.unpack.017|
+::X|EN|cl.driver.unpack.018|  Unverified      : 1 to 3 GB per left-behind NVIDIA package is the usual
+::X|EN|cl.driver.unpack.019|                    range for a full GeForce driver of recent years, not a
+::X|EN|cl.driver.unpack.020|                    measurement of this machine - which is AMD and has no
+::X|EN|cl.driver.unpack.021|                    C:\NVIDIA at all, so the biggest line in this step
+::X|EN|cl.driver.unpack.022|                    frees nothing here.
+::X|EN|cl.driver.unpack.023|
+::X|EN|cl.driver.unpack.024|  Target          : OPTY.bat lines 1049-1055. rd /S /Q "C:\NVIDIA" removes
+::X|EN|cl.driver.unpack.025|                    that folder outright; del /F /S /Q clears the contents
+::X|EN|cl.driver.unpack.026|                    of C:\Intel\GfxCPLBatchFiles and C:\Intel\Logs. C:\AMD
+::X|EN|cl.driver.unpack.027|                    is deliberately not touched.
+::
+:: ---- cl.browser.caches (cleanup) ---------------------------------
+::P|cl.browser.caches|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.browser.caches.001|CACHES DES NAVIGATEURS, TOUS NAVIGATEURS ET TOUS LES COMPTES
+::T|FR|cl.browser.caches.002|
+::T|FR|cl.browser.caches.003|  Ce que c est    : Chaque navigateur Chromium - Chrome, Edge, Brave,
+::T|FR|cl.browser.caches.004|                    Vivaldi, Opera, Opera GX, Yandex, Chromium - et
+::T|FR|cl.browser.caches.005|                    Firefox conserve des caches jetables : cache de pages,
+::T|FR|cl.browser.caches.006|                    cache de code JavaScript compilé, caches GPU et
+::T|FR|cl.browser.caches.007|                    shaders, caches de service workers, caches de paquets
+::T|FR|cl.browser.caches.008|                    d'extensions et rapports de plantage. Cette étape les
+::T|FR|cl.browser.caches.009|                    vide pour chaque profil de navigateur de chaque compte
+::T|FR|cl.browser.caches.010|                    Windows. Un navigateur en cours d'exécution est
+::T|FR|cl.browser.caches.011|                    intégralement ignoré, jamais fermé de force.
+::T|FR|cl.browser.caches.012|
+::T|FR|cl.browser.caches.013|  Effet reel      : Supprime uniquement des fichiers situés dans des
+::T|FR|cl.browser.caches.014|                    dossiers de cache, en laissant les dossiers en place.
+::T|FR|cl.browser.caches.015|                    Les cookies, Login Data, Web Data, l'historique, les
+::T|FR|cl.browser.caches.016|                    favoris, les préférences, le Local Storage et
+::T|FR|cl.browser.caches.017|                    IndexedDB ne sont jamais touchés : vous restez
+::T|FR|cl.browser.caches.018|                    connecté partout. Deux choses déterminent ce qui part
+::T|FR|cl.browser.caches.019|                    réellement. Le garde-fou porte sur le nom du processus
+::T|FR|cl.browser.caches.020|                    à l'échelle de la machine : un seul chrome.exe ouvert
+::T|FR|cl.browser.caches.021|                    dans n'importe quel compte fait sauter Chrome pour
+::T|FR|cl.browser.caches.022|                    tous les comptes. Et Edge en particulier laisse
+::T|FR|cl.browser.caches.023|                    souvent msedge.exe résident après la fermeture de sa
+::T|FR|cl.browser.caches.024|                    fenêtre, si bien qu'Edge est ignoré alors qu'il a
+::T|FR|cl.browser.caches.025|                    l'air fermé - fiez-vous au Gestionnaire des tâches,
+::T|FR|cl.browser.caches.026|                    pas à la barre des tâches. Les trois dossiers WebView2
+::T|FR|cl.browser.caches.027|                    vidés à la fin n'ont aucun garde-fou et sont
+::T|FR|cl.browser.caches.028|                    généralement tenus ouverts par un hôte WebView2 actif
+::T|FR|cl.browser.caches.029|                    : ces suppressions échouent en grande partie sans le
+::T|FR|cl.browser.caches.030|                    dire.
+::T|FR|cl.browser.caches.031|
+::T|FR|cl.browser.caches.032|  Gain            : Souvent le plus gros gain unitaire après Windows.old,
+::T|FR|cl.browser.caches.033|                    mais restons honnêtes sur le chiffre : un profil
+::T|FR|cl.browser.caches.034|                    Chromium très utilisé contient environ 300 Mo à 2 Go
+::T|FR|cl.browser.caches.035|                    entre Cache, Code Cache et stockage des service
+::T|FR|cl.browser.caches.036|                    workers, et Chromium plafonne lui-même son cache HTTP
+::T|FR|cl.browser.caches.037|                    bien en dessous des chiffres de plusieurs gigaoctets
+::T|FR|cl.browser.caches.038|                    souvent avancés. Mesuré sur cette machine : 28 Mo rien
+::T|FR|cl.browser.caches.039|                    que dans component_crx_cache, un dossier qu'un
+::T|FR|cl.browser.caches.040|                    balayage par profil seul manque totalement. Sur
+::T|FR|cl.browser.caches.041|                    plusieurs profils et plusieurs comptes, 1 à 4 Go au
+::T|FR|cl.browser.caches.042|                    total est une attente raisonnable. C'est aussi le
+::T|FR|cl.browser.caches.043|                    remède standard aux pages qui s'affichent mal, à un
+::T|FR|cl.browser.caches.044|                    élément périmé qui s'accroche ou à un navigateur
+::T|FR|cl.browser.caches.045|                    devenu instable.
+::T|FR|cl.browser.caches.046|
+::T|FR|cl.browser.caches.047|  Cout            : Les pages se retéléchargent au fil de la navigation et
+::T|FR|cl.browser.caches.048|                    le JavaScript se recompile site par site : les
+::T|FR|cl.browser.caches.049|                    premières minutes semblent un peu plus lentes -
+::T|FR|cl.browser.caches.050|                    quelques centaines de Mo de trafic sur les jours
+::T|FR|cl.browser.caches.051|                    suivants, ce qui mérite réflexion sur une connexion
+::T|FR|cl.browser.caches.052|                    limitée ou en partage de connexion. Aucune perte de
+::T|FR|cl.browser.caches.053|                    vitesse durable, rien de définitif n'est perdu. La
+::T|FR|cl.browser.caches.054|                    régénération est automatique et immédiate, très en
+::T|FR|cl.browser.caches.055|                    deçà de la règle des trente minutes. Non touchés :
+::T|FR|cl.browser.caches.056|                    mots de passe, cookies, sessions, historique, favoris,
+::T|FR|cl.browser.caches.057|                    extensions et leurs réglages.
+::T|FR|cl.browser.caches.058|
+::T|FR|cl.browser.caches.059|  Defaut Windows  : Sans objet. Ce sont des caches applicatifs, gérés par
+::T|FR|cl.browser.caches.060|                    chaque navigateur, auxquels Windows ne touche jamais.
+::T|FR|cl.browser.caches.061|
+::T|FR|cl.browser.caches.062|  Valeurs possibles :
+::T|FR|cl.browser.caches.063|    DELETE               : Vider les caches jetables de chaque profil de
+::T|FR|cl.browser.caches.064|                           navigateur de chaque compte. Connexions,
+::T|FR|cl.browser.caches.065|                           cookies, historique et favoris restent.
+::T|FR|cl.browser.caches.066|    KEEP                 : Raisonnable sur une connexion limitée ou en
+::T|FR|cl.browser.caches.067|                           partage de connexion, où retélécharger quelques
+::T|FR|cl.browser.caches.068|                           centaines de Mo d'éléments de page coûte
+::T|FR|cl.browser.caches.069|                           vraiment.
+::T|FR|cl.browser.caches.070|    ASK                  : Inutile ici. L'étape refuse déjà de toucher un
+::T|FR|cl.browser.caches.071|                           navigateur en cours d'exécution, le seul cas
+::T|FR|cl.browser.caches.072|                           qui pourrait faire des dégâts.
+::X|FR|cl.browser.caches.001|  Pourquoi ces profils : Quatre colonnes identiques, parce qu'un cache de
+::X|FR|cl.browser.caches.002|                         pages se comporte pareil sur toutes les machines.
+::X|FR|cl.browser.caches.003|                         Fermez vos navigateurs d'abord, sinon vous
+::X|FR|cl.browser.caches.004|                         n'obtiendrez que la moitié du bénéfice, sans le
+::X|FR|cl.browser.caches.005|                         moindre avertissement. PORTABLE est le seul cas
+::X|FR|cl.browser.caches.006|                         avec une nuance à dire : retélécharger les
+::X|FR|cl.browser.caches.007|                         éléments de page coûte de la batterie et des
+::X|FR|cl.browser.caches.008|                         données mobiles, donc mauvaise idée juste avant
+::X|FR|cl.browser.caches.009|                         de passer hors ligne. WINDOWS veut dire ne
+::X|FR|cl.browser.caches.010|                         touchez à rien : ces caches sont bornés par le
+::X|FR|cl.browser.caches.011|                         navigateur et n'emporteront pas votre disque.
+::X|FR|cl.browser.caches.012|
+::X|FR|cl.browser.caches.013|  Problemes connus : Le garde-fou compare le nom d'image à l'échelle de la
+::X|FR|cl.browser.caches.014|                     machine entière : si un seul compte a chrome.exe
+::X|FR|cl.browser.caches.015|                     ouvert, les caches Chrome de tous les comptes sont
+::X|FR|cl.browser.caches.016|                     ignorés dans le même passage. Les trois lignes
+::X|FR|cl.browser.caches.017|                     EdgeWebView 1073-1075 n'ont aucun garde-fou et ne
+::X|FR|cl.browser.caches.018|                     couvrent que le compte qui exécute OPTY ; or les
+::X|FR|cl.browser.caches.019|                     hôtes WebView2 comme les Widgets ou le nouvel Outlook
+::X|FR|cl.browser.caches.020|                     tiennent généralement ces fichiers ouverts, donc ces
+::X|FR|cl.browser.caches.021|                     suppressions échouent la plupart du temps en silence.
+::X|FR|cl.browser.caches.022|
+::X|FR|cl.browser.caches.023|  Non verifie (en)  : Whether Edge is skipped in practice depends on its
+::X|FR|cl.browser.caches.024|                      startup-boost and background-apps settings, which
+::X|FR|cl.browser.caches.025|                      vary by install and by policy - the mechanism is
+::X|FR|cl.browser.caches.026|                      certain, the frequency on your machine is not. The
+::X|FR|cl.browser.caches.027|                      per-profile size range is from ordinary installs;
+::X|FR|cl.browser.caches.028|                      the only figure actually measured here is 28 MB of
+::X|FR|cl.browser.caches.029|                      component_crx_cache.
+::X|FR|cl.browser.caches.030|
+::X|FR|cl.browser.caches.031|  Cible           : OPTY.bat lines 1057-1075, helper :userclean at
+::X|FR|cl.browser.caches.032|                    3379-3413 and :chromecache at 3296-3339. Loops over
+::X|FR|cl.browser.caches.033|                    every C:\Users\* profile, then for each Chromium
+::X|FR|cl.browser.caches.034|                    browser clears, in every profile folder (Default,
+::X|FR|cl.browser.caches.035|                    "Profile *", "Guest Profile"): Cache, Code Cache,
+::X|FR|cl.browser.caches.036|                    GPUCache, DawnWebGPUCache, DawnGraphiteCache, Service
+::X|FR|cl.browser.caches.037|                    Worker\CacheStorage and ScriptCache; and beside the
+::X|FR|cl.browser.caches.038|                    profiles GrShaderCache, ShaderCache,
+::X|FR|cl.browser.caches.039|                    GraphiteDawnCache, GPUPersistentCache,
+::X|FR|cl.browser.caches.040|                    component_crx_cache, extensions_crx_cache,
+::X|FR|cl.browser.caches.041|                    Crashpad\reports and BrowserMetrics\*.pma. Firefox:
+::X|FR|cl.browser.caches.042|                    cache2, startupCache, jumpListCache and thumbnails per
+::X|FR|cl.browser.caches.043|                    profile. Lines 1073-1075 also clear three EdgeWebView
+::X|FR|cl.browser.caches.044|                    cache folders for the current user, with no guard.
+::T|EN|cl.browser.caches.001|BROWSER CACHES, EVERY BROWSER AND EVERY ACCOUNT
+::T|EN|cl.browser.caches.002|
+::T|EN|cl.browser.caches.003|  What it is      : Every Chromium browser - Chrome, Edge, Brave, Vivaldi,
+::T|EN|cl.browser.caches.004|                    Opera, Opera GX, Yandex, Chromium - and Firefox keeps
+::T|EN|cl.browser.caches.005|                    disposable caches: the page cache, the compiled-
+::T|EN|cl.browser.caches.006|                    JavaScript code cache, GPU and shader caches, service-
+::T|EN|cl.browser.caches.007|                    worker caches, extension package caches and crash
+::T|EN|cl.browser.caches.008|                    reports. This step clears them for every browser
+::T|EN|cl.browser.caches.009|                    profile of every Windows account. A browser that is
+::T|EN|cl.browser.caches.010|                    running is skipped entirely rather than force-closed.
+::T|EN|cl.browser.caches.011|
+::T|EN|cl.browser.caches.012|  Actual effect   : Deletes files inside cache directories only, leaving
+::T|EN|cl.browser.caches.013|                    the directories in place. Cookies, Login Data, Web
+::T|EN|cl.browser.caches.014|                    Data, History, Bookmarks, Preferences, Local Storage
+::T|EN|cl.browser.caches.015|                    and IndexedDB are never touched - you stay signed in
+::T|EN|cl.browser.caches.016|                    everywhere. Two things decide how much actually goes.
+::T|EN|cl.browser.caches.017|                    The guard is by process name across the whole machine,
+::T|EN|cl.browser.caches.018|                    so one running chrome.exe in any account skips Chrome
+::T|EN|cl.browser.caches.019|                    for all accounts. And Edge in particular often keeps
+::T|EN|cl.browser.caches.020|                    msedge.exe resident after you close its window, which
+::T|EN|cl.browser.caches.021|                    means Edge is skipped even though it looks closed -
+::T|EN|cl.browser.caches.022|                    check Task Manager, not the taskbar. The three
+::T|EN|cl.browser.caches.023|                    WebView2 folders cleared at the end have no guard and
+::T|EN|cl.browser.caches.024|                    are usually held open by a running WebView2 host, so
+::T|EN|cl.browser.caches.025|                    those deletes largely fail without saying so.
+::T|EN|cl.browser.caches.026|
+::T|EN|cl.browser.caches.027|  Gain            : Usually the biggest single win after Windows.old, but
+::T|EN|cl.browser.caches.028|                    be realistic about the number: a busy Chromium profile
+::T|EN|cl.browser.caches.029|                    holds roughly 300 MB to 2 GB across Cache, Code Cache
+::T|EN|cl.browser.caches.030|                    and service-worker storage, and Chromium caps its own
+::T|EN|cl.browser.caches.031|                    HTTP cache well below the multi-gigabyte figures often
+::T|EN|cl.browser.caches.032|                    quoted. Measured on this machine: 28 MB in
+::T|EN|cl.browser.caches.033|                    component_crx_cache alone, a folder a per-profile-only
+::T|EN|cl.browser.caches.034|                    sweep misses entirely. Across several profiles and
+::T|EN|cl.browser.caches.035|                    several accounts, 1 to 4 GB total is a fair
+::T|EN|cl.browser.caches.036|                    expectation. It is also the standard fix for pages
+::T|EN|cl.browser.caches.037|                    that render wrong, a stale asset that will not go
+::T|EN|cl.browser.caches.038|                    away, or a browser that has become crashy.
+::T|EN|cl.browser.caches.039|
+::T|EN|cl.browser.caches.040|  Cost            : Pages re-download as you browse and JavaScript
+::T|EN|cl.browser.caches.041|                    recompiles per site, so the first few minutes feel
+::T|EN|cl.browser.caches.042|                    slightly slower - a few hundred MB of traffic over the
+::T|EN|cl.browser.caches.043|                    following days, worth thinking about on a metered or
+::T|EN|cl.browser.caches.044|                    tethered connection. There is no lasting speed loss
+::T|EN|cl.browser.caches.045|                    and nothing permanent is lost. Regeneration is
+::T|EN|cl.browser.caches.046|                    automatic and immediate, well inside the thirty-minute
+::T|EN|cl.browser.caches.047|                    rule. Not touched: passwords, cookies, sessions,
+::T|EN|cl.browser.caches.048|                    history, bookmarks, extensions and their settings.
+::T|EN|cl.browser.caches.049|
+::T|EN|cl.browser.caches.050|  Windows default : Not applicable. These are application caches, managed
+::T|EN|cl.browser.caches.051|                    by each browser, and Windows never touches them.
+::T|EN|cl.browser.caches.052|
+::T|EN|cl.browser.caches.053|  Possible values:
+::T|EN|cl.browser.caches.054|    DELETE               : Clear the disposable browser caches for every
+::T|EN|cl.browser.caches.055|                           browser profile of every account. Logins,
+::T|EN|cl.browser.caches.056|                           cookies, history and bookmarks stay.
+::T|EN|cl.browser.caches.057|    KEEP                 : Reasonable on a metered or tethered connection,
+::T|EN|cl.browser.caches.058|                           where refetching a few hundred MB of page
+::T|EN|cl.browser.caches.059|                           assets costs real money.
+::T|EN|cl.browser.caches.060|    ASK                  : Not needed here. The step already refuses to
+::T|EN|cl.browser.caches.061|                           touch a browser that is running, which is the
+::T|EN|cl.browser.caches.062|                           only case that could do damage.
+::X|EN|cl.browser.caches.001|  Why these profiles : Four identical columns because a page cache behaves
+::X|EN|cl.browser.caches.002|                       the same on every machine. Close your browsers
+::X|EN|cl.browser.caches.003|                       first, or you get half the benefit and no warning
+::X|EN|cl.browser.caches.004|                       that you did. LAPTOP is the only one with a caveat
+::X|EN|cl.browser.caches.005|                       worth stating: refetching page assets costs battery
+::X|EN|cl.browser.caches.006|                       and mobile data, so it is a poor thing to do right
+::X|EN|cl.browser.caches.007|                       before going offline. WINDOWS means leave it alone
+::X|EN|cl.browser.caches.008|                       - these caches are bounded by the browser and will
+::X|EN|cl.browser.caches.009|                       not run away with your disk.
+::X|EN|cl.browser.caches.010|
+::X|EN|cl.browser.caches.011|  Known problems  : The running-process guard matches on image name across
+::X|EN|cl.browser.caches.012|                    the whole machine, so if any account has chrome.exe
+::X|EN|cl.browser.caches.013|                    up, every account's Chrome caches are skipped in the
+::X|EN|cl.browser.caches.014|                    same pass. The three EdgeWebView lines at 1073-1075
+::X|EN|cl.browser.caches.015|                    have no guard at all and cover only the account
+::X|EN|cl.browser.caches.016|                    running OPTY, and WebView2 hosts such as Widgets or
+::X|EN|cl.browser.caches.017|                    the new Outlook usually hold those files open, so
+::X|EN|cl.browser.caches.018|                    those deletes mostly fail in silence.
+::X|EN|cl.browser.caches.019|
+::X|EN|cl.browser.caches.020|  Unverified      : Whether Edge is skipped in practice depends on its
+::X|EN|cl.browser.caches.021|                    startup-boost and background-apps settings, which vary
+::X|EN|cl.browser.caches.022|                    by install and by policy - the mechanism is certain,
+::X|EN|cl.browser.caches.023|                    the frequency on your machine is not. The per-profile
+::X|EN|cl.browser.caches.024|                    size range is from ordinary installs; the only figure
+::X|EN|cl.browser.caches.025|                    actually measured here is 28 MB of
+::X|EN|cl.browser.caches.026|                    component_crx_cache.
+::X|EN|cl.browser.caches.027|
+::X|EN|cl.browser.caches.028|  Target          : OPTY.bat lines 1057-1075, helper :userclean at
+::X|EN|cl.browser.caches.029|                    3379-3413 and :chromecache at 3296-3339. Loops over
+::X|EN|cl.browser.caches.030|                    every C:\Users\* profile, then for each Chromium
+::X|EN|cl.browser.caches.031|                    browser clears, in every profile folder (Default,
+::X|EN|cl.browser.caches.032|                    "Profile *", "Guest Profile"): Cache, Code Cache,
+::X|EN|cl.browser.caches.033|                    GPUCache, DawnWebGPUCache, DawnGraphiteCache, Service
+::X|EN|cl.browser.caches.034|                    Worker\CacheStorage and ScriptCache; and beside the
+::X|EN|cl.browser.caches.035|                    profiles GrShaderCache, ShaderCache,
+::X|EN|cl.browser.caches.036|                    GraphiteDawnCache, GPUPersistentCache,
+::X|EN|cl.browser.caches.037|                    component_crx_cache, extensions_crx_cache,
+::X|EN|cl.browser.caches.038|                    Crashpad\reports and BrowserMetrics\*.pma. Firefox:
+::X|EN|cl.browser.caches.039|                    cache2, startupCache, jumpListCache and thumbnails per
+::X|EN|cl.browser.caches.040|                    profile. Lines 1073-1075 also clear three EdgeWebView
+::X|EN|cl.browser.caches.041|                    cache folders for the current user, with no guard.
+::
+:: ---- cl.winold.remove (risky) ----------------------------------
+::P|cl.winold.remove|ASK|ASK|ASK|ASK|KEEP|
+::T|FR|cl.winold.remove.001|WINDOWS.OLD (L'INSTALLATION WINDOWS PRÉCÉDENTE)
+::T|FR|cl.winold.remove.002|
+::T|FR|cl.winold.remove.003|  Ce que c est    : Après une mise à jour de fonctionnalité ou une mise à
+::T|FR|cl.winold.remove.004|                    niveau sur place, Windows conserve toute votre
+::T|FR|cl.winold.remove.005|                    installation précédente dans C:\Windows.old. C'est ce
+::T|FR|cl.winold.remove.006|                    dossier qu'utilise Paramètres, Récupération, « Revenir
+::T|FR|cl.winold.remove.007|                    en arrière » pour annuler la mise à niveau. Windows le
+::T|FR|cl.winold.remove.008|                    supprime tout seul une dizaine de jours après.
+::T|FR|cl.winold.remove.009|
+::T|FR|cl.winold.remove.010|  Effet reel      : Prend possession du dossier de façon récursive,
+::T|FR|cl.winold.remove.011|                    accorde le contrôle total au groupe Administrateurs de
+::T|FR|cl.winold.remove.012|                    façon récursive, puis le supprime. C'est la seule
+::T|FR|cl.winold.remove.013|                    étape de nettoyage réservée au mode Auto Full. Deux
+::T|FR|cl.winold.remove.014|                    choses à savoir sur la manière dont elle procède.
+::T|FR|cl.winold.remove.015|                    D'abord, rd /S /Q n'arrive souvent pas au bout -
+::T|FR|cl.winold.remove.016|                    fichiers de maintenance en liens physiques et entrées
+::T|FR|cl.winold.remove.017|                    dont les ACL n'ont pas pu être changées restent en
+::T|FR|cl.winold.remove.018|                    place - et les erreurs sont jetées, donc un
+::T|FR|cl.winold.remove.019|                    Windows.old partiel peut survivre pendant que
+::T|FR|cl.winold.remove.020|                    l'exécution annonce un succès. Ensuite, la prise de
+::T|FR|cl.winold.remove.021|                    possession est récursive et ne saute pas les liens
+::T|FR|cl.winold.remove.022|                    symboliques, ce qui fait l'objet du coût ci-dessous.
+::T|FR|cl.winold.remove.023|
+::T|FR|cl.winold.remove.024|  Gain            : De très loin le plus gros gain de place disponible :
+::T|FR|cl.winold.remove.025|                    typiquement 15 à 40 Go, parfois davantage. Rien
+::T|FR|cl.winold.remove.026|                    d'autre dans cet outil n'en approche. Aucun effet sur
+::T|FR|cl.winold.remove.027|                    les performances : un dossier Windows.old coûte du
+::T|FR|cl.winold.remove.028|                    disque, pas de la vitesse.
+::T|FR|cl.winold.remove.029|
+::T|FR|cl.winold.remove.030|  Cout            : Trois coûts, et c'est le troisième que personne ne
+::T|FR|cl.winold.remove.031|                    mentionne. Vous perdez définitivement et immédiatement
+::T|FR|cl.winold.remove.032|                    la possibilité de revenir à la version précédente de
+::T|FR|cl.winold.remove.033|                    Windows. Tout fichier resté dans un ancien profil à
+::T|FR|cl.winold.remove.034|                    l'intérieur de Windows.old part avec : vérifiez
+::T|FR|cl.winold.remove.035|                    Windows.old\Users d'abord. Et la suppression commence
+::T|FR|cl.winold.remove.036|                    par une prise de possession récursive : Windows.old
+::T|FR|cl.winold.remove.037|                    contient encore les anciennes jonctions de
+::T|FR|cl.winold.remove.038|                    compatibilité comme « Local Settings » et «
+::T|FR|cl.winold.remove.039|                    Application Data », dont les cibles enregistrées sont
+::T|FR|cl.winold.remove.040|                    des chemins absolus qui pointent vers votre profil
+::T|FR|cl.winold.remove.041|                    actif, si bien qu'un takeown et un icacls récursifs
+::T|FR|cl.winold.remove.042|                    peuvent les suivre et réattribuer propriété et
+::T|FR|cl.winold.remove.043|                    permissions sur des dossiers de C:\Users toujours en
+::T|FR|cl.winold.remove.044|                    service. Ce changement est invisible, il survit au
+::T|FR|cl.winold.remove.045|                    nettoyage, et rien dans OPTY ne le remet en état. Rien
+::T|FR|cl.winold.remove.046|                    ici ne se régénère : 15 à 40 Go et une possibilité de
+::T|FR|cl.winold.remove.047|                    retour arrière partent pour de bon.
+::T|FR|cl.winold.remove.048|
+::T|FR|cl.winold.remove.049|  Defaut Windows  : Windows conserve Windows.old une dizaine de jours
+::T|FR|cl.winold.remove.050|                    après une mise à niveau, puis le supprime
+::T|FR|cl.winold.remove.051|                    automatiquement par son propre chemin pris en charge.
+::T|FR|cl.winold.remove.052|                    Le Nettoyage de disque et l'Assistant Stockage
+::T|FR|cl.winold.remove.053|                    proposent la même chose sans réécrire les propriétés.
+::T|FR|cl.winold.remove.054|
+::T|FR|cl.winold.remove.055|  Valeurs possibles :
+::T|FR|cl.winold.remove.056|    DELETE               : Prendre possession de C:\Windows.old et le
+::T|FR|cl.winold.remove.057|                           supprimer maintenant. Le retour à la version
+::T|FR|cl.winold.remove.058|                           précédente de Windows s'arrête à cet instant,
+::T|FR|cl.winold.remove.059|                           définitivement.
+::T|FR|cl.winold.remove.060|    KEEP                 : Le laisser. Windows le supprime tout seul une
+::T|FR|cl.winold.remove.061|                           dizaine de jours après la mise à niveau, et
+::T|FR|cl.winold.remove.062|                           vous gardez votre porte de sortie jusque-là.
+::T|FR|cl.winold.remove.063|    ASK                  : Le choix par défaut de cette étape, et le seul
+::T|FR|cl.winold.remove.064|                           défendable : 15 à 40 Go qui ne reviennent
+::T|FR|cl.winold.remove.065|                           jamais, plus un effet de bord sur les
+::T|FR|cl.winold.remove.066|                           permissions. Elle est réservée au mode Auto
+::T|FR|cl.winold.remove.067|                           Full et ne s'exécute jamais sans surveillance
+::T|FR|cl.winold.remove.068|                           dans les autres modes.
+::X|FR|cl.winold.remove.001|  Pourquoi ces profils : Quatre colonnes DEMANDER identiques, parce que ce
+::X|FR|cl.winold.remove.002|                         n'est pas un cache et qu'aucun profil ne peut
+::X|FR|cl.winold.remove.003|                         répondre à votre place : tout dépend de
+::X|FR|cl.winold.remove.004|                         l'ancienneté de la mise à niveau et du
+::X|FR|cl.winold.remove.005|                         comportement de la nouvelle version. Oui si la
+::X|FR|cl.winold.remove.006|                         mise à niveau date de plus de deux semaines, que
+::X|FR|cl.winold.remove.007|                         tout fonctionne et que la place vous manque. Non
+::X|FR|cl.winold.remove.008|                         si vous avez migré il y a quelques jours, si
+::X|FR|cl.winold.remove.009|                         quelque chose cloche depuis, ou si vous n'avez
+::X|FR|cl.winold.remove.010|                         pas vérifié Windows.old\Users. WINDOWS est la
+::X|FR|cl.winold.remove.011|                         seule réponse tranchée : attendre, et laisser
+::X|FR|cl.winold.remove.012|                         Windows faire le travail proprement, à son
+::X|FR|cl.winold.remove.013|                         rythme.
+::X|FR|cl.winold.remove.014|
+::X|FR|cl.winold.remove.015|  Problemes connus : Il manque /SKIPSL à takeown et /L à icacls : les deux
+::X|FR|cl.winold.remove.016|                     récursions peuvent donc suivre les anciennes
+::X|FR|cl.winold.remove.017|                     jonctions de compatibilité de Windows.old et
+::X|FR|cl.winold.remove.018|                     réattribuer propriété et ACL sur des dossiers actifs
+::X|FR|cl.winold.remove.019|                     de C:\Users. Correction dans le code : takeown /F ...
+::X|FR|cl.winold.remove.020|                     /R /A /D Y /SKIPSL et icacls ... /grant
+::X|FR|cl.winold.remove.021|                     administrators:F /T /C /L. Par ailleurs, rd /S /Q
+::X|FR|cl.winold.remove.022|                     envoie ses erreurs vers nul, donc un Windows.old
+::X|FR|cl.winold.remove.023|                     partiellement supprimé est annoncé comme un succès.
+::X|FR|cl.winold.remove.024|
+::X|FR|cl.winold.remove.025|  Non verifie (en)  : How far the takeown and icacls recursion actually
+::X|FR|cl.winold.remove.026|                      walks through a junction depends on the exact
+::X|FR|cl.winold.remove.027|                      junction set your upgrade left in Windows.old, which
+::X|FR|cl.winold.remove.028|                      was not enumerated on this machine. The mechanism -
+::X|FR|cl.winold.remove.029|                      takeown /R and icacls /T follow links unless told
+::X|FR|cl.winold.remove.030|                      not to, and the legacy compatibility junctions store
+::X|FR|cl.winold.remove.031|                      absolute targets pointing into the live profile - is
+::X|FR|cl.winold.remove.032|                      the reason /SKIPSL and /L exist. Treat it as likely,
+::X|FR|cl.winold.remove.033|                      not measured.
+::X|FR|cl.winold.remove.034|
+::X|FR|cl.winold.remove.035|  Cible           : OPTY.bat lines 1078-1086. takeown /F
+::X|FR|cl.winold.remove.036|                    "%SystemDrive%\Windows.old" /R /A /D Y, then icacls
+::X|FR|cl.winold.remove.037|                    "%SystemDrive%\Windows.old" /grant administrators:F /T
+::X|FR|cl.winold.remove.038|                    /C, then rd /S /Q. Every command's output goes to nul
+::X|FR|cl.winold.remove.039|                    and the rd errors go to 2>nul.
+::T|EN|cl.winold.remove.001|WINDOWS.OLD (THE PREVIOUS WINDOWS INSTALLATION)
+::T|EN|cl.winold.remove.002|
+::T|EN|cl.winold.remove.003|  What it is      : After a feature update or an in-place upgrade, Windows
+::T|EN|cl.winold.remove.004|                    keeps your entire previous installation in
+::T|EN|cl.winold.remove.005|                    C:\Windows.old. That folder is what Settings,
+::T|EN|cl.winold.remove.006|                    Recovery, "Go back" uses to undo the upgrade. Windows
+::T|EN|cl.winold.remove.007|                    deletes it by itself about ten days after the upgrade.
+::T|EN|cl.winold.remove.008|
+::T|EN|cl.winold.remove.009|  Actual effect   : Takes ownership of the folder recursively, grants the
+::T|EN|cl.winold.remove.010|                    Administrators group full control recursively, then
+::T|EN|cl.winold.remove.011|                    deletes it. This is the only cleanup step gated to
+::T|EN|cl.winold.remove.012|                    Auto Full mode. Two things to know about how it does
+::T|EN|cl.winold.remove.013|                    it. First, rd /S /Q often cannot finish - hardlinked
+::T|EN|cl.winold.remove.014|                    servicing files and entries whose ACLs it did not
+::T|EN|cl.winold.remove.015|                    manage to change stay behind - and the errors are
+::T|EN|cl.winold.remove.016|                    discarded, so a partial Windows.old can survive while
+::T|EN|cl.winold.remove.017|                    the run reports success. Second, the ownership pass is
+::T|EN|cl.winold.remove.018|                    recursive and does not skip symbolic links, which is
+::T|EN|cl.winold.remove.019|                    the subject of the cost below.
+::T|EN|cl.winold.remove.020|
+::T|EN|cl.winold.remove.021|  Gain            : By far the biggest space win available, typically 15
+::T|EN|cl.winold.remove.022|                    to 40 GB and sometimes more. Nothing else in this tool
+::T|EN|cl.winold.remove.023|                    comes close. No performance effect at all - a
+::T|EN|cl.winold.remove.024|                    Windows.old folder costs disk, not speed.
+::T|EN|cl.winold.remove.025|
+::T|EN|cl.winold.remove.026|  Cost            : Three costs, and the third is the one nobody tells
+::T|EN|cl.winold.remove.027|                    you. You permanently lose the ability to roll back to
+::T|EN|cl.winold.remove.028|                    the previous Windows build, immediately and
+::T|EN|cl.winold.remove.029|                    irreversibly. Any file still sitting in an old profile
+::T|EN|cl.winold.remove.030|                    inside Windows.old goes with it - check
+::T|EN|cl.winold.remove.031|                    Windows.old\Users first. And the deletion begins by
+::T|EN|cl.winold.remove.032|                    taking ownership recursively: Windows.old still
+::T|EN|cl.winold.remove.033|                    contains the legacy compatibility junctions such as
+::T|EN|cl.winold.remove.034|                    "Local Settings" and "Application Data", whose stored
+::T|EN|cl.winold.remove.035|                    targets are absolute paths pointing at your live
+::T|EN|cl.winold.remove.036|                    profile, so a recursive takeown and icacls can follow
+::T|EN|cl.winold.remove.037|                    them and reassign ownership and permissions on folders
+::T|EN|cl.winold.remove.038|                    inside C:\Users that are still in use. That change is
+::T|EN|cl.winold.remove.039|                    invisible, it survives the cleanup, and nothing in
+::T|EN|cl.winold.remove.040|                    OPTY puts it back. Nothing here regenerates: 15 to 40
+::T|EN|cl.winold.remove.041|                    GB and a rollback path are gone for good.
+::T|EN|cl.winold.remove.042|
+::T|EN|cl.winold.remove.043|  Windows default : Windows keeps Windows.old for about ten days after an
+::T|EN|cl.winold.remove.044|                    upgrade and then removes it automatically, through its
+::T|EN|cl.winold.remove.045|                    own supported path. Disk Cleanup and Storage Sense
+::T|EN|cl.winold.remove.046|                    offer the same thing without the ownership rewrite.
+::T|EN|cl.winold.remove.047|
+::T|EN|cl.winold.remove.048|  Possible values:
+::T|EN|cl.winold.remove.049|    DELETE               : Take ownership and remove C:\Windows.old now.
+::T|EN|cl.winold.remove.050|                           The rollback to the previous Windows build ends
+::T|EN|cl.winold.remove.051|                           at that moment, permanently.
+::T|EN|cl.winold.remove.052|    KEEP                 : Leave it. Windows removes it by itself about
+::T|EN|cl.winold.remove.053|                           ten days after the upgrade, and you keep your
+::T|EN|cl.winold.remove.054|                           escape route until then.
+::T|EN|cl.winold.remove.055|    ASK                  : The default for this step, and the only
+::T|EN|cl.winold.remove.056|                           defensible one: 15 to 40 GB that never comes
+::T|EN|cl.winold.remove.057|                           back, plus a permissions side effect. It is
+::T|EN|cl.winold.remove.058|                           gated to Auto Full and never runs unattended in
+::T|EN|cl.winold.remove.059|                           the other modes.
+::X|EN|cl.winold.remove.001|  Why these profiles : Four identical ASK columns, because this is not a
+::X|EN|cl.winold.remove.002|                       cache and no profile can answer it for you: it
+::X|EN|cl.winold.remove.003|                       depends on how old your upgrade is and whether the
+::X|EN|cl.winold.remove.004|                       new build has behaved. Yes if the upgrade is more
+::X|EN|cl.winold.remove.005|                       than a couple of weeks old, everything works and
+::X|EN|cl.winold.remove.006|                       you need the space. No if you upgraded days ago, if
+::X|EN|cl.winold.remove.007|                       anything has been odd since, or if you have not
+::X|EN|cl.winold.remove.008|                       checked Windows.old\Users. WINDOWS is the one clean
+::X|EN|cl.winold.remove.009|                       answer: wait, and let Windows do it properly on its
+::X|EN|cl.winold.remove.010|                       own schedule.
+::X|EN|cl.winold.remove.011|
+::X|EN|cl.winold.remove.012|  Known problems  : takeown is missing /SKIPSL and icacls is missing /L,
+::X|EN|cl.winold.remove.013|                    so both recursions can follow the legacy compatibility
+::X|EN|cl.winold.remove.014|                    junctions inside Windows.old and reassign ownership
+::X|EN|cl.winold.remove.015|                    and ACLs on live folders under C:\Users. Fix in code:
+::X|EN|cl.winold.remove.016|                    takeown /F ... /R /A /D Y /SKIPSL and icacls ...
+::X|EN|cl.winold.remove.017|                    /grant administrators:F /T /C /L. Separately, rd /S /Q
+::X|EN|cl.winold.remove.018|                    sends its errors to nul, so a partially deleted
+::X|EN|cl.winold.remove.019|                    Windows.old is reported as a success.
+::X|EN|cl.winold.remove.020|
+::X|EN|cl.winold.remove.021|  Unverified      : How far the takeown and icacls recursion actually
+::X|EN|cl.winold.remove.022|                    walks through a junction depends on the exact junction
+::X|EN|cl.winold.remove.023|                    set your upgrade left in Windows.old, which was not
+::X|EN|cl.winold.remove.024|                    enumerated on this machine. The mechanism - takeown /R
+::X|EN|cl.winold.remove.025|                    and icacls /T follow links unless told not to, and the
+::X|EN|cl.winold.remove.026|                    legacy compatibility junctions store absolute targets
+::X|EN|cl.winold.remove.027|                    pointing into the live profile - is the reason /SKIPSL
+::X|EN|cl.winold.remove.028|                    and /L exist. Treat it as likely, not measured.
+::X|EN|cl.winold.remove.029|
+::X|EN|cl.winold.remove.030|  Target          : OPTY.bat lines 1078-1086. takeown /F
+::X|EN|cl.winold.remove.031|                    "%SystemDrive%\Windows.old" /R /A /D Y, then icacls
+::X|EN|cl.winold.remove.032|                    "%SystemDrive%\Windows.old" /grant administrators:F /T
+::X|EN|cl.winold.remove.033|                    /C, then rd /S /Q. Every command's output goes to nul
+::X|EN|cl.winold.remove.034|                    and the rd errors go to 2>nul.
+::
+:: ---- cl.discord.cache (cleanup) ----------------------------------
+::P|cl.discord.cache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.discord.cache.001|CACHE DE DISCORD
+::T|FR|cl.discord.cache.002|
+::T|FR|cl.discord.cache.003|  Ce que c est    : Discord est une application Electron : elle embarque
+::T|FR|cl.discord.cache.004|                    un navigateur, avec les mêmes dossiers Cache, Code
+::T|FR|cl.discord.cache.005|                    Cache et GPUCache qu'un navigateur. Cette étape vide
+::T|FR|cl.discord.cache.006|                    ces trois-là, et uniquement si Discord.exe ne tourne
+::T|FR|cl.discord.cache.007|                    pas.
+::T|FR|cl.discord.cache.008|
+::T|FR|cl.discord.cache.009|  Effet reel      : Supprime les fichiers des trois dossiers de cache du
+::T|FR|cl.discord.cache.010|                    compte qui exécute OPTY. Ce qu'il faut savoir, c'est
+::T|FR|cl.discord.cache.011|                    que cette étape est ignorée bien plus souvent qu'on ne
+::T|FR|cl.discord.cache.012|                    le croit : Discord s'installe en démarrage automatique
+::T|FR|cl.discord.cache.013|                    et se réduit dans la zone de notification, donc
+::T|FR|cl.discord.cache.014|                    Discord.exe tourne généralement même sans fenêtre
+::T|FR|cl.discord.cache.015|                    ouverte. Fermer la fenêtre ne suffit pas : quittez-le
+::T|FR|cl.discord.cache.016|                    depuis l'icône de la zone de notification, sinon OPTY
+::T|FR|cl.discord.cache.017|                    affiche « Discord is running - caches skipped » et
+::T|FR|cl.discord.cache.018|                    passe à la suite. Non touchés : Local Storage, où
+::T|FR|cl.discord.cache.019|                    réside le jeton de connexion, et les bases leveldb qui
+::T|FR|cl.discord.cache.020|                    l'accompagnent.
+::T|FR|cl.discord.cache.021|
+::T|FR|cl.discord.cache.022|  Gain            : Quelques centaines de Mo sur un compte actif :
+::T|FR|cl.discord.cache.023|                    Cache_Data seul fait couramment 100 à 600 Mo. Plus
+::T|FR|cl.discord.cache.024|                    utile encore, c'est le remède standard à un Discord
+::T|FR|cl.discord.cache.025|                    qui s'ouvre sur une fenêtre grise ou blanche, ne
+::T|FR|cl.discord.cache.026|                    charge plus les images, ou reste bloqué sur «
+::T|FR|cl.discord.cache.027|                    Connexion ».
+::T|FR|cl.discord.cache.028|
+::T|FR|cl.discord.cache.029|  Cout            : Images, avatars et émojis se retéléchargent au premier
+::T|FR|cl.discord.cache.030|                    défilement d'un salon : quelques secondes et quelques
+::T|FR|cl.discord.cache.031|                    dizaines de Mo. Vous restez connecté. Rien de ce que
+::T|FR|cl.discord.cache.032|                    vous avez créé n'est touché : vos réglages, vos
+::T|FR|cl.discord.cache.033|                    serveurs et votre historique de messages vivent sur
+::T|FR|cl.discord.cache.034|                    les serveurs de Discord, pas dans ces dossiers.
+::T|FR|cl.discord.cache.035|
+::T|FR|cl.discord.cache.036|  Defaut Windows  : Sans objet. C'est un cache applicatif, auquel Windows
+::T|FR|cl.discord.cache.037|                    ne touche jamais.
+::T|FR|cl.discord.cache.038|
+::T|FR|cl.discord.cache.039|  Valeurs possibles :
+::T|FR|cl.discord.cache.040|    DELETE               : Vider les trois dossiers de cache Electron, à
+::T|FR|cl.discord.cache.041|                           condition d'avoir quitté Discord pour de bon.
+::T|FR|cl.discord.cache.042|                           Votre jeton de connexion est dans Local Storage
+::T|FR|cl.discord.cache.043|                           et n'est pas touché.
+::T|FR|cl.discord.cache.044|    KEEP                 : Rien à perdre à le garder : ce cache est borné,
+::T|FR|cl.discord.cache.045|                           et un client qui fonctionne n'a aucune raison
+::T|FR|cl.discord.cache.046|                           d'être nettoyé.
+::T|FR|cl.discord.cache.047|    ASK                  : Inutile. L'étape refuse déjà de s'exécuter tant
+::T|FR|cl.discord.cache.048|                           que Discord tourne, le seul cas où le client
+::T|FR|cl.discord.cache.049|                           pourrait être corrompu.
+::X|FR|cl.discord.cache.001|  Pourquoi ces profils : Quatre colonnes identiques, parce qu'un cache
+::X|FR|cl.discord.cache.002|                         Electron se comporte pareil partout. Sur BUREAU
+::X|FR|cl.discord.cache.003|                         et SERVEUR, où Discord n'est peut-être pas
+::X|FR|cl.discord.cache.004|                         installé, l'étape ne trouve rien et ne fait rien
+::X|FR|cl.discord.cache.005|                         : pas nuisible, juste vide. WINDOWS veut dire ne
+::X|FR|cl.discord.cache.006|                         touchez à rien : ce cache est borné et ne
+::X|FR|cl.discord.cache.007|                         dévorera pas votre disque.
+::X|FR|cl.discord.cache.008|
+::X|FR|cl.discord.cache.009|  Problemes connus : Seule la version stable de Discord est couverte.
+::X|FR|cl.discord.cache.010|                     %APPDATA%\discordptb et %APPDATA%\discordcanary
+::X|FR|cl.discord.cache.011|                     possèdent les mêmes trois dossiers de cache et ne
+::X|FR|cl.discord.cache.012|                     sont pas visés. De plus, %APPDATA% désigne le compte
+::X|FR|cl.discord.cache.013|                     qui exécute OPTY : les autres comptes Windows gardent
+::X|FR|cl.discord.cache.014|                     leur cache Discord alors que l'étape voisine sur les
+::X|FR|cl.discord.cache.015|                     navigateurs, elle, parcourt tous les profils.
+::X|FR|cl.discord.cache.016|
+::X|FR|cl.discord.cache.017|  Non verifie (en)  : Whether Discord is running when you launch OPTY
+::X|FR|cl.discord.cache.018|                      depends on your own start-with-Windows setting,
+::X|FR|cl.discord.cache.019|                      which is on by default on a normal install but is a
+::X|FR|cl.discord.cache.020|                      setting, not a law. The cache sizes are the usual
+::X|FR|cl.discord.cache.021|                      range for an active account, not a measurement of
+::X|FR|cl.discord.cache.022|                      this machine.
+::X|FR|cl.discord.cache.023|
+::X|FR|cl.discord.cache.024|  Cible           : OPTY.bat lines 1088-1101. call :isrunning
+::X|FR|cl.discord.cache.025|                    "Discord.exe" then, only if it is not running, del /F
+::X|FR|cl.discord.cache.026|                    /S /Q on %APPDATA%\discord\Cache\Cache_Data,
+::X|FR|cl.discord.cache.027|                    %APPDATA%\discord\Code Cache and
+::X|FR|cl.discord.cache.028|                    %APPDATA%\discord\GPUCache. %APPDATA% is the roaming
+::X|FR|cl.discord.cache.029|                    folder of the account running OPTY.
+::T|EN|cl.discord.cache.001|DISCORD CACHE
+::T|EN|cl.discord.cache.002|
+::T|EN|cl.discord.cache.003|  What it is      : Discord is an Electron app, so it carries a browser
+::T|EN|cl.discord.cache.004|                    inside it, with the same Cache, Code Cache and
+::T|EN|cl.discord.cache.005|                    GPUCache folders a browser has. This step clears those
+::T|EN|cl.discord.cache.006|                    three, and only when Discord.exe is not running.
+::T|EN|cl.discord.cache.007|
+::T|EN|cl.discord.cache.008|  Actual effect   : Deletes the files in the three cache folders of the
+::T|EN|cl.discord.cache.009|                    account running OPTY. The one thing to know is that
+::T|EN|cl.discord.cache.010|                    this step is skipped far more often than people
+::T|EN|cl.discord.cache.011|                    expect: Discord installs itself to start with Windows
+::T|EN|cl.discord.cache.012|                    and to minimise to the tray, so Discord.exe is usually
+::T|EN|cl.discord.cache.013|                    running even when no window is open. Closing the
+::T|EN|cl.discord.cache.014|                    window is not enough - quit it from the tray icon,
+::T|EN|cl.discord.cache.015|                    otherwise OPTY prints "Discord is running - caches
+::T|EN|cl.discord.cache.016|                    skipped" and moves on. Not touched: Local Storage,
+::T|EN|cl.discord.cache.017|                    where the login token lives, and the leveldb databases
+::T|EN|cl.discord.cache.018|                    beside it.
+::T|EN|cl.discord.cache.019|
+::T|EN|cl.discord.cache.020|  Gain            : A few hundred MB on an active account - Cache_Data
+::T|EN|cl.discord.cache.021|                    alone is commonly 100 to 600 MB. More usefully, it is
+::T|EN|cl.discord.cache.022|                    the standard fix for a Discord that opens to a grey or
+::T|EN|cl.discord.cache.023|                    blank window, refuses to load images, or sits on
+::T|EN|cl.discord.cache.024|                    "Connecting".
+::T|EN|cl.discord.cache.025|
+::T|EN|cl.discord.cache.026|  Cost            : Images, avatars and emoji re-download the first time
+::T|EN|cl.discord.cache.027|                    you scroll a channel - seconds, and a few tens of MB.
+::T|EN|cl.discord.cache.028|                    You stay logged in. Nothing user-created is touched:
+::T|EN|cl.discord.cache.029|                    your settings, servers and message history live on
+::T|EN|cl.discord.cache.030|                    Discord's servers, not in these folders.
+::T|EN|cl.discord.cache.031|
+::T|EN|cl.discord.cache.032|  Windows default : Not applicable. This is an application cache and
+::T|EN|cl.discord.cache.033|                    Windows never touches it.
+::T|EN|cl.discord.cache.034|
+::T|EN|cl.discord.cache.035|  Possible values:
+::T|EN|cl.discord.cache.036|    DELETE               : Clear the three Electron cache folders,
+::T|EN|cl.discord.cache.037|                           provided Discord is fully quit. Your login
+::T|EN|cl.discord.cache.038|                           token lives in Local Storage and is not
+::T|EN|cl.discord.cache.039|                           touched.
+::T|EN|cl.discord.cache.040|    KEEP                 : Nothing is lost by keeping it: the cache is
+::T|EN|cl.discord.cache.041|                           bounded and a working client has no reason to
+::T|EN|cl.discord.cache.042|                           be cleaned.
+::T|EN|cl.discord.cache.043|    ASK                  : Not needed. The step already refuses to run
+::T|EN|cl.discord.cache.044|                           while Discord is up, which is the only case
+::T|EN|cl.discord.cache.045|                           that could corrupt the client.
+::X|EN|cl.discord.cache.001|  Why these profiles : Four identical columns because an Electron cache
+::X|EN|cl.discord.cache.002|                       behaves the same everywhere. On OFFICE and SERVER,
+::X|EN|cl.discord.cache.003|                       where Discord may not be installed, the step simply
+::X|EN|cl.discord.cache.004|                       finds nothing and does nothing - not harmful, just
+::X|EN|cl.discord.cache.005|                       empty. WINDOWS means leave it alone: this cache is
+::X|EN|cl.discord.cache.006|                       bounded and will not eat your disk.
+::X|EN|cl.discord.cache.007|
+::X|EN|cl.discord.cache.008|  Known problems  : Only the Discord stable channel is covered.
+::X|EN|cl.discord.cache.009|                    %APPDATA%\discordptb and %APPDATA%\discordcanary have
+::X|EN|cl.discord.cache.010|                    the same three cache folders and are not targeted.
+::X|EN|cl.discord.cache.011|                    Also, %APPDATA% is the account running OPTY, so other
+::X|EN|cl.discord.cache.012|                    Windows accounts keep their Discord caches even though
+::X|EN|cl.discord.cache.013|                    the browser step next door loops over every profile.
+::X|EN|cl.discord.cache.014|
+::X|EN|cl.discord.cache.015|  Unverified      : Whether Discord is running when you launch OPTY
+::X|EN|cl.discord.cache.016|                    depends on your own start-with-Windows setting, which
+::X|EN|cl.discord.cache.017|                    is on by default on a normal install but is a setting,
+::X|EN|cl.discord.cache.018|                    not a law. The cache sizes are the usual range for an
+::X|EN|cl.discord.cache.019|                    active account, not a measurement of this machine.
+::X|EN|cl.discord.cache.020|
+::X|EN|cl.discord.cache.021|  Target          : OPTY.bat lines 1088-1101. call :isrunning
+::X|EN|cl.discord.cache.022|                    "Discord.exe" then, only if it is not running, del /F
+::X|EN|cl.discord.cache.023|                    /S /Q on %APPDATA%\discord\Cache\Cache_Data,
+::X|EN|cl.discord.cache.024|                    %APPDATA%\discord\Code Cache and
+::X|EN|cl.discord.cache.025|                    %APPDATA%\discord\GPUCache. %APPDATA% is the roaming
+::X|EN|cl.discord.cache.026|                    folder of the account running OPTY.
+::
+:: ---- cl.steam.cache (cleanup) ------------------------------------
+::P|cl.steam.cache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.steam.cache.001|JOURNAUX, DUMPS ET CACHE WEB DE STEAM
+::T|FR|cl.steam.cache.002|
+::T|FR|cl.steam.cache.003|  Ce que c est    : Steam écrit ses journaux et ses dumps de plantage dans
+::T|FR|cl.steam.cache.004|                    son propre dossier d'installation, et ses pages
+::T|FR|cl.steam.cache.005|                    boutique et bibliothèque sont affichées par un
+::T|FR|cl.steam.cache.006|                    navigateur intégré avec son propre htmlcache. Cette
+::T|FR|cl.steam.cache.007|                    étape vide toujours les journaux et les dumps, et le
+::T|FR|cl.steam.cache.008|                    htmlcache uniquement si steam.exe ne tourne pas.
+::T|FR|cl.steam.cache.009|
+::T|FR|cl.steam.cache.010|  Effet reel      : Supprime les fichiers de <Steam>\logs et
+::T|FR|cl.steam.cache.011|                    <Steam>\dumps, où <Steam> est le chemin d'installation
+::T|FR|cl.steam.cache.012|                    lu dans le registre - donc uniquement le dossier
+::T|FR|cl.steam.cache.013|                    programme de Steam : vos bibliothèques sur d'autres
+::T|FR|cl.steam.cache.014|                    disques ne sont pas concernées et ne sont jamais
+::T|FR|cl.steam.cache.015|                    touchées. Comme les journaux sont supprimés même quand
+::T|FR|cl.steam.cache.016|                    Steam tourne, les fichiers qu'il tient ouverts sont
+::T|FR|cl.steam.cache.017|                    simplement ignorés, en silence. Le htmlcache sous
+::T|FR|cl.steam.cache.018|                    %LOCALAPPDATA%\Steam n'est vidé que si Steam est
+::T|FR|cl.steam.cache.019|                    complètement quitté, et Steam reste par défaut dans la
+::T|FR|cl.steam.cache.020|                    zone de notification : en pratique, cette partie est
+::T|FR|cl.steam.cache.021|                    souvent sautée. Quittez-le depuis l'icône si c'est la
+::T|FR|cl.steam.cache.022|                    page boutique que vous voulez réparer. Volontairement
+::T|FR|cl.steam.cache.023|                    exclus : steamapps\shadercache et
+::T|FR|cl.steam.cache.024|                    steamapps\depotcache.
+::T|FR|cl.steam.cache.025|
+::T|FR|cl.steam.cache.026|  Gain            : Journaux et dumps pèsent en général quelques dizaines
+::T|FR|cl.steam.cache.027|                    de Mo, parfois quelques centaines si Steam a beaucoup
+::T|FR|cl.steam.cache.028|                    planté. Le htmlcache a été mesuré à 141 Mo sur cette
+::T|FR|cl.steam.cache.029|                    machine. Disons 150 à 400 Mo pour un bon passage.
+::T|FR|cl.steam.cache.030|                    Vider le htmlcache est aussi le remède connu à une
+::T|FR|cl.steam.cache.031|                    page boutique ou bibliothèque qui reste blanche ou
+::T|FR|cl.steam.cache.032|                    figée sur une ancienne mise en page.
+::T|FR|cl.steam.cache.033|
+::T|FR|cl.steam.cache.034|  Cout            : Rien de fonctionnel. Ce sont les deux exclusions qui
+::T|FR|cl.steam.cache.035|                    méritent l'attention. Effacer steamapps\shadercache
+::T|FR|cl.steam.cache.036|                    garantirait des saccades de recompilation de shaders
+::T|FR|cl.steam.cache.037|                    dans vos jeux, exactement le coût que cet outil évite
+::T|FR|cl.steam.cache.038|                    de payer deux fois. Et effacer depotcache obligerait
+::T|FR|cl.steam.cache.039|                    Steam à retélécharger les manifestes de dépôt -
+::T|FR|cl.steam.cache.040|                    quelques Mo - avant de pouvoir vérifier ou mettre à
+::T|FR|cl.steam.cache.041|                    jour, puis il validerait quand même vos fichiers de
+::T|FR|cl.steam.cache.042|                    jeu locaux : du brassage inutile pour une place
+::T|FR|cl.steam.cache.043|                    négligeable, et non le retéléchargement complet du jeu
+::T|FR|cl.steam.cache.044|                    que raconte la légende. Pages boutique et images se
+::T|FR|cl.steam.cache.045|                    rechargent en quelques secondes.
+::T|FR|cl.steam.cache.046|
+::T|FR|cl.steam.cache.047|  Defaut Windows  : Sans objet. Journaux et cache applicatifs, pour
+::T|FR|cl.steam.cache.048|                    lesquels Windows n'a aucun gestionnaire.
+::T|FR|cl.steam.cache.049|
+::T|FR|cl.steam.cache.050|  Valeurs possibles :
+::T|FR|cl.steam.cache.051|    DELETE               : Vider les journaux et dumps de Steam, et le
+::T|FR|cl.steam.cache.052|                           cache du navigateur intégré si Steam est
+::T|FR|cl.steam.cache.053|                           complètement quitté. Jeux, sauvegardes et cache
+::T|FR|cl.steam.cache.054|                           de shaders intacts.
+::T|FR|cl.steam.cache.055|    KEEP                 : On peut très bien le garder : des journaux que
+::T|FR|cl.steam.cache.056|                           personne ne lit et un cache web borné, rien qui
+::T|FR|cl.steam.cache.057|                           grossisse dangereusement.
+::T|FR|cl.steam.cache.058|    ASK                  : Inutile. La seule variante destructrice,
+::T|FR|cl.steam.cache.059|                           effacer steamapps\shadercache, n'est pas dans
+::T|FR|cl.steam.cache.060|                           le code.
+::X|FR|cl.steam.cache.001|  Pourquoi ces profils : Quatre colonnes identiques. GAMING est le profil
+::X|FR|cl.steam.cache.002|                         où le correctif htmlcache sert vraiment et où
+::X|FR|cl.steam.cache.003|                         l'exclusion du shadercache prend tout son sens.
+::X|FR|cl.steam.cache.004|                         SERVEUR qui héberge des serveurs de jeu Steam
+::X|FR|cl.steam.cache.005|                         obtient le même petit bénéfice. Sur BUREAU et
+::X|FR|cl.steam.cache.006|                         PORTABLE sans Steam, la lecture du registre ne
+::X|FR|cl.steam.cache.007|                         trouve rien et l'étape sort immédiatement.
+::X|FR|cl.steam.cache.008|                         WINDOWS veut dire ne touchez à rien, ce qui vous
+::X|FR|cl.steam.cache.009|                         coûte deux ou trois cents Mo et rien d'autre.
+::X|FR|cl.steam.cache.010|
+::X|FR|cl.steam.cache.011|  Non verifie (en)  : 141 MB of htmlcache was measured once on this
+::X|FR|cl.steam.cache.012|                      machine. Log and dump sizes vary with how much Steam
+::X|FR|cl.steam.cache.013|                      has crashed and were not measured. Whether steam.exe
+::X|FR|cl.steam.cache.014|                      is up at the time depends on your start-with-Windows
+::X|FR|cl.steam.cache.015|                      setting.
+::X|FR|cl.steam.cache.016|
+::X|FR|cl.steam.cache.017|  Cible           : OPTY.bat lines 1114-1126. STEAMPATH is read from
+::X|FR|cl.steam.cache.018|                    HKLM\SOFTWARE\WOW6432Node\Valve\Steam, value
+::X|FR|cl.steam.cache.019|                    InstallPath; then del /F /S /Q on %STEAMPATH%\logs and
+::X|FR|cl.steam.cache.020|                    %STEAMPATH%\dumps. Then call :isrunning "steam.exe"
+::X|FR|cl.steam.cache.021|                    and, only if it is not running, del /F /S /Q on
+::X|FR|cl.steam.cache.022|                    %LOCALAPPDATA%\Steam\htmlcache. steamapps\shadercache
+::X|FR|cl.steam.cache.023|                    and steamapps\depotcache are deliberately excluded.
+::T|EN|cl.steam.cache.001|STEAM LOGS, CRASH DUMPS AND WEB CACHE
+::T|EN|cl.steam.cache.002|
+::T|EN|cl.steam.cache.003|  What it is      : Steam writes logs and crash dumps into its own install
+::T|EN|cl.steam.cache.004|                    folder, and its store and library pages are drawn by
+::T|EN|cl.steam.cache.005|                    an embedded browser with its own htmlcache. This step
+::T|EN|cl.steam.cache.006|                    clears the logs and dumps always, and the htmlcache
+::T|EN|cl.steam.cache.007|                    only when steam.exe is not running.
+::T|EN|cl.steam.cache.008|
+::T|EN|cl.steam.cache.009|  Actual effect   : Deletes the files under <Steam>\logs and
+::T|EN|cl.steam.cache.010|                    <Steam>\dumps, where <Steam> is the install path read
+::T|EN|cl.steam.cache.011|                    from the registry - so only the Steam program folder;
+::T|EN|cl.steam.cache.012|                    libraries you keep on other drives are irrelevant here
+::T|EN|cl.steam.cache.013|                    and never touched. Because the logs are deleted even
+::T|EN|cl.steam.cache.014|                    while Steam is up, the log files it currently holds
+::T|EN|cl.steam.cache.015|                    open are simply skipped, silently. The htmlcache under
+::T|EN|cl.steam.cache.016|                    %LOCALAPPDATA%\Steam is only cleared when Steam is
+::T|EN|cl.steam.cache.017|                    fully quit, and Steam sits in the tray by default, so
+::T|EN|cl.steam.cache.018|                    in practice that part is often skipped - quit it from
+::T|EN|cl.steam.cache.019|                    the tray if the store page is what you want fixed.
+::T|EN|cl.steam.cache.020|                    Deliberately excluded: steamapps\shadercache and
+::T|EN|cl.steam.cache.021|                    steamapps\depotcache.
+::T|EN|cl.steam.cache.022|
+::T|EN|cl.steam.cache.023|  Gain            : Logs and dumps are usually tens of MB, occasionally a
+::T|EN|cl.steam.cache.024|                    few hundred if Steam has been crashing. htmlcache was
+::T|EN|cl.steam.cache.025|                    measured at 141 MB on this machine. Call it 150 to 400
+::T|EN|cl.steam.cache.026|                    MB in a good pass. Clearing htmlcache is also the
+::T|EN|cl.steam.cache.027|                    known fix for a store or library page that comes up
+::T|EN|cl.steam.cache.028|                    blank or stuck on an old layout.
+::T|EN|cl.steam.cache.029|
+::T|EN|cl.steam.cache.030|  Cost            : Nothing functional. The two exclusions are the
+::T|EN|cl.steam.cache.031|                    interesting part. Wiping steamapps\shadercache would
+::T|EN|cl.steam.cache.032|                    guarantee shader recompilation stutter in your games,
+::T|EN|cl.steam.cache.033|                    exactly the cost this tool tries not to pay twice. And
+::T|EN|cl.steam.cache.034|                    wiping depotcache would force Steam to re-fetch the
+::T|EN|cl.steam.cache.035|                    depot manifests - a few MB - before it could verify or
+::T|EN|cl.steam.cache.036|                    update, and it would then still validate against your
+::T|EN|cl.steam.cache.037|                    local game files: pointless churn for no space worth
+::T|EN|cl.steam.cache.038|                    having, not the full game re-download folklore claims.
+::T|EN|cl.steam.cache.039|                    Store pages and images refetch in seconds.
+::T|EN|cl.steam.cache.040|
+::T|EN|cl.steam.cache.041|  Windows default : Not applicable. Application logs and an application
+::T|EN|cl.steam.cache.042|                    cache; Windows has no handler for either.
+::T|EN|cl.steam.cache.043|
+::T|EN|cl.steam.cache.044|  Possible values:
+::T|EN|cl.steam.cache.045|    DELETE               : Clear the Steam logs and crash dumps, and the
+::T|EN|cl.steam.cache.046|                           embedded-browser cache if Steam is fully quit.
+::T|EN|cl.steam.cache.047|                           Games, saves and the shader cache are
+::T|EN|cl.steam.cache.048|                           untouched.
+::T|EN|cl.steam.cache.049|    KEEP                 : Fine to keep. These are logs no one reads and a
+::T|EN|cl.steam.cache.050|                           bounded web cache; nothing here grows
+::T|EN|cl.steam.cache.051|                           dangerously.
+::T|EN|cl.steam.cache.052|    ASK                  : Not needed. The one destructive variant, wiping
+::T|EN|cl.steam.cache.053|                           steamapps\shadercache, is not in the code at
+::T|EN|cl.steam.cache.054|                           all.
+::X|EN|cl.steam.cache.001|  Why these profiles : Four identical columns. GAMING is where the
+::X|EN|cl.steam.cache.002|                       htmlcache fix actually matters and where the
+::X|EN|cl.steam.cache.003|                       shadercache exclusion earns its keep. SERVER
+::X|EN|cl.steam.cache.004|                       running Steam game servers gets the same small
+::X|EN|cl.steam.cache.005|                       benefit. On OFFICE and LAPTOP without Steam the
+::X|EN|cl.steam.cache.006|                       registry lookup finds nothing and the step exits
+::X|EN|cl.steam.cache.007|                       immediately. WINDOWS means leave it alone, which
+::X|EN|cl.steam.cache.008|                       costs a couple of hundred MB and nothing else.
+::X|EN|cl.steam.cache.009|
+::X|EN|cl.steam.cache.010|  Unverified      : 141 MB of htmlcache was measured once on this machine.
+::X|EN|cl.steam.cache.011|                    Log and dump sizes vary with how much Steam has
+::X|EN|cl.steam.cache.012|                    crashed and were not measured. Whether steam.exe is up
+::X|EN|cl.steam.cache.013|                    at the time depends on your start-with-Windows
+::X|EN|cl.steam.cache.014|                    setting.
+::X|EN|cl.steam.cache.015|
+::X|EN|cl.steam.cache.016|  Target          : OPTY.bat lines 1114-1126. STEAMPATH is read from
+::X|EN|cl.steam.cache.017|                    HKLM\SOFTWARE\WOW6432Node\Valve\Steam, value
+::X|EN|cl.steam.cache.018|                    InstallPath; then del /F /S /Q on %STEAMPATH%\logs and
+::X|EN|cl.steam.cache.019|                    %STEAMPATH%\dumps. Then call :isrunning "steam.exe"
+::X|EN|cl.steam.cache.020|                    and, only if it is not running, del /F /S /Q on
+::X|EN|cl.steam.cache.021|                    %LOCALAPPDATA%\Steam\htmlcache. steamapps\shadercache
+::X|EN|cl.steam.cache.022|                    and steamapps\depotcache are deliberately excluded.
+::
+:: ---- cl.ubisoft.cache (cleanup) ----------------------------------
+::P|cl.ubisoft.cache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.ubisoft.cache.001|CACHE D'UBISOFT CONNECT
+::T|FR|cl.ubisoft.cache.002|
+::T|FR|cl.ubisoft.cache.003|  Ce que c est    : Le launcher Ubisoft Connect conserve un cache dans
+::T|FR|cl.ubisoft.cache.004|                    votre profil et un second dans son dossier de Program
+::T|FR|cl.ubisoft.cache.005|                    Files : visuels de la boutique, vignettes de jeux, et
+::T|FR|cl.ubisoft.cache.006|                    les données qui lui servent à afficher votre
+::T|FR|cl.ubisoft.cache.007|                    bibliothèque. Cette étape vide les deux, et uniquement
+::T|FR|cl.ubisoft.cache.008|                    si upc.exe ne tourne pas - sinon elle avertit et passe
+::T|FR|cl.ubisoft.cache.009|                    son tour.
+::T|FR|cl.ubisoft.cache.010|
+::T|FR|cl.ubisoft.cache.011|  Effet reel      : Supprime les fichiers de %LOCALAPPDATA%\Ubisoft Game
+::T|FR|cl.ubisoft.cache.012|                    Launcher\cache et de C:\Program Files
+::T|FR|cl.ubisoft.cache.013|                    (x86)\Ubisoft\Ubisoft Game Launcher\cache, en laissant
+::T|FR|cl.ubisoft.cache.014|                    les deux dossiers en place. Les jeux installés, les
+::T|FR|cl.ubisoft.cache.015|                    sauvegardes et vos licences ne sont pas touchés : rien
+::T|FR|cl.ubisoft.cache.016|                    de tout cela ne vit dans ces dossiers. Les deux
+::T|FR|cl.ubisoft.cache.017|                    chemins sont codés en dur, donc un Ubisoft Connect
+::T|FR|cl.ubisoft.cache.018|                    installé sur un autre disque, ou le cache d'un autre
+::T|FR|cl.ubisoft.cache.019|                    compte Windows, est ignoré en silence.
+::T|FR|cl.ubisoft.cache.020|
+::T|FR|cl.ubisoft.cache.021|  Gain            : Modeste et sans exagération : typiquement 50 à 300 Mo
+::T|FR|cl.ubisoft.cache.022|                    de visuels téléchargés pour un compte avec plusieurs
+::T|FR|cl.ubisoft.cache.023|                    jeux. La vraie raison de le faire n'est pas la place,
+::T|FR|cl.ubisoft.cache.024|                    c'est le remède habituel à un launcher qui affiche une
+::T|FR|cl.ubisoft.cache.025|                    boutique vide, ne voit plus vos jeux installés, ou se
+::T|FR|cl.ubisoft.cache.026|                    fige sur son écran de démarrage.
+::T|FR|cl.ubisoft.cache.027|
+::T|FR|cl.ubisoft.cache.028|  Cout            : Le launcher reconstruit son cache au lancement
+::T|FR|cl.ubisoft.cache.029|                    suivant, en quelques secondes de téléchargement. Il
+::T|FR|cl.ubisoft.cache.030|                    peut vous redemander de vous connecter, et comme une
+::T|FR|cl.ubisoft.cache.031|                    partie de ce qu'il met en cache lui sert à démarrer en
+::T|FR|cl.ubisoft.cache.032|                    mode hors ligne, connectez-vous une fois après le
+::T|FR|cl.ubisoft.cache.033|                    nettoyage si vous comptez jouer hors ligne ensuite.
+::T|FR|cl.ubisoft.cache.034|                    Rien de définitif n'est perdu.
+::T|FR|cl.ubisoft.cache.035|
+::T|FR|cl.ubisoft.cache.036|  Defaut Windows  : Sans objet. Cache applicatif, créé et géré par le
+::T|FR|cl.ubisoft.cache.037|                    launcher.
+::T|FR|cl.ubisoft.cache.038|
+::T|FR|cl.ubisoft.cache.039|  Valeurs possibles :
+::T|FR|cl.ubisoft.cache.040|    DELETE               : Vider les deux dossiers de cache d'Ubisoft
+::T|FR|cl.ubisoft.cache.041|                           Connect, à condition que le launcher soit
+::T|FR|cl.ubisoft.cache.042|                           complètement fermé. Jeux installés et
+::T|FR|cl.ubisoft.cache.043|                           sauvegardes intacts.
+::T|FR|cl.ubisoft.cache.044|    KEEP                 : Raisonnable si le launcher fonctionne et que
+::T|FR|cl.ubisoft.cache.045|                           vous jouez souvent hors ligne : ce cache
+::T|FR|cl.ubisoft.cache.046|                           participe à son démarrage sans connexion.
+::T|FR|cl.ubisoft.cache.047|    ASK                  : Inutile pour la place, mais légitime si vous
+::T|FR|cl.ubisoft.cache.048|                           allez jouer hors ligne : soyez connecté une
+::T|FR|cl.ubisoft.cache.049|                           fois après le nettoyage.
+::X|FR|cl.ubisoft.cache.001|  Pourquoi ces profils : Quatre colonnes identiques. GAMING est le seul
+::X|FR|cl.ubisoft.cache.002|                         profil susceptible de l'avoir installé ; sur
+::X|FR|cl.ubisoft.cache.003|                         SERVEUR, BUREAU et PORTABLE les dossiers
+::X|FR|cl.ubisoft.cache.004|                         n'existent en général pas et l'étape ne fait rien
+::X|FR|cl.ubisoft.cache.005|                         du tout - ce n'est pas un bénéfice, juste une
+::X|FR|cl.ubisoft.cache.006|                         absence. WINDOWS veut dire ne touchez à rien : ce
+::X|FR|cl.ubisoft.cache.007|                         cache est petit et se limite tout seul.
+::X|FR|cl.ubisoft.cache.008|
+::X|FR|cl.ubisoft.cache.009|  Problemes connus : Le chemin utilisateur emploie le %USERHOME% codé en
+::X|FR|cl.ubisoft.cache.010|                     dur (C:\Users\compt) : un autre compte Windows garde
+::X|FR|cl.ubisoft.cache.011|                     son cache Ubisoft. Le chemin Program Files (x86) est
+::X|FR|cl.ubisoft.cache.012|                     codé en dur lui aussi, donc une installation sur un
+::X|FR|cl.ubisoft.cache.013|                     autre disque est totalement manquée alors que l'étape
+::X|FR|cl.ubisoft.cache.014|                     annonce quand même un nettoyage.
+::X|FR|cl.ubisoft.cache.015|
+::X|FR|cl.ubisoft.cache.016|  Non verifie (en)  : That clearing this cache can cost you a sign-in
+::X|FR|cl.ubisoft.cache.017|                      comes from user reports and Ubisoft support threads
+::X|FR|cl.ubisoft.cache.018|                      rather than from a test here; the offline-play data
+::X|FR|cl.ubisoft.cache.019|                      the launcher keeps in that folder is what makes it
+::X|FR|cl.ubisoft.cache.020|                      plausible. The 50 to 300 MB range is typical for an
+::X|FR|cl.ubisoft.cache.021|                      account with several games, not a measurement of
+::X|FR|cl.ubisoft.cache.022|                      this machine.
+::X|FR|cl.ubisoft.cache.023|
+::X|FR|cl.ubisoft.cache.024|  Cible           : OPTY.bat lines 1129-1133. call :isrunning "upc.exe"
+::X|FR|cl.ubisoft.cache.025|                    then, only if it is not running, del /F /S /Q on
+::X|FR|cl.ubisoft.cache.026|                    %USERHOME%\AppData\Local\Ubisoft Game Launcher\cache
+::X|FR|cl.ubisoft.cache.027|                    and on C:\Program Files (x86)\Ubisoft\Ubisoft Game
+::X|FR|cl.ubisoft.cache.028|                    Launcher\cache. USERHOME is hardcoded at line 81 to
+::X|FR|cl.ubisoft.cache.029|                    C:\Users\compt.
+::T|EN|cl.ubisoft.cache.001|UBISOFT CONNECT CACHE
+::T|EN|cl.ubisoft.cache.002|
+::T|EN|cl.ubisoft.cache.003|  What it is      : The Ubisoft Connect launcher keeps a cache in your
+::T|EN|cl.ubisoft.cache.004|                    profile and a second one inside its Program Files
+::T|EN|cl.ubisoft.cache.005|                    folder: store artwork, game tiles, and the data it
+::T|EN|cl.ubisoft.cache.006|                    uses to show your library. This step clears both, and
+::T|EN|cl.ubisoft.cache.007|                    only when upc.exe is not running - otherwise it prints
+::T|EN|cl.ubisoft.cache.008|                    a warning and skips.
+::T|EN|cl.ubisoft.cache.009|
+::T|EN|cl.ubisoft.cache.010|  Actual effect   : Deletes the files in %LOCALAPPDATA%\Ubisoft Game
+::T|EN|cl.ubisoft.cache.011|                    Launcher\cache and in C:\Program Files
+::T|EN|cl.ubisoft.cache.012|                    (x86)\Ubisoft\Ubisoft Game Launcher\cache, leaving
+::T|EN|cl.ubisoft.cache.013|                    both folders in place. Installed games, save data and
+::T|EN|cl.ubisoft.cache.014|                    your entitlements are not touched - none of that lives
+::T|EN|cl.ubisoft.cache.015|                    in these folders. Both paths are hardcoded, so a
+::T|EN|cl.ubisoft.cache.016|                    Ubisoft Connect installed on another drive, or the
+::T|EN|cl.ubisoft.cache.017|                    cache of another Windows account, is silently missed.
+::T|EN|cl.ubisoft.cache.018|
+::T|EN|cl.ubisoft.cache.019|  Gain            : Modest and honest: typically 50 to 300 MB of
+::T|EN|cl.ubisoft.cache.020|                    downloaded artwork for an account with several games.
+::T|EN|cl.ubisoft.cache.021|                    The real reason to run it is not space - it is the
+::T|EN|cl.ubisoft.cache.022|                    usual fix for a launcher that shows an empty store,
+::T|EN|cl.ubisoft.cache.023|                    refuses to see your installed games, or hangs on its
+::T|EN|cl.ubisoft.cache.024|                    splash screen.
+::T|EN|cl.ubisoft.cache.025|
+::T|EN|cl.ubisoft.cache.026|  Cost            : The launcher rebuilds the cache on its next start,
+::T|EN|cl.ubisoft.cache.027|                    which takes a few seconds of downloads. You may be
+::T|EN|cl.ubisoft.cache.028|                    asked to sign in again, and since part of what it
+::T|EN|cl.ubisoft.cache.029|                    caches is what lets it start in offline mode, make
+::T|EN|cl.ubisoft.cache.030|                    sure you are online once after clearing it if you plan
+::T|EN|cl.ubisoft.cache.031|                    to play offline afterwards. Nothing permanent is lost.
+::T|EN|cl.ubisoft.cache.032|
+::T|EN|cl.ubisoft.cache.033|  Windows default : Not applicable. Application cache, created and managed
+::T|EN|cl.ubisoft.cache.034|                    by the launcher.
+::T|EN|cl.ubisoft.cache.035|
+::T|EN|cl.ubisoft.cache.036|  Possible values:
+::T|EN|cl.ubisoft.cache.037|    DELETE               : Empty the two Ubisoft Connect cache folders,
+::T|EN|cl.ubisoft.cache.038|                           provided the launcher is fully closed.
+::T|EN|cl.ubisoft.cache.039|                           Installed games and saves are untouched.
+::T|EN|cl.ubisoft.cache.040|    KEEP                 : Reasonable if the launcher works and you play
+::T|EN|cl.ubisoft.cache.041|                           offline often, since the cache is part of what
+::T|EN|cl.ubisoft.cache.042|                           lets it start without a connection.
+::T|EN|cl.ubisoft.cache.043|    ASK                  : Not needed for space, but fair if you are about
+::T|EN|cl.ubisoft.cache.044|                           to play offline - be online once after clearing
+::T|EN|cl.ubisoft.cache.045|                           it.
+::X|EN|cl.ubisoft.cache.001|  Why these profiles : Four identical columns. GAMING is the only profile
+::X|EN|cl.ubisoft.cache.002|                       likely to have it installed; on SERVER, OFFICE and
+::X|EN|cl.ubisoft.cache.003|                       LAPTOP the folders usually do not exist and the
+::X|EN|cl.ubisoft.cache.004|                       step does nothing at all, which is not a benefit,
+::X|EN|cl.ubisoft.cache.005|                       just an absence. WINDOWS means leave it alone: this
+::X|EN|cl.ubisoft.cache.006|                       cache is small and self-limiting.
+::X|EN|cl.ubisoft.cache.007|
+::X|EN|cl.ubisoft.cache.008|  Known problems  : The user path uses the hardcoded %USERHOME%
+::X|EN|cl.ubisoft.cache.009|                    (C:\Users\compt), so another Windows account keeps its
+::X|EN|cl.ubisoft.cache.010|                    Ubisoft cache. The Program Files (x86) path is
+::X|EN|cl.ubisoft.cache.011|                    hardcoded too, so an installation on another drive is
+::X|EN|cl.ubisoft.cache.012|                    missed entirely and the step reports a clean anyway.
+::X|EN|cl.ubisoft.cache.013|
+::X|EN|cl.ubisoft.cache.014|  Unverified      : That clearing this cache can cost you a sign-in comes
+::X|EN|cl.ubisoft.cache.015|                    from user reports and Ubisoft support threads rather
+::X|EN|cl.ubisoft.cache.016|                    than from a test here; the offline-play data the
+::X|EN|cl.ubisoft.cache.017|                    launcher keeps in that folder is what makes it
+::X|EN|cl.ubisoft.cache.018|                    plausible. The 50 to 300 MB range is typical for an
+::X|EN|cl.ubisoft.cache.019|                    account with several games, not a measurement of this
+::X|EN|cl.ubisoft.cache.020|                    machine.
+::X|EN|cl.ubisoft.cache.021|
+::X|EN|cl.ubisoft.cache.022|  Target          : OPTY.bat lines 1129-1133. call :isrunning "upc.exe"
+::X|EN|cl.ubisoft.cache.023|                    then, only if it is not running, del /F /S /Q on
+::X|EN|cl.ubisoft.cache.024|                    %USERHOME%\AppData\Local\Ubisoft Game Launcher\cache
+::X|EN|cl.ubisoft.cache.025|                    and on C:\Program Files (x86)\Ubisoft\Ubisoft Game
+::X|EN|cl.ubisoft.cache.026|                    Launcher\cache. USERHOME is hardcoded at line 81 to
+::X|EN|cl.ubisoft.cache.027|                    C:\Users\compt.
+::
+:: ---- cl.ea.cache (cleanup) ---------------------------------------
+::P|cl.ea.cache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.ea.cache.001|CACHE DE L'APPLICATION EA
+::T|FR|cl.ea.cache.002|
+::T|FR|cl.ea.cache.003|  Ce que c est    : L'application EA, qui succède à Origin, conserve un
+::T|FR|cl.ea.cache.004|                    cache dans votre profil et un second sous
+::T|FR|cl.ea.cache.005|                    %ProgramData%\EA Core : visuels de la boutique,
+::T|FR|cl.ea.cache.006|                    métadonnées de bibliothèque et contenu web pour le
+::T|FR|cl.ea.cache.007|                    navigateur intégré du client. Cette étape vide les
+::T|FR|cl.ea.cache.008|                    deux, et uniquement si EADesktop.exe ne tourne pas.
+::T|FR|cl.ea.cache.009|
+::T|FR|cl.ea.cache.010|  Effet reel      : Supprime les fichiers de %LOCALAPPDATA%\Electronic
+::T|FR|cl.ea.cache.011|                    Arts\EA Desktop\cache et de %ProgramData%\EA
+::T|FR|cl.ea.cache.012|                    Core\cache, en laissant les dossiers eux-mêmes. Les
+::T|FR|cl.ea.cache.013|                    jeux installés, les sauvegardes et les licences ne
+::T|FR|cl.ea.cache.014|                    sont pas touchés. Le chemin utilisateur est le profil
+::T|FR|cl.ea.cache.015|                    C:\Users\compt codé en dur : les autres comptes
+::T|FR|cl.ea.cache.016|                    Windows gardent le leur. L'application EA démarre avec
+::T|FR|cl.ea.cache.017|                    Windows sur une installation par défaut, donc quittez-
+::T|FR|cl.ea.cache.018|                    la depuis la zone de notification avant de lancer
+::T|FR|cl.ea.cache.019|                    OPTY, sinon l'étape affiche « EA App is running -
+::T|FR|cl.ea.cache.020|                    skipped » et ne fait rien.
+::T|FR|cl.ea.cache.021|
+::T|FR|cl.ea.cache.022|  Gain            : Modeste : typiquement 50 à 500 Mo selon la taille de
+::T|FR|cl.ea.cache.023|                    votre bibliothèque. Le véritable intérêt est que vider
+::T|FR|cl.ea.cache.024|                    ce cache est la première étape de dépannage documentée
+::T|FR|cl.ea.cache.025|                    par EA elle-même pour un client qui ne se lance pas,
+::T|FR|cl.ea.cache.026|                    affiche une bibliothèque vide, ou boucle sur l'écran
+::T|FR|cl.ea.cache.027|                    de connexion.
+::T|FR|cl.ea.cache.028|
+::T|FR|cl.ea.cache.029|  Cout            : Reconstruit au lancement suivant, en quelques secondes
+::T|FR|cl.ea.cache.030|                    et un petit téléchargement. Il faudra peut-être vous
+::T|FR|cl.ea.cache.031|                    reconnecter. Rien de définitif n'est perdu : ni
+::T|FR|cl.ea.cache.032|                    fichiers de jeu, ni sauvegardes, ni licences, et rien
+::T|FR|cl.ea.cache.033|                    à réinstaller.
+::T|FR|cl.ea.cache.034|
+::T|FR|cl.ea.cache.035|  Defaut Windows  : Sans objet. Cache applicatif, créé et géré par
+::T|FR|cl.ea.cache.036|                    l'application EA.
+::T|FR|cl.ea.cache.037|
+::T|FR|cl.ea.cache.038|  Valeurs possibles :
+::T|FR|cl.ea.cache.039|    DELETE               : Vider le cache d'EA Desktop et celui d'EA Core,
+::T|FR|cl.ea.cache.040|                           à condition que le client soit complètement
+::T|FR|cl.ea.cache.041|                           fermé. Jeux, sauvegardes et licences intacts.
+::T|FR|cl.ea.cache.042|    KEEP                 : Très bien si le client fonctionne : ce cache
+::T|FR|cl.ea.cache.043|                           est petit, et le vider ne vous rapporte qu'une
+::T|FR|cl.ea.cache.044|                           éventuelle demande de reconnexion.
+::T|FR|cl.ea.cache.045|    ASK                  : Inutile. C'est la première étape de dépannage
+::T|FR|cl.ea.cache.046|                           recommandée par EA, et elle ne risque rien de
+::T|FR|cl.ea.cache.047|                           plus qu'un mot de passe à ressaisir.
+::X|FR|cl.ea.cache.001|  Pourquoi ces profils : Quatre colonnes identiques. GAMING est le seul
+::X|FR|cl.ea.cache.002|                         profil où le client existe ; sur SERVEUR, BUREAU
+::X|FR|cl.ea.cache.003|                         et PORTABLE les dossiers n'existent normalement
+::X|FR|cl.ea.cache.004|                         pas et l'étape ne fait rien, sans bruit. WINDOWS
+::X|FR|cl.ea.cache.005|                         veut dire ne touchez à rien : cela coûte quelques
+::X|FR|cl.ea.cache.006|                         centaines de Mo au maximum et vous restez
+::X|FR|cl.ea.cache.007|                         connecté.
+::X|FR|cl.ea.cache.008|
+::X|FR|cl.ea.cache.009|  Problemes connus : Le chemin utilisateur emploie le %USERHOME% codé en
+::X|FR|cl.ea.cache.010|                     dur (C:\Users\compt) : un autre compte Windows garde
+::X|FR|cl.ea.cache.011|                     son cache EA alors que l'étape journalise un
+::X|FR|cl.ea.cache.012|                     nettoyage. Le garde-fou ne cherche que EADesktop.exe
+::X|FR|cl.ea.cache.013|                     ; le service d'arrière-plan d'EA peut tourner sans
+::X|FR|cl.ea.cache.014|                     lui, mais il ne tient pas les fichiers de cache
+::X|FR|cl.ea.cache.015|                     ouverts, c'est donc une remarque et non un défaut.
+::X|FR|cl.ea.cache.016|
+::X|FR|cl.ea.cache.017|  Non verifie (en)  : Having to sign in again after clearing the EA
+::X|FR|cl.ea.cache.018|                      Desktop cache is commonly reported and is what EA's
+::X|FR|cl.ea.cache.019|                      own troubleshooting article prepares you for, but it
+::X|FR|cl.ea.cache.020|                      was not reproduced here. The size range is typical,
+::X|FR|cl.ea.cache.021|                      not measured on this machine.
+::X|FR|cl.ea.cache.022|
+::X|FR|cl.ea.cache.023|  Cible           : OPTY.bat lines 1134-1138. call :isrunning
+::X|FR|cl.ea.cache.024|                    "EADesktop.exe" then, only if it is not running, del
+::X|FR|cl.ea.cache.025|                    /F /S /Q on %USERHOME%\AppData\Local\Electronic
+::X|FR|cl.ea.cache.026|                    Arts\EA Desktop\cache and on %ProgramData%\EA
+::X|FR|cl.ea.cache.027|                    Core\cache. USERHOME is hardcoded at line 81 to
+::X|FR|cl.ea.cache.028|                    C:\Users\compt. The legacy Origin log folders are a
+::X|FR|cl.ea.cache.029|                    separate step.
+::T|EN|cl.ea.cache.001|EA APP CACHE
+::T|EN|cl.ea.cache.002|
+::T|EN|cl.ea.cache.003|  What it is      : The EA App, successor to Origin, keeps a cache in your
+::T|EN|cl.ea.cache.004|                    profile and a second one under %ProgramData%\EA Core:
+::T|EN|cl.ea.cache.005|                    store artwork, library metadata and web content for
+::T|EN|cl.ea.cache.006|                    the client's embedded browser. This step clears both,
+::T|EN|cl.ea.cache.007|                    and only when EADesktop.exe is not running.
+::T|EN|cl.ea.cache.008|
+::T|EN|cl.ea.cache.009|  Actual effect   : Deletes the files under %LOCALAPPDATA%\Electronic
+::T|EN|cl.ea.cache.010|                    Arts\EA Desktop\cache and %ProgramData%\EA Core\cache,
+::T|EN|cl.ea.cache.011|                    leaving the folders themselves. Installed games, save
+::T|EN|cl.ea.cache.012|                    data and entitlements are untouched. The user path is
+::T|EN|cl.ea.cache.013|                    the hardcoded C:\Users\compt profile, so other Windows
+::T|EN|cl.ea.cache.014|                    accounts keep theirs. The EA App starts with Windows
+::T|EN|cl.ea.cache.015|                    on a default install, so quit it from the tray before
+::T|EN|cl.ea.cache.016|                    running OPTY, or the step prints "EA App is running -
+::T|EN|cl.ea.cache.017|                    skipped" and does nothing.
+::T|EN|cl.ea.cache.018|
+::T|EN|cl.ea.cache.019|  Gain            : Modest: typically 50 to 500 MB depending on how large
+::T|EN|cl.ea.cache.020|                    your library is. The real value is that clearing this
+::T|EN|cl.ea.cache.021|                    cache is EA's own documented first step for a client
+::T|EN|cl.ea.cache.022|                    that will not launch, shows an empty library, or loops
+::T|EN|cl.ea.cache.023|                    on the login screen.
+::T|EN|cl.ea.cache.024|
+::T|EN|cl.ea.cache.025|  Cost            : Rebuilt on the next launch, which takes a few seconds
+::T|EN|cl.ea.cache.026|                    and a small download. You may have to sign in again.
+::T|EN|cl.ea.cache.027|                    Nothing permanent is lost - no game files, no saves,
+::T|EN|cl.ea.cache.028|                    no entitlements, and nothing needs re-installing.
+::T|EN|cl.ea.cache.029|
+::T|EN|cl.ea.cache.030|  Windows default : Not applicable. Application cache, created and managed
+::T|EN|cl.ea.cache.031|                    by the EA App.
+::T|EN|cl.ea.cache.032|
+::T|EN|cl.ea.cache.033|  Possible values:
+::T|EN|cl.ea.cache.034|    DELETE               : Empty the EA Desktop cache and the EA Core
+::T|EN|cl.ea.cache.035|                           cache, provided the client is fully closed.
+::T|EN|cl.ea.cache.036|                           Games, saves and entitlements are untouched.
+::T|EN|cl.ea.cache.037|    KEEP                 : Fine if the client works: the cache is small
+::T|EN|cl.ea.cache.038|                           and clearing it buys you nothing but a possible
+::T|EN|cl.ea.cache.039|                           sign-in prompt.
+::T|EN|cl.ea.cache.040|    ASK                  : Not needed. This is EA's own first
+::T|EN|cl.ea.cache.041|                           troubleshooting step and it risks nothing
+::T|EN|cl.ea.cache.042|                           beyond re-entering your password.
+::X|EN|cl.ea.cache.001|  Why these profiles : Four identical columns. GAMING is where the client
+::X|EN|cl.ea.cache.002|                       exists at all; on SERVER, OFFICE and LAPTOP the
+::X|EN|cl.ea.cache.003|                       folders normally do not exist and the step quietly
+::X|EN|cl.ea.cache.004|                       does nothing. WINDOWS means leave it alone, which
+::X|EN|cl.ea.cache.005|                       costs a few hundred MB at most and keeps you signed
+::X|EN|cl.ea.cache.006|                       in.
+::X|EN|cl.ea.cache.007|
+::X|EN|cl.ea.cache.008|  Known problems  : The user path uses the hardcoded %USERHOME%
+::X|EN|cl.ea.cache.009|                    (C:\Users\compt), so another Windows account keeps its
+::X|EN|cl.ea.cache.010|                    EA cache while the step still logs a clean. The guard
+::X|EN|cl.ea.cache.011|                    only looks for EADesktop.exe; EA's background service
+::X|EN|cl.ea.cache.012|                    can be up without it, but it does not hold the cache
+::X|EN|cl.ea.cache.013|                    files open, so that is a note rather than a defect.
+::X|EN|cl.ea.cache.014|
+::X|EN|cl.ea.cache.015|  Unverified      : Having to sign in again after clearing the EA Desktop
+::X|EN|cl.ea.cache.016|                    cache is commonly reported and is what EA's own
+::X|EN|cl.ea.cache.017|                    troubleshooting article prepares you for, but it was
+::X|EN|cl.ea.cache.018|                    not reproduced here. The size range is typical, not
+::X|EN|cl.ea.cache.019|                    measured on this machine.
+::X|EN|cl.ea.cache.020|
+::X|EN|cl.ea.cache.021|  Target          : OPTY.bat lines 1134-1138. call :isrunning
+::X|EN|cl.ea.cache.022|                    "EADesktop.exe" then, only if it is not running, del
+::X|EN|cl.ea.cache.023|                    /F /S /Q on %USERHOME%\AppData\Local\Electronic
+::X|EN|cl.ea.cache.024|                    Arts\EA Desktop\cache and on %ProgramData%\EA
+::X|EN|cl.ea.cache.025|                    Core\cache. USERHOME is hardcoded at line 81 to
+::X|EN|cl.ea.cache.026|                    C:\Users\compt. The legacy Origin log folders are a
+::X|EN|cl.ea.cache.027|                    separate step.
+::
+:: ---- cl.origin.logs (cleanup) ------------------------------------
+::P|cl.origin.logs|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.origin.logs.001|DOSSIERS DE JOURNAUX HÉRITÉS D'ORIGIN
+::T|FR|cl.origin.logs.002|
+::T|FR|cl.origin.logs.003|  Ce que c est    : Origin était le launcher d'EA avant l'application EA.
+::T|FR|cl.origin.logs.004|                    Cette étape vide uniquement ses trois dossiers Logs.
+::T|FR|cl.origin.logs.005|                    Le dossier Origin lui-même n'est jamais supprimé, car
+::T|FR|cl.origin.logs.006|                    %ProgramData%\Origin\LocalContent contient les données
+::T|FR|cl.origin.logs.007|                    de licences de jeux.
+::T|FR|cl.origin.logs.008|
+::T|FR|cl.origin.logs.009|  Effet reel      : Trois del /F /S /Q, sur les fichiers seulement : les
+::T|FR|cl.origin.logs.010|                    dossiers Logs vides subsistent. Aucun test de
+::T|FR|cl.origin.logs.011|                    processus en cours, volontairement, et c'est sans
+::T|FR|cl.origin.logs.012|                    risque : un journal qu'Origin garde ouvert échoue
+::T|FR|cl.origin.logs.013|                    simplement à être supprimé, l'erreur étant avalée par
+::T|FR|cl.origin.logs.014|                    2>nul. À noter : les deux chemins utilisateur sont
+::T|FR|cl.origin.logs.015|                    construits sur %USERHOME%, que la ligne 81 d'OPTY.bat
+::T|FR|cl.origin.logs.016|                    fixe en dur à C:\Users\compt. Lancé depuis un autre
+::T|FR|cl.origin.logs.017|                    compte, ce nettoyage vise le dossier de quelqu'un
+::T|FR|cl.origin.logs.018|                    d'autre.
+::T|FR|cl.origin.logs.019|
+::T|FR|cl.origin.logs.020|  Gain            : Mesuré sur cette machine :
+::T|FR|cl.origin.logs.021|                    C:\Users\compt\AppData\Local\Origin\Logs et son
+::T|FR|cl.origin.logs.022|                    équivalent Roaming sont absents, et
+::T|FR|cl.origin.logs.023|                    C:\ProgramData\Origin pèse 0 Mo. Récupération réelle
+::T|FR|cl.origin.logs.024|                    ici : 0 octet. Sur un PC qui utilise encore Origin,
+::T|FR|cl.origin.logs.025|                    ces journaux font quelques Mo, rarement plus de 20.
+::T|FR|cl.origin.logs.026|
+::T|FR|cl.origin.logs.027|  Cout            : Aucun. Les journaux sont réécrits au lancement
+::T|FR|cl.origin.logs.028|                    suivant. Aucune licence, aucun réglage, aucune
+::T|FR|cl.origin.logs.029|                    sauvegarde ne se trouve sur ces chemins.
+::T|FR|cl.origin.logs.030|
+::T|FR|cl.origin.logs.031|  Defaut Windows  : Sans objet - journaux d'une application tierce.
+::T|FR|cl.origin.logs.032|                    Windows ne fournit rien ici et n'y touche jamais.
+::T|FR|cl.origin.logs.033|
+::T|FR|cl.origin.logs.034|  Valeurs possibles :
+::T|FR|cl.origin.logs.035|    DELETE               : Vider les trois dossiers Logs d'Origin. Ne
+::T|FR|cl.origin.logs.036|                           coûte rien et ne peut rien casser, car aucun
+::T|FR|cl.origin.logs.037|                           chemin ne touche LocalContent, où résident les
+::T|FR|cl.origin.logs.038|                           licences de jeux.
+::T|FR|cl.origin.logs.039|    KEEP                 : Les laisser. Défendable pour une seule raison :
+::T|FR|cl.origin.logs.040|                           il n'y a en général rien à gagner. EA a retiré
+::T|FR|cl.origin.logs.041|                           Origin, et sur cette machine les dossiers
+::T|FR|cl.origin.logs.042|                           n'existent même pas.
+::T|FR|cl.origin.logs.043|    ASK                  : Injustifié ici. Poser la question suppose un
+::T|FR|cl.origin.logs.044|                           vrai arbitrage ; supprimer un journal qu'Origin
+::T|FR|cl.origin.logs.045|                           réécrit tout seul n'en est pas un.
+::X|FR|cl.origin.logs.001|  Pourquoi ces profils : Quatre colonnes identiques, et c'est la réponse
+::X|FR|cl.origin.logs.002|                         honnête : ni la latence, ni le débit, ni
+::X|FR|cl.origin.logs.003|                         l'autonomie ne dépendent d'un fichier journal. La
+::X|FR|cl.origin.logs.004|                         colonne 5 dit KEEP seulement parce qu'elle
+::X|FR|cl.origin.logs.005|                         signifie « laisser l'état d'origine », et il n'y
+::X|FR|cl.origin.logs.006|                         a ici aucun état d'origine Windows.
+::X|FR|cl.origin.logs.007|
+::X|FR|cl.origin.logs.008|  Problemes connus : Les deux chemins utilisateur passent par le
+::X|FR|cl.origin.logs.009|                     %USERHOME% codé en dur (ligne 81) au lieu de
+::X|FR|cl.origin.logs.010|                     %LOCALAPPDATA% / %APPDATA% : depuis un autre compte
+::X|FR|cl.origin.logs.011|                     que compt, ils ratent silencieusement leur cible.
+::X|FR|cl.origin.logs.012|
+::X|FR|cl.origin.logs.013|  Cible           : del /F /S /Q on
+::X|FR|cl.origin.logs.014|                    %USERHOME%\AppData\Local\Origin\Logs\*,
+::X|FR|cl.origin.logs.015|                    %USERHOME%\AppData\Roaming\Origin\Logs\*,
+::X|FR|cl.origin.logs.016|                    %ProgramData%\Origin\Logs\* - OPTY.bat lines
+::X|FR|cl.origin.logs.017|                    1142-1144, inside the :delete pass.
+::T|EN|cl.origin.logs.001|LEGACY ORIGIN LOG FOLDERS
+::T|EN|cl.origin.logs.002|
+::T|EN|cl.origin.logs.003|  What it is      : Origin was EA's launcher before the EA app. This step
+::T|EN|cl.origin.logs.004|                    empties only its three Logs folders. The Origin folder
+::T|EN|cl.origin.logs.005|                    itself is never removed, because
+::T|EN|cl.origin.logs.006|                    %ProgramData%\Origin\LocalContent holds the game
+::T|EN|cl.origin.logs.007|                    entitlement data.
+::T|EN|cl.origin.logs.008|
+::T|EN|cl.origin.logs.009|  Actual effect   : Three del /F /S /Q calls, files only - the empty Logs
+::T|EN|cl.origin.logs.010|                    folders survive. There is deliberately no running-
+::T|EN|cl.origin.logs.011|                    process guard, which is safe because a log file Origin
+::T|EN|cl.origin.logs.012|                    holds open simply fails to delete and the error is
+::T|EN|cl.origin.logs.013|                    swallowed by 2>nul. Note that the two user-level paths
+::T|EN|cl.origin.logs.014|                    are built from %USERHOME%, which OPTY.bat line 81
+::T|EN|cl.origin.logs.015|                    hardcodes to C:\Users\compt: run from any other
+::T|EN|cl.origin.logs.016|                    account, this step points at somebody else's folder.
+::T|EN|cl.origin.logs.017|
+::T|EN|cl.origin.logs.018|  Gain            : Measured on this machine:
+::T|EN|cl.origin.logs.019|                    C:\Users\compt\AppData\Local\Origin\Logs and the
+::T|EN|cl.origin.logs.020|                    Roaming equivalent are absent, and
+::T|EN|cl.origin.logs.021|                    C:\ProgramData\Origin totals 0 MB. Real recovery here
+::T|EN|cl.origin.logs.022|                    is 0 bytes. On a PC still running Origin, the logs are
+::T|EN|cl.origin.logs.023|                    a few MB, rarely above 20 MB.
+::T|EN|cl.origin.logs.024|
+::T|EN|cl.origin.logs.025|  Cost            : None. Logs are rewritten on the next launch. No
+::T|EN|cl.origin.logs.026|                    entitlement, no setting, no save is in the path.
+::T|EN|cl.origin.logs.027|
+::T|EN|cl.origin.logs.028|  Windows default : Not applicable - third-party application logs. Windows
+::T|EN|cl.origin.logs.029|                    ships nothing here and never cleans it.
+::T|EN|cl.origin.logs.030|
+::T|EN|cl.origin.logs.031|  Possible values:
+::T|EN|cl.origin.logs.032|    DELETE               : Empty the three Origin Logs folders. Costs
+::T|EN|cl.origin.logs.033|                           nothing and can break nothing, because no path
+::T|EN|cl.origin.logs.034|                           here reaches LocalContent, where the game
+::T|EN|cl.origin.logs.035|                           entitlements live.
+::T|EN|cl.origin.logs.036|    KEEP                 : Leave them. Defensible simply because there is
+::T|EN|cl.origin.logs.037|                           usually nothing to gain: EA retired Origin, and
+::T|EN|cl.origin.logs.038|                           on this machine the folders do not even exist.
+::T|EN|cl.origin.logs.039|    ASK                  : Not warranted here. Asking implies a decision
+::T|EN|cl.origin.logs.040|                           worth making; deleting a log file that Origin
+::T|EN|cl.origin.logs.041|                           rewrites on its own is not one.
+::X|EN|cl.origin.logs.001|  Why these profiles : Four identical columns, and that is the honest
+::X|EN|cl.origin.logs.002|                       answer: nothing about latency, throughput or
+::X|EN|cl.origin.logs.003|                       battery is affected by a log file. Profile 5 reads
+::X|EN|cl.origin.logs.004|                       KEEP only because it means leave the shipped state
+::X|EN|cl.origin.logs.005|                       alone, and Windows has no shipped state here at
+::X|EN|cl.origin.logs.006|                       all.
+::X|EN|cl.origin.logs.007|
+::X|EN|cl.origin.logs.008|  Known problems  : The two user paths use the hardcoded %USERHOME% from
+::X|EN|cl.origin.logs.009|                    line 81 instead of %LOCALAPPDATA% / %APPDATA%, so on
+::X|EN|cl.origin.logs.010|                    any account other than compt they silently miss.
+::X|EN|cl.origin.logs.011|
+::X|EN|cl.origin.logs.012|  Target          : del /F /S /Q on
+::X|EN|cl.origin.logs.013|                    %USERHOME%\AppData\Local\Origin\Logs\*,
+::X|EN|cl.origin.logs.014|                    %USERHOME%\AppData\Roaming\Origin\Logs\*,
+::X|EN|cl.origin.logs.015|                    %ProgramData%\Origin\Logs\* - OPTY.bat lines
+::X|EN|cl.origin.logs.016|                    1142-1144, inside the :delete pass.
+::
+:: ---- cl.epic.webcache (cleanup) ----------------------------------
+::P|cl.epic.webcache|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.epic.webcache.001|WEBCACHE ET JOURNAUX DU LAUNCHER EPIC
+::T|FR|cl.epic.webcache.002|
+::T|FR|cl.epic.webcache.003|  Ce que c est    : Le launcher Epic affiche sa boutique et sa
+::T|FR|cl.epic.webcache.004|                    bibliothèque dans un navigateur intégré dont le cache
+::T|FR|cl.epic.webcache.005|                    réside dans des dossiers webcache versionnés sous
+::T|FR|cl.epic.webcache.006|                    Saved. Les anciennes versions s'empilent au lieu
+::T|FR|cl.epic.webcache.007|                    d'être remplacées. Cette étape supprime ces dossiers
+::T|FR|cl.epic.webcache.008|                    entiers et vide le dossier Logs du launcher.
+::T|FR|cl.epic.webcache.009|
+::T|FR|cl.epic.webcache.010|  Effet reel      : rd /S /Q sur chaque répertoire Saved\webcache* - les
+::T|FR|cl.epic.webcache.011|                    dossiers disparaissent, pas seulement leur contenu -
+::T|FR|cl.epic.webcache.012|                    et del /F /S /Q sur Saved\Logs. Si
+::T|FR|cl.epic.webcache.013|                    EpicGamesLauncher.exe tourne, tout le bloc est sauté
+::T|FR|cl.epic.webcache.014|                    et le signale. Saved\Config, Saved\Data et Saved\Saves
+::T|FR|cl.epic.webcache.015|                    sont hors du motif et survivent. Le chemin repose sur
+::T|FR|cl.epic.webcache.016|                    le %USERHOME% codé en dur : depuis un autre compte,
+::T|FR|cl.epic.webcache.017|                    rien ne correspond.
+::T|FR|cl.epic.webcache.018|
+::T|FR|cl.epic.webcache.019|  Gain            : Mesuré ici : aucun dossier webcache n'existe, et tout
+::T|FR|cl.epic.webcache.020|                    l'arbre Saved pèse 0,1 Mo - cette étape libère donc 0
+::T|FR|cl.epic.webcache.021|                    octet sur cette machine. Sur un launcher utilisé
+::T|FR|cl.epic.webcache.022|                    quotidiennement, chaque version de webcache fait
+::T|FR|cl.epic.webcache.023|                    environ 50 à 300 Mo et deux ou trois versions
+::T|FR|cl.epic.webcache.024|                    coexistent, soit 100 Mo à environ 1 Go.
+::T|FR|cl.epic.webcache.025|
+::T|FR|cl.epic.webcache.026|  Cout            : Reconstruit au lancement suivant : quelques secondes à
+::T|FR|cl.epic.webcache.027|                    une minute pour retélécharger l'interface de la
+::T|FR|cl.epic.webcache.028|                    boutique. Les jeux installés, leurs données et vos
+::T|FR|cl.epic.webcache.029|                    sauvegardes ne sont pas touchés. Seul désagrément
+::T|FR|cl.epic.webcache.030|                    possible : la vue boutique garde ses cookies dans le
+::T|FR|cl.epic.webcache.031|                    webcache, elle peut donc redemander une connexion.
+::T|FR|cl.epic.webcache.032|
+::T|FR|cl.epic.webcache.033|  Defaut Windows  : Sans objet - cache d'une application tierce. Windows
+::T|FR|cl.epic.webcache.034|                    ne le crée ni ne le purge.
+::T|FR|cl.epic.webcache.035|
+::T|FR|cl.epic.webcache.036|  Valeurs possibles :
+::T|FR|cl.epic.webcache.037|    DELETE               : Supprimer les dossiers webcache versionnés et
+::T|FR|cl.epic.webcache.038|                           les journaux du launcher. C'est le remède
+::T|FR|cl.epic.webcache.039|                           standard à une boutique Epic qui s'ouvre
+::T|FR|cl.epic.webcache.040|                           entièrement blanche, et les jeux installés ne
+::T|FR|cl.epic.webcache.041|                           sont pas sur ce chemin.
+::T|FR|cl.epic.webcache.042|    KEEP                 : À laisser si la boutique s'affiche bien et que
+::T|FR|cl.epic.webcache.043|                           la place ne manque pas : c'est le webcache qui
+::T|FR|cl.epic.webcache.044|                           fait que la boutique s'ouvre tout de suite au
+::T|FR|cl.epic.webcache.045|                           lieu de retélécharger toute son interface.
+::T|FR|cl.epic.webcache.046|    ASK                  : À ne demander que si un téléchargement est en
+::T|FR|cl.epic.webcache.047|                           cours : un rd /S /Q sur un dossier webcache
+::T|FR|cl.epic.webcache.048|                           pendant une installation en file d'attente n'a
+::T|FR|cl.epic.webcache.049|                           pas été testé - c'est précisément la raison
+::T|FR|cl.epic.webcache.050|                           d'être du garde-fou sur le launcher.
+::X|FR|cl.epic.webcache.001|  Pourquoi ces profils : Identique pour les quatre profils réels. Un
+::X|FR|cl.epic.webcache.002|                         webcache de launcher n'influe ni sur les temps
+::X|FR|cl.epic.webcache.003|                         d'image, ni sur le débit, ni sur l'autonomie :
+::X|FR|cl.epic.webcache.004|                         soit il est gonflé et cassé, soit il va bien. La
+::X|FR|cl.epic.webcache.005|                         colonne 5 dit KEEP parce que « laisser Windows
+::X|FR|cl.epic.webcache.006|                         tel qu'il est livré » ne dit rien d'un dossier
+::X|FR|cl.epic.webcache.007|                         qui n'appartient pas à Windows.
+::X|FR|cl.epic.webcache.008|
+::X|FR|cl.epic.webcache.009|  Non verifie (en)  : Whether clearing webcache forces a fresh sign-in
+::X|FR|cl.epic.webcache.010|                      could not be reproduced here, because no webcache
+::X|FR|cl.epic.webcache.011|                      folder exists on this machine. The launcher's own
+::X|FR|cl.epic.webcache.012|                      saved credential is in
+::X|FR|cl.epic.webcache.013|                      Saved\Config\Windows\GameUserSettings.ini, which
+::X|FR|cl.epic.webcache.014|                      this step does not touch; the embedded browser's
+::X|FR|cl.epic.webcache.015|                      cookies do live in webcache, so the store view may
+::X|FR|cl.epic.webcache.016|                      re-prompt even while the launcher stays signed in.
+::X|FR|cl.epic.webcache.017|
+::X|FR|cl.epic.webcache.018|  Cible           : for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLaun
+::X|FR|cl.epic.webcache.019|                    cher\Saved\webcache*") do rd /S /Q, plus del /F /S /Q
+::X|FR|cl.epic.webcache.020|                    on ...\Saved\Logs\*, both behind call :isrunning
+::X|FR|cl.epic.webcache.021|                    "EpicGamesLauncher.exe" - OPTY.bat lines 1145-1149.
+::T|EN|cl.epic.webcache.001|EPIC LAUNCHER WEBCACHE AND LOGS
+::T|EN|cl.epic.webcache.002|
+::T|EN|cl.epic.webcache.003|  What it is      : The Epic launcher draws its store and library in an
+::T|EN|cl.epic.webcache.004|                    embedded browser whose cache lives in versioned
+::T|EN|cl.epic.webcache.005|                    webcache folders under Saved. Old versions stack up
+::T|EN|cl.epic.webcache.006|                    instead of being replaced. This step removes those
+::T|EN|cl.epic.webcache.007|                    folders whole, and empties the launcher's Logs folder.
+::T|EN|cl.epic.webcache.008|
+::T|EN|cl.epic.webcache.009|  Actual effect   : rd /S /Q on each Saved\webcache* directory - so the
+::T|EN|cl.epic.webcache.010|                    folders go, not just their contents - and del /F /S /Q
+::T|EN|cl.epic.webcache.011|                    on Saved\Logs. If EpicGamesLauncher.exe is running the
+::T|EN|cl.epic.webcache.012|                    whole block is skipped and says so. Saved\Config,
+::T|EN|cl.epic.webcache.013|                    Saved\Data and Saved\Saves are outside the pattern and
+::T|EN|cl.epic.webcache.014|                    survive. The path is built from the hardcoded
+::T|EN|cl.epic.webcache.015|                    %USERHOME%, so on another account nothing matches.
+::T|EN|cl.epic.webcache.016|
+::T|EN|cl.epic.webcache.017|  Gain            : Measured here: there is no webcache folder at all, and
+::T|EN|cl.epic.webcache.018|                    the entire Saved tree is 0.1 MB - so this step frees 0
+::T|EN|cl.epic.webcache.019|                    bytes on this machine. On a launcher in daily use each
+::T|EN|cl.epic.webcache.020|                    webcache version runs roughly 50 to 300 MB and two or
+::T|EN|cl.epic.webcache.021|                    three versions coexist, so 100 MB to about 1 GB.
+::T|EN|cl.epic.webcache.022|
+::T|EN|cl.epic.webcache.023|  Cost            : Rebuilt on the next launch, seconds to a minute of
+::T|EN|cl.epic.webcache.024|                    refetching the store interface. Installed games, their
+::T|EN|cl.epic.webcache.025|                    data and your saves are untouched. The one thing that
+::T|EN|cl.epic.webcache.026|                    can annoy: the store view keeps its cookies in
+::T|EN|cl.epic.webcache.027|                    webcache, so it may ask you to sign in again inside
+::T|EN|cl.epic.webcache.028|                    the store.
+::T|EN|cl.epic.webcache.029|
+::T|EN|cl.epic.webcache.030|  Windows default : Not applicable - third-party application cache.
+::T|EN|cl.epic.webcache.031|                    Windows neither creates nor prunes it.
+::T|EN|cl.epic.webcache.032|
+::T|EN|cl.epic.webcache.033|  Possible values:
+::T|EN|cl.epic.webcache.034|    DELETE               : Remove the versioned webcache folders and the
+::T|EN|cl.epic.webcache.035|                           launcher logs. This is the standard fix for an
+::T|EN|cl.epic.webcache.036|                           Epic store page that opens completely blank,
+::T|EN|cl.epic.webcache.037|                           and installed games are not in the path.
+::T|EN|cl.epic.webcache.038|    KEEP                 : Leave it if the store renders fine and disk
+::T|EN|cl.epic.webcache.039|                           space is not tight: the webcache is what makes
+::T|EN|cl.epic.webcache.040|                           the store open instantly instead of refetching
+::T|EN|cl.epic.webcache.041|                           its whole interface.
+::T|EN|cl.epic.webcache.042|    ASK                  : Only worth asking if you are mid-download: rd
+::T|EN|cl.epic.webcache.043|                           /S /Q on a webcache folder while a game install
+::T|EN|cl.epic.webcache.044|                           is queued is untested, which is exactly why the
+::T|EN|cl.epic.webcache.045|                           running-launcher guard exists.
+::X|EN|cl.epic.webcache.001|  Why these profiles : Identical for the four real profiles. A launcher
+::X|EN|cl.epic.webcache.002|                       webcache has no bearing on frame times, throughput
+::X|EN|cl.epic.webcache.003|                       or battery; it is either bloated and broken, or
+::X|EN|cl.epic.webcache.004|                       fine. Profile 5 is KEEP because leaving Windows as
+::X|EN|cl.epic.webcache.005|                       shipped says nothing about a folder Windows does
+::X|EN|cl.epic.webcache.006|                       not own.
+::X|EN|cl.epic.webcache.007|
+::X|EN|cl.epic.webcache.008|  Unverified      : Whether clearing webcache forces a fresh sign-in could
+::X|EN|cl.epic.webcache.009|                    not be reproduced here, because no webcache folder
+::X|EN|cl.epic.webcache.010|                    exists on this machine. The launcher's own saved
+::X|EN|cl.epic.webcache.011|                    credential is in
+::X|EN|cl.epic.webcache.012|                    Saved\Config\Windows\GameUserSettings.ini, which this
+::X|EN|cl.epic.webcache.013|                    step does not touch; the embedded browser's cookies do
+::X|EN|cl.epic.webcache.014|                    live in webcache, so the store view may re-prompt even
+::X|EN|cl.epic.webcache.015|                    while the launcher stays signed in.
+::X|EN|cl.epic.webcache.016|
+::X|EN|cl.epic.webcache.017|  Target          : for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLaun
+::X|EN|cl.epic.webcache.018|                    cher\Saved\webcache*") do rd /S /Q, plus del /F /S /Q
+::X|EN|cl.epic.webcache.019|                    on ...\Saved\Logs\*, both behind call :isrunning
+::X|EN|cl.epic.webcache.020|                    "EpicGamesLauncher.exe" - OPTY.bat lines 1145-1149.
+::
+:: ---- cl.fontcache.rebuild (cleanup) ------------------------------
+::P|cl.fontcache.rebuild|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.fontcache.rebuild.001|RECONSTRUCTION DU CACHE DE POLICES WINDOWS
+::T|FR|cl.fontcache.rebuild.002|
+::T|FR|cl.fontcache.rebuild.003|  Ce que c est    : Windows met en cache les métriques et les glyphes des
+::T|FR|cl.fontcache.rebuild.004|                    polices pour éviter aux applications de relire chaque
+::T|FR|cl.fontcache.rebuild.005|                    police installée. Ce cache appartient au service Cache
+::T|FR|cl.fontcache.rebuild.006|                    de police Windows. Cette étape arrête le service,
+::T|FR|cl.fontcache.rebuild.007|                    supprime les fichiers de cache et FNTCACHE.DAT, puis
+::T|FR|cl.fontcache.rebuild.008|                    relance le service.
+::T|FR|cl.fontcache.rebuild.009|
+::T|FR|cl.fontcache.rebuild.010|  Effet reel      : Mesuré sur cette machine, service en marche : six des
+::T|FR|cl.fontcache.rebuild.011|                    huit fichiers de cache - 48 des 49 Mo - sont
+::T|FR|cl.fontcache.rebuild.012|                    verrouillés par un autre processus et ne peuvent même
+::T|FR|cl.fontcache.rebuild.013|                    pas être ouverts ; seuls FNTCACHE.DAT (0,91 Mo) et
+::T|FR|cl.fontcache.rebuild.014|                    FontCache-Obsolete-468.dat (16 Mo) sont libres. C'est
+::T|FR|cl.fontcache.rebuild.015|                    justement le net stop qui rend les six autres
+::T|FR|cl.fontcache.rebuild.016|                    supprimables : il n'est pas décoratif. Les deux lignes
+::T|FR|cl.fontcache.rebuild.017|                    del renvoient leurs erreurs vers nul, si bien que
+::T|FR|cl.fontcache.rebuild.018|                    l'étape affiche le même succès qu'elle ait supprimé 49
+::T|FR|cl.fontcache.rebuild.019|                    Mo ou 17 - exactement la forme du vieux nettoyage
+::T|FR|cl.fontcache.rebuild.020|                    d'icônes. Le type de démarrage n'est pas modifié
+::T|FR|cl.fontcache.rebuild.021|                    (Automatique ici) et le Prefetch est volontairement
+::T|FR|cl.fontcache.rebuild.022|                    laissé intact.
+::T|FR|cl.fontcache.rebuild.023|
+::T|FR|cl.fontcache.rebuild.024|  Gain            : Pas 49 Mo. Les fichiers actifs sont préalloués à
+::T|FR|cl.fontcache.rebuild.025|                    taille fixe - 16 Mo pour ~FontCache-FontFace.dat, 8 Mo
+::T|FR|cl.fontcache.rebuild.026|                    par utilisateur - et le service les recrée à la même
+::T|FR|cl.fontcache.rebuild.027|                    taille en quelques secondes. Le seul gain durable
+::T|FR|cl.fontcache.rebuild.028|                    mesuré ici est FontCache-Obsolete-468.dat, 16 Mo, plus
+::T|FR|cl.fontcache.rebuild.029|                    FNTCACHE.DAT à 0,9 Mo : environ 17 Mo. La vraie raison
+::T|FR|cl.fontcache.rebuild.030|                    de lancer cette étape, c'est la réparation : texte
+::T|FR|cl.fontcache.rebuild.031|                    illisible ou substitué, polices manquantes,
+::T|FR|cl.fontcache.rebuild.032|                    applications qui se figent en listant les polices.
+::T|FR|cl.fontcache.rebuild.033|
+::T|FR|cl.fontcache.rebuild.034|  Cout            : Pendant quelques secondes, le texte est rendu
+::T|FR|cl.fontcache.rebuild.035|                    directement depuis les fichiers de polices, et la
+::T|FR|cl.fontcache.rebuild.036|                    première application qui énumère les polices ensuite -
+::T|FR|cl.fontcache.rebuild.037|                    Word, un logiciel de création - s'ouvre une fois plus
+::T|FR|cl.fontcache.rebuild.038|                    lentement. Aucune police installée n'est touchée et
+::T|FR|cl.fontcache.rebuild.039|                    rien n'est perdu définitivement.
+::T|FR|cl.fontcache.rebuild.040|
+::T|FR|cl.fontcache.rebuild.041|  Defaut Windows  : Sans objet - contenu généré par le service FontCache.
+::T|FR|cl.fontcache.rebuild.042|                    Windows ne livre rien ici et ne le purge jamais de
+::T|FR|cl.fontcache.rebuild.043|                    lui-même.
+::T|FR|cl.fontcache.rebuild.044|
+::T|FR|cl.fontcache.rebuild.045|  Valeurs possibles :
+::T|FR|cl.fontcache.rebuild.046|    DELETE               : Arrêter le service, effacer le cache, le
+::T|FR|cl.fontcache.rebuild.047|                           relancer. À faire quand du texte s'affiche mal
+::T|FR|cl.fontcache.rebuild.048|                           ou qu'une application se fige en énumérant les
+::T|FR|cl.fontcache.rebuild.049|                           polices : c'est le remède standard. Comme gain
+::T|FR|cl.fontcache.rebuild.050|                           de place, cela récupère environ 17 Mo, pas les
+::T|FR|cl.fontcache.rebuild.051|                           49 Mo affichés par le dossier.
+::T|FR|cl.fontcache.rebuild.052|    KEEP                 : À laisser si vos polices s'affichent
+::T|FR|cl.fontcache.rebuild.053|                           correctement. Les fichiers de cache actifs sont
+::T|FR|cl.fontcache.rebuild.054|                           préalloués à taille fixe et reviennent
+::T|FR|cl.fontcache.rebuild.055|                           identiques en quelques secondes : sur une
+::T|FR|cl.fontcache.rebuild.056|                           machine saine, c'est du mouvement sans gain
+::T|FR|cl.fontcache.rebuild.057|                           mesurable.
+::T|FR|cl.fontcache.rebuild.058|    ASK                  : À ne demander que sur une machine où FontCache
+::T|FR|cl.fontcache.rebuild.059|                           a été mis sur Désactivé par un autre
+::T|FR|cl.fontcache.rebuild.060|                           bidouillage : le net start échoue alors en
+::T|FR|cl.fontcache.rebuild.061|                           silence et le cache reste absent tant que le
+::T|FR|cl.fontcache.rebuild.062|                           service n'est pas réactivé.
+::X|FR|cl.fontcache.rebuild.001|  Pourquoi ces profils : Quatre colonnes identiques. Rien dans un cache de
+::X|FR|cl.fontcache.rebuild.002|                         polices ne dépend du nombre d'images par seconde,
+::X|FR|cl.fontcache.rebuild.003|                         du débit d'un serveur ou de l'autonomie : la
+::X|FR|cl.fontcache.rebuild.004|                         taille des fichiers est fixée par le service, pas
+::X|FR|cl.fontcache.rebuild.005|                         par l'usage. La colonne 5 dit KEEP parce que
+::X|FR|cl.fontcache.rebuild.006|                         laisser Windows tranquille revient à laisser le
+::X|FR|cl.fontcache.rebuild.007|                         service gérer son propre cache, ce qu'il fait
+::X|FR|cl.fontcache.rebuild.008|                         déjà.
+::X|FR|cl.fontcache.rebuild.009|
+::X|FR|cl.fontcache.rebuild.010|  Non verifie (en)  : Whether all six locked files actually release once
+::X|FR|cl.fontcache.rebuild.011|                      the service stops was not tested - testing means
+::X|FR|cl.fontcache.rebuild.012|                      stopping FontCache on a live desktop. If a client
+::X|FR|cl.fontcache.rebuild.013|                      process keeps its mapping, that file survives and
+::X|FR|cl.fontcache.rebuild.014|                      the step still reports success, because both del
+::X|FR|cl.fontcache.rebuild.015|                      lines send errors to nul.
+::X|FR|cl.fontcache.rebuild.016|
+::X|FR|cl.fontcache.rebuild.017|  Cible           : net stop FontCache, then del /F /S /Q "%WINDIR%\Servic
+::X|FR|cl.fontcache.rebuild.018|                    eProfiles\LocalService\AppData\Local\FontCache\*" and
+::X|FR|cl.fontcache.rebuild.019|                    del /F /Q "%WINDIR%\System32\FNTCACHE.DAT", then net
+::X|FR|cl.fontcache.rebuild.020|                    start FontCache - OPTY.bat lines 1156-1160.
+::T|EN|cl.fontcache.rebuild.001|WINDOWS FONT CACHE REBUILD
+::T|EN|cl.fontcache.rebuild.002|
+::T|EN|cl.fontcache.rebuild.003|  What it is      : Windows caches font metrics and glyph data so
+::T|EN|cl.fontcache.rebuild.004|                    applications do not re-parse every installed font. The
+::T|EN|cl.fontcache.rebuild.005|                    Windows Font Cache Service owns that cache. This step
+::T|EN|cl.fontcache.rebuild.006|                    stops the service, deletes the cache files and
+::T|EN|cl.fontcache.rebuild.007|                    FNTCACHE.DAT, then starts the service again.
+::T|EN|cl.fontcache.rebuild.008|
+::T|EN|cl.fontcache.rebuild.009|  Actual effect   : Measured on this machine with the service running: six
+::T|EN|cl.fontcache.rebuild.010|                    of the eight cache files - 48 of the 49 MB - are
+::T|EN|cl.fontcache.rebuild.011|                    locked by another process and cannot be opened, and
+::T|EN|cl.fontcache.rebuild.012|                    only FNTCACHE.DAT (0.91 MB) and FontCache-
+::T|EN|cl.fontcache.rebuild.013|                    Obsolete-468.dat (16 MB) are free. The net stop is
+::T|EN|cl.fontcache.rebuild.014|                    exactly what makes the other six deletable, which is
+::T|EN|cl.fontcache.rebuild.015|                    why it is not optional. Both del lines redirect errors
+::T|EN|cl.fontcache.rebuild.016|                    to nul, so the step prints the same success whether it
+::T|EN|cl.fontcache.rebuild.017|                    deleted 49 MB or 17 - the same shape as the old icon-
+::T|EN|cl.fontcache.rebuild.018|                    cache line. Start type is untouched (Automatic here)
+::T|EN|cl.fontcache.rebuild.019|                    and Prefetch is deliberately left intact.
+::T|EN|cl.fontcache.rebuild.020|
+::T|EN|cl.fontcache.rebuild.021|  Gain            : Not 49 MB. The live files are preallocated at fixed
+::T|EN|cl.fontcache.rebuild.022|                    sizes - 16 MB for ~FontCache-FontFace.dat, 8 MB per
+::T|EN|cl.fontcache.rebuild.023|                    user - and the service recreates them at the same size
+::T|EN|cl.fontcache.rebuild.024|                    within seconds. The only durable recovery measured
+::T|EN|cl.fontcache.rebuild.025|                    here is FontCache-Obsolete-468.dat at 16 MB plus
+::T|EN|cl.fontcache.rebuild.026|                    FNTCACHE.DAT at 0.9 MB, so about 17 MB. The real
+::T|EN|cl.fontcache.rebuild.027|                    reason to run this is the repair: garbled or
+::T|EN|cl.fontcache.rebuild.028|                    substituted text, missing fonts, apps that freeze
+::T|EN|cl.fontcache.rebuild.029|                    while listing fonts.
+::T|EN|cl.fontcache.rebuild.030|
+::T|EN|cl.fontcache.rebuild.031|  Cost            : For a few seconds, text is rendered straight from the
+::T|EN|cl.fontcache.rebuild.032|                    font files and the first application that enumerates
+::T|EN|cl.fontcache.rebuild.033|                    fonts afterwards - Word, a design tool - opens more
+::T|EN|cl.fontcache.rebuild.034|                    slowly once. No installed font is touched and nothing
+::T|EN|cl.fontcache.rebuild.035|                    is lost permanently.
+::T|EN|cl.fontcache.rebuild.036|
+::T|EN|cl.fontcache.rebuild.037|  Windows default : Not applicable - generated by the FontCache service.
+::T|EN|cl.fontcache.rebuild.038|                    Windows ships no content here and never prunes it on
+::T|EN|cl.fontcache.rebuild.039|                    its own.
+::T|EN|cl.fontcache.rebuild.040|
+::T|EN|cl.fontcache.rebuild.041|  Possible values:
+::T|EN|cl.fontcache.rebuild.042|    DELETE               : Stop the service, wipe the cache, start it
+::T|EN|cl.fontcache.rebuild.043|                           again. Do this when text renders wrong or an
+::T|EN|cl.fontcache.rebuild.044|                           app hangs enumerating fonts - it is the
+::T|EN|cl.fontcache.rebuild.045|                           standard fix. As a space measure it recovers
+::T|EN|cl.fontcache.rebuild.046|                           about 17 MB, not the 49 MB the folder shows.
+::T|EN|cl.fontcache.rebuild.047|    KEEP                 : Leave it if your fonts render correctly. The
+::T|EN|cl.fontcache.rebuild.048|                           live cache files are preallocated at a fixed
+::T|EN|cl.fontcache.rebuild.049|                           size and come back identical within seconds, so
+::T|EN|cl.fontcache.rebuild.050|                           on a healthy machine this is motion without
+::T|EN|cl.fontcache.rebuild.051|                           measurable gain.
+::T|EN|cl.fontcache.rebuild.052|    ASK                  : Worth asking only on a machine where FontCache
+::T|EN|cl.fontcache.rebuild.053|                           has been set to Disabled by some other tweak -
+::T|EN|cl.fontcache.rebuild.054|                           then net start fails silently and the cache
+::T|EN|cl.fontcache.rebuild.055|                           stays gone until the service is re-enabled.
+::X|EN|cl.fontcache.rebuild.001|  Why these profiles : Four identical columns. Nothing in a font cache
+::X|EN|cl.fontcache.rebuild.002|                       scales with frame rate, server throughput or
+::X|EN|cl.fontcache.rebuild.003|                       battery life; the file sizes are fixed by the
+::X|EN|cl.fontcache.rebuild.004|                       service, not by workload. Profile 5 is KEEP because
+::X|EN|cl.fontcache.rebuild.005|                       leaving Windows alone means letting the service
+::X|EN|cl.fontcache.rebuild.006|                       manage its own cache, which is precisely what it
+::X|EN|cl.fontcache.rebuild.007|                       does.
+::X|EN|cl.fontcache.rebuild.008|
+::X|EN|cl.fontcache.rebuild.009|  Unverified      : Whether all six locked files actually release once the
+::X|EN|cl.fontcache.rebuild.010|                    service stops was not tested - testing means stopping
+::X|EN|cl.fontcache.rebuild.011|                    FontCache on a live desktop. If a client process keeps
+::X|EN|cl.fontcache.rebuild.012|                    its mapping, that file survives and the step still
+::X|EN|cl.fontcache.rebuild.013|                    reports success, because both del lines send errors to
+::X|EN|cl.fontcache.rebuild.014|                    nul.
+::X|EN|cl.fontcache.rebuild.015|
+::X|EN|cl.fontcache.rebuild.016|  Target          : net stop FontCache, then del /F /S /Q "%WINDIR%\Servic
+::X|EN|cl.fontcache.rebuild.017|                    eProfiles\LocalService\AppData\Local\FontCache\*" and
+::X|EN|cl.fontcache.rebuild.018|                    del /F /Q "%WINDIR%\System32\FNTCACHE.DAT", then net
+::X|EN|cl.fontcache.rebuild.019|                    start FontCache - OPTY.bat lines 1156-1160.
+::
+:: ---- cl.startupdelay.zero (preference) ------------------------------
+::P|cl.startupdelay.zero|0|DELETE|DELETE|DELETE|DELETE|
+::T|FR|cl.startupdelay.zero.001|DÉLAI DE LANCEMENT DES APPLICATIONS AU DÉMARRAGE
+::T|FR|cl.startupdelay.zero.002|
+::T|FR|cl.startupdelay.zero.003|  Ce que c est    : Après votre connexion, l'Explorateur attend
+::T|FR|cl.startupdelay.zero.004|                    volontairement avant de lancer vos applications de
+::T|FR|cl.startupdelay.zero.005|                    démarrage, pour que le bureau, la barre des tâches et
+::T|FR|cl.startupdelay.zero.006|                    le shell finissent de se charger d'abord. Cette étape
+::T|FR|cl.startupdelay.zero.007|                    écrit StartupDelayInMSec=0 pour supprimer cette
+::T|FR|cl.startupdelay.zero.008|                    attente.
+::T|FR|cl.startupdelay.zero.009|
+::T|FR|cl.startupdelay.zero.010|  Effet reel      : Crée la clé Serialize si elle manque et pose la valeur
+::T|FR|cl.startupdelay.zero.011|                    à 0 - elle vaut actuellement 0x0 sur cette machine,
+::T|FR|cl.startupdelay.zero.012|                    OPTY l'a donc déjà appliquée. Cela ne change que ce
+::T|FR|cl.startupdelay.zero.013|                    que l'Explorateur lance : les clés Run de HKCU et HKLM
+::T|FR|cl.startupdelay.zero.014|                    et le dossier Démarrage. Les services, les tâches
+::T|FR|cl.startupdelay.zero.015|                    planifiées et les tâches de démarrage des applications
+::T|FR|cl.startupdelay.zero.016|                    du Store ne sont pas concernés. La valeur est propre à
+::T|FR|cl.startupdelay.zero.017|                    l'utilisateur : elle s'applique au compte qui a lancé
+::T|FR|cl.startupdelay.zero.018|                    OPTY et à aucun autre, à la prochaine ouverture de
+::T|FR|cl.startupdelay.zero.019|                    session.
+::T|FR|cl.startupdelay.zero.020|
+::T|FR|cl.startupdelay.zero.021|  Gain            : Vos applications de démarrage apparaissent plus tôt.
+::T|FR|cl.startupdelay.zero.022|                    C'est tout le bénéfice, et c'est une préférence, pas
+::T|FR|cl.startupdelay.zero.023|                    un gain de performance.
+::T|FR|cl.startupdelay.zero.024|
+::T|FR|cl.startupdelay.zero.025|  Cout            : La première minute après la connexion est plus chargée
+::T|FR|cl.startupdelay.zero.026|                    : le shell et toutes les applications de démarrage se
+::T|FR|cl.startupdelay.zero.027|                    disputent le même disque et le même processeur en même
+::T|FR|cl.startupdelay.zero.028|                    temps. Sur un disque mécanique ou avec une longue
+::T|FR|cl.startupdelay.zero.029|                    liste, le bureau lui-même peut sembler moins réactif
+::T|FR|cl.startupdelay.zero.030|                    qu'avant - exactement ce que le délai sert à éviter.
+::T|FR|cl.startupdelay.zero.031|                    Le temps total avant que tout soit chargé, lui, ne
+::T|FR|cl.startupdelay.zero.032|                    s'améliore pas.
+::T|FR|cl.startupdelay.zero.033|
+::T|FR|cl.startupdelay.zero.034|  Defaut Windows  : La valeur, et le plus souvent la clé Serialize elle-
+::T|FR|cl.startupdelay.zero.035|                    même, sont absentes : l'Explorateur applique alors son
+::T|FR|cl.startupdelay.zero.036|                    délai intégré.
+::T|FR|cl.startupdelay.zero.037|
+::T|FR|cl.startupdelay.zero.038|  Valeurs possibles :
+::T|FR|cl.startupdelay.zero.039|    0                    : Aucune attente : l'Explorateur lance vos
+::T|FR|cl.startupdelay.zero.040|                           applications de démarrage en même temps que le
+::T|FR|cl.startupdelay.zero.041|                           shell. Discord, Steam ou un gestionnaire de
+::T|FR|cl.startupdelay.zero.042|                           mots de passe sont prêts plus tôt, au prix
+::T|FR|cl.startupdelay.zero.043|                           d'une première minute plus chargée.
+::T|FR|cl.startupdelay.zero.044|    DELETE               : Supprimer la valeur : l'Explorateur applique de
+::T|FR|cl.startupdelay.zero.045|                           nouveau son étalement intégré. C'est l'état
+::T|FR|cl.startupdelay.zero.046|                           livré par Windows, et c'est ce qui garde le
+::T|FR|cl.startupdelay.zero.047|                           bureau réactif pendant qu'une longue liste de
+::T|FR|cl.startupdelay.zero.048|                           démarrage se charge.
+::T|FR|cl.startupdelay.zero.049|    ASK                  : Raisonnable sur une machine que vous ne
+::T|FR|cl.startupdelay.zero.050|                           connaissez pas : la bonne réponse dépend du
+::T|FR|cl.startupdelay.zero.051|                           nombre d'éléments au démarrage et du type de
+::T|FR|cl.startupdelay.zero.052|                           disque système, deux choses que cette étape ne
+::T|FR|cl.startupdelay.zero.053|                           consulte pas.
+::X|FR|cl.startupdelay.zero.001|  Pourquoi ces profils : Seul le poste gaming reçoit 0, et pour une raison
+::X|FR|cl.startupdelay.zero.002|                         assumée : c'est le profil dont le propriétaire
+::X|FR|cl.startupdelay.zero.003|                         est assis devant la machine à attendre Discord et
+::X|FR|cl.startupdelay.zero.004|                         Steam, sur secteur et sur un stockage rapide qui
+::X|FR|cl.startupdelay.zero.005|                         absorbe la pointe. Un serveur ou un poste
+::X|FR|cl.startupdelay.zero.006|                         bureautique ne gagne rien à voir ses icônes
+::X|FR|cl.startupdelay.zero.007|                         arriver plus tôt, un portable paie la pointe
+::X|FR|cl.startupdelay.zero.008|                         simultanée disque et processeur sur sa batterie,
+::X|FR|cl.startupdelay.zero.009|                         et le profil 5 est l'état livré par définition.
+::X|FR|cl.startupdelay.zero.010|
+::X|FR|cl.startupdelay.zero.011|  Non verifie (en)  : The built-in delay is widely reported as about 10
+::X|FR|cl.startupdelay.zero.012|                      seconds after the desktop appears, but Microsoft
+::X|FR|cl.startupdelay.zero.013|                      does not document the value and it may vary by
+::X|FR|cl.startupdelay.zero.014|                      build. No measurement in this project shows that
+::X|FR|cl.startupdelay.zero.015|                      removing it shortens the total time to a fully
+::X|FR|cl.startupdelay.zero.016|                      loaded session.
+::X|FR|cl.startupdelay.zero.017|
+::X|FR|cl.startupdelay.zero.018|  Cible           : HKCU\Software\Microsoft\Windows\CurrentVersion\Explore
+::X|FR|cl.startupdelay.zero.019|                    r\Serialize, value StartupDelayInMSec, REG_DWORD
+::X|FR|cl.startupdelay.zero.020|                    written as 0 - OPTY.bat line 1539.
+::T|EN|cl.startupdelay.zero.001|STARTUP APP DELAY AT LOGON
+::T|EN|cl.startupdelay.zero.002|
+::T|EN|cl.startupdelay.zero.003|  What it is      : After you sign in, Explorer deliberately waits before
+::T|EN|cl.startupdelay.zero.004|                    launching your startup applications, so the desktop,
+::T|EN|cl.startupdelay.zero.005|                    taskbar and shell finish loading first. This step
+::T|EN|cl.startupdelay.zero.006|                    writes StartupDelayInMSec=0 to remove that wait.
+::T|EN|cl.startupdelay.zero.007|
+::T|EN|cl.startupdelay.zero.008|  Actual effect   : Creates the Serialize key if it is missing and sets
+::T|EN|cl.startupdelay.zero.009|                    the value to 0 - it currently reads 0x0 on this
+::T|EN|cl.startupdelay.zero.010|                    machine, so OPTY has already applied it. It changes
+::T|EN|cl.startupdelay.zero.011|                    only what Explorer launches: the HKCU and HKLM Run
+::T|EN|cl.startupdelay.zero.012|                    keys and the Startup folder. Services, scheduled tasks
+::T|EN|cl.startupdelay.zero.013|                    and packaged-app startup tasks are unaffected. The
+::T|EN|cl.startupdelay.zero.014|                    value is per-user, so it applies to the account that
+::T|EN|cl.startupdelay.zero.015|                    ran OPTY and to no other, and it takes effect at the
+::T|EN|cl.startupdelay.zero.016|                    next logon.
+::T|EN|cl.startupdelay.zero.017|
+::T|EN|cl.startupdelay.zero.018|  Gain            : Your startup applications appear sooner. That is the
+::T|EN|cl.startupdelay.zero.019|                    entire benefit, and it is a preference, not a
+::T|EN|cl.startupdelay.zero.020|                    performance win.
+::T|EN|cl.startupdelay.zero.021|
+::T|EN|cl.startupdelay.zero.022|  Cost            : The first minute after logon is busier: the shell and
+::T|EN|cl.startupdelay.zero.023|                    every startup app compete for the same disk and CPU at
+::T|EN|cl.startupdelay.zero.024|                    once. On a mechanical disk or with a long startup list
+::T|EN|cl.startupdelay.zero.025|                    the desktop itself can feel less responsive than
+::T|EN|cl.startupdelay.zero.026|                    before, which is exactly what the delay exists to
+::T|EN|cl.startupdelay.zero.027|                    prevent. Total time until everything is loaded does
+::T|EN|cl.startupdelay.zero.028|                    not improve.
+::T|EN|cl.startupdelay.zero.029|
+::T|EN|cl.startupdelay.zero.030|  Windows default : The value, and usually the Serialize key itself, is
+::T|EN|cl.startupdelay.zero.031|                    absent - Explorer then applies its built-in delay.
+::T|EN|cl.startupdelay.zero.032|
+::T|EN|cl.startupdelay.zero.033|  Possible values:
+::T|EN|cl.startupdelay.zero.034|    0                    : No wait: Explorer launches your Run-key and
+::T|EN|cl.startupdelay.zero.035|                           Startup-folder apps at the same time as the
+::T|EN|cl.startupdelay.zero.036|                           shell. Discord, Steam and a password manager
+::T|EN|cl.startupdelay.zero.037|                           are ready sooner, at the price of a busier
+::T|EN|cl.startupdelay.zero.038|                           first minute.
+::T|EN|cl.startupdelay.zero.039|    DELETE               : Remove the value and Explorer applies its
+::T|EN|cl.startupdelay.zero.040|                           built-in stagger again. This is how Windows
+::T|EN|cl.startupdelay.zero.041|                           ships, and it is what keeps the desktop
+::T|EN|cl.startupdelay.zero.042|                           responsive while a long startup list loads.
+::T|EN|cl.startupdelay.zero.043|    ASK                  : Reasonable on a machine you do not know: the
+::T|EN|cl.startupdelay.zero.044|                           right answer depends on how many startup items
+::T|EN|cl.startupdelay.zero.045|                           there are and what the system disk is, neither
+::T|EN|cl.startupdelay.zero.046|                           of which this step reads.
+::X|EN|cl.startupdelay.zero.001|  Why these profiles : Only the gaming desktop gets 0, and for a plainly
+::X|EN|cl.startupdelay.zero.002|                       stated reason: it is the profile whose owner sits
+::X|EN|cl.startupdelay.zero.003|                       in front of the machine waiting for Discord and
+::X|EN|cl.startupdelay.zero.004|                       Steam, on mains power and fast storage that absorbs
+::X|EN|cl.startupdelay.zero.005|                       the burst. Server and office machines gain nothing
+::X|EN|cl.startupdelay.zero.006|                       from tray icons arriving early, a laptop pays for
+::X|EN|cl.startupdelay.zero.007|                       the simultaneous disk and CPU spike out of its
+::X|EN|cl.startupdelay.zero.008|                       battery, and profile 5 is the shipped state by
+::X|EN|cl.startupdelay.zero.009|                       definition.
+::X|EN|cl.startupdelay.zero.010|
+::X|EN|cl.startupdelay.zero.011|  Unverified      : The built-in delay is widely reported as about 10
+::X|EN|cl.startupdelay.zero.012|                    seconds after the desktop appears, but Microsoft does
+::X|EN|cl.startupdelay.zero.013|                    not document the value and it may vary by build. No
+::X|EN|cl.startupdelay.zero.014|                    measurement in this project shows that removing it
+::X|EN|cl.startupdelay.zero.015|                    shortens the total time to a fully loaded session.
+::X|EN|cl.startupdelay.zero.016|
+::X|EN|cl.startupdelay.zero.017|  Target          : HKCU\Software\Microsoft\Windows\CurrentVersion\Explore
+::X|EN|cl.startupdelay.zero.018|                    r\Serialize, value StartupDelayInMSec, REG_DWORD
+::X|EN|cl.startupdelay.zero.019|                    written as 0 - OPTY.bat line 1539.
+::
+:: ---- cl.startupdelay.restore (preference) ---------------------------
+::P|cl.startupdelay.restore|0|DELETE|DELETE|DELETE|DELETE|
+::T|FR|cl.startupdelay.restore.001|RÉTABLIR LE DÉLAI DE DÉMARRAGE À L'OUVERTURE DE SESSION
+::T|FR|cl.startupdelay.restore.002|
+::T|FR|cl.startupdelay.restore.003|  Ce que c est    : L'Explorateur attend normalement avant de lancer vos
+::T|FR|cl.startupdelay.restore.004|                    applications de démarrage, pour laisser le shell se
+::T|FR|cl.startupdelay.restore.005|                    poser d'abord. Cette étape supprime la dérogation
+::T|FR|cl.startupdelay.restore.006|                    StartupDelayInMSec et remet l'attente d'origine.
+::T|FR|cl.startupdelay.restore.007|
+::T|FR|cl.startupdelay.restore.008|  Effet reel      : Supprime uniquement la valeur. La clé Serialize qui la
+::T|FR|cl.startupdelay.restore.009|                    contenait reste en place, vide : inoffensive, mais le
+::T|FR|cl.startupdelay.restore.010|                    compte n'est pas rigoureusement identique à une
+::T|FR|cl.startupdelay.restore.011|                    machine jamais modifiée. Effet à la prochaine
+::T|FR|cl.startupdelay.restore.012|                    ouverture de session, et pour ce seul compte.
+::T|FR|cl.startupdelay.restore.013|
+::T|FR|cl.startupdelay.restore.014|  Gain            : Les programmes de démarrage ne se lancent plus tous en
+::T|FR|cl.startupdelay.restore.015|                    même temps que le shell. Sur un disque mécanique avec
+::T|FR|cl.startupdelay.restore.016|                    une longue liste, la différence est réelle et se sent
+::T|FR|cl.startupdelay.restore.017|                    ; sur NVMe avec trois applications, c'est une
+::T|FR|cl.startupdelay.restore.018|                    différence que personne ici n'a réussi à mesurer.
+::T|FR|cl.startupdelay.restore.019|
+::T|FR|cl.startupdelay.restore.020|  Cout            : Vos applications de la zone de notification arrivent
+::T|FR|cl.startupdelay.restore.021|                    une dizaine de secondes plus tard qu'avec la
+::T|FR|cl.startupdelay.restore.022|                    dérogation à 0. Rien d'autre ne change : rien n'est
+::T|FR|cl.startupdelay.restore.023|                    désactivé, rien n'est retiré de votre liste de
+::T|FR|cl.startupdelay.restore.024|                    démarrage.
+::T|FR|cl.startupdelay.restore.025|
+::T|FR|cl.startupdelay.restore.026|  Defaut Windows  : Valeur absente - ce que cette étape produit, à la clé
+::T|FR|cl.startupdelay.restore.027|                    vide résiduelle près.
+::T|FR|cl.startupdelay.restore.028|
+::T|FR|cl.startupdelay.restore.029|  Valeurs possibles :
+::T|FR|cl.startupdelay.restore.030|    DELETE               : Retirer la dérogation et laisser l'Explorateur
+::T|FR|cl.startupdelay.restore.031|                           étaler de nouveau le lancement des
+::T|FR|cl.startupdelay.restore.032|                           applications, comme Windows le livre. C'est
+::T|FR|cl.startupdelay.restore.033|                           l'annulation de l'étape qui avait écrit 0.
+::T|FR|cl.startupdelay.restore.034|    0                    : Conserver la dérogation. Ne se justifie que si
+::T|FR|cl.startupdelay.restore.035|                           vous avez très peu d'applications au démarrage,
+::T|FR|cl.startupdelay.restore.036|                           sur un stockage rapide, et que vous les voulez
+::T|FR|cl.startupdelay.restore.037|                           dès l'apparition du bureau.
+::T|FR|cl.startupdelay.restore.038|    ASK                  : Sensé si vous ne savez plus si le 0 était
+::T|FR|cl.startupdelay.restore.039|                           volontaire : cette étape le supprime sans le
+::T|FR|cl.startupdelay.restore.040|                           relire, donc un choix délibéré disparaît sans
+::T|FR|cl.startupdelay.restore.041|                           un mot.
+::X|FR|cl.startupdelay.restore.001|  Pourquoi ces profils : Même répartition que l'étape qui écrit 0, lue
+::X|FR|cl.startupdelay.restore.002|                         dans l'autre sens : seul le poste gaming a une
+::X|FR|cl.startupdelay.restore.003|                         raison de garder la dérogation, tout le reste se
+::X|FR|cl.startupdelay.restore.004|                         porte mieux avec l'étalement d'origine. La
+::X|FR|cl.startupdelay.restore.005|                         colonne 5 dit DELETE parce que l'absence est
+::X|FR|cl.startupdelay.restore.006|                         l'état d'usine.
+::X|FR|cl.startupdelay.restore.007|
+::X|FR|cl.startupdelay.restore.008|  Problemes connus : La clé Serialize vide n'est pas supprimée après la
+::X|FR|cl.startupdelay.restore.009|                     valeur : la restauration est complète dans les faits,
+::X|FR|cl.startupdelay.restore.010|                     pas à la lettre.
+::X|FR|cl.startupdelay.restore.011|
+::X|FR|cl.startupdelay.restore.012|  Non verifie (en)  : That the stagger makes the desktop usable sooner is
+::X|FR|cl.startupdelay.restore.013|                      a mechanism, not a measurement. It is credible on a
+::X|FR|cl.startupdelay.restore.014|                      mechanical disk with a dozen startup programs and
+::X|FR|cl.startupdelay.restore.015|                      unverified on NVMe, where nothing in this project
+::X|FR|cl.startupdelay.restore.016|                      has measured a difference either way.
+::X|FR|cl.startupdelay.restore.017|
+::X|FR|cl.startupdelay.restore.018|  Cible           : reg delete HKCU\Software\Microsoft\Windows\CurrentVers
+::X|FR|cl.startupdelay.restore.019|                    ion\Explorer\Serialize /v StartupDelayInMSec /f -
+::X|FR|cl.startupdelay.restore.020|                    OPTY.bat line 1611, in the restore-defaults pass.
+::T|EN|cl.startupdelay.restore.001|RESTORE THE LOGON STARTUP DELAY
+::T|EN|cl.startupdelay.restore.002|
+::T|EN|cl.startupdelay.restore.003|  What it is      : Explorer normally waits before launching your startup
+::T|EN|cl.startupdelay.restore.004|                    apps so the shell settles first. This step deletes the
+::T|EN|cl.startupdelay.restore.005|                    StartupDelayInMSec override, putting the built-in wait
+::T|EN|cl.startupdelay.restore.006|                    back.
+::T|EN|cl.startupdelay.restore.007|
+::T|EN|cl.startupdelay.restore.008|  Actual effect   : Deletes the value only. The Serialize key it lived in
+::T|EN|cl.startupdelay.restore.009|                    is left behind, empty - inert, but the account is not
+::T|EN|cl.startupdelay.restore.010|                    byte-identical to a machine that was never tweaked.
+::T|EN|cl.startupdelay.restore.011|                    Takes effect at the next logon, and only for the
+::T|EN|cl.startupdelay.restore.012|                    account that runs it.
+::T|EN|cl.startupdelay.restore.013|
+::T|EN|cl.startupdelay.restore.014|  Gain            : Startup programs no longer all start at once while the
+::T|EN|cl.startupdelay.restore.015|                    shell is still coming up. On a mechanical disk with a
+::T|EN|cl.startupdelay.restore.016|                    long startup list that is a real difference you can
+::T|EN|cl.startupdelay.restore.017|                    feel; on NVMe with three startup apps it is a
+::T|EN|cl.startupdelay.restore.018|                    difference nobody in this project has been able to
+::T|EN|cl.startupdelay.restore.019|                    measure.
+::T|EN|cl.startupdelay.restore.020|
+::T|EN|cl.startupdelay.restore.021|  Cost            : Your tray applications appear roughly ten seconds
+::T|EN|cl.startupdelay.restore.022|                    later than with the 0 override. Nothing else changes,
+::T|EN|cl.startupdelay.restore.023|                    nothing is disabled and nothing is removed from your
+::T|EN|cl.startupdelay.restore.024|                    startup list.
+::T|EN|cl.startupdelay.restore.025|
+::T|EN|cl.startupdelay.restore.026|  Windows default : Value absent - which is what this step produces, apart
+::T|EN|cl.startupdelay.restore.027|                    from the leftover empty key.
+::T|EN|cl.startupdelay.restore.028|
+::T|EN|cl.startupdelay.restore.029|  Possible values:
+::T|EN|cl.startupdelay.restore.030|    DELETE               : Remove the override and let Explorer stagger
+::T|EN|cl.startupdelay.restore.031|                           startup apps again, as Windows ships it. This
+::T|EN|cl.startupdelay.restore.032|                           is the undo for the step that wrote 0.
+::T|EN|cl.startupdelay.restore.033|    0                    : Keep the override. Only worth it if you have
+::T|EN|cl.startupdelay.restore.034|                           very few startup apps on fast storage and you
+::T|EN|cl.startupdelay.restore.035|                           want them the instant the desktop appears.
+::T|EN|cl.startupdelay.restore.036|    ASK                  : Sensible if you do not remember whether the 0
+::T|EN|cl.startupdelay.restore.037|                           was deliberate: this step deletes it without
+::T|EN|cl.startupdelay.restore.038|                           reading it back, so an intentional choice
+::T|EN|cl.startupdelay.restore.039|                           disappears in silence.
+::X|EN|cl.startupdelay.restore.001|  Why these profiles : Same split as the step that writes 0, read from the
+::X|EN|cl.startupdelay.restore.002|                       other direction: only the gaming desktop has a
+::X|EN|cl.startupdelay.restore.003|                       reason to keep the override, and everything else is
+::X|EN|cl.startupdelay.restore.004|                       better off with the shipped stagger. Profile 5 is
+::X|EN|cl.startupdelay.restore.005|                       DELETE because absent is the factory state.
+::X|EN|cl.startupdelay.restore.006|
+::X|EN|cl.startupdelay.restore.007|  Known problems  : The empty Serialize key is not removed after the value
+::X|EN|cl.startupdelay.restore.008|                    is deleted, so the restore is functionally but not
+::X|EN|cl.startupdelay.restore.009|                    literally complete.
+::X|EN|cl.startupdelay.restore.010|
+::X|EN|cl.startupdelay.restore.011|  Unverified      : That the stagger makes the desktop usable sooner is a
+::X|EN|cl.startupdelay.restore.012|                    mechanism, not a measurement. It is credible on a
+::X|EN|cl.startupdelay.restore.013|                    mechanical disk with a dozen startup programs and
+::X|EN|cl.startupdelay.restore.014|                    unverified on NVMe, where nothing in this project has
+::X|EN|cl.startupdelay.restore.015|                    measured a difference either way.
+::X|EN|cl.startupdelay.restore.016|
+::X|EN|cl.startupdelay.restore.017|  Target          : reg delete HKCU\Software\Microsoft\Windows\CurrentVers
+::X|EN|cl.startupdelay.restore.018|                    ion\Explorer\Serialize /v StartupDelayInMSec /f -
+::X|EN|cl.startupdelay.restore.019|                    OPTY.bat line 1611, in the restore-defaults pass.
+::
+:: ---- cl.mousecurve.strip (cleanup) -------------------------------
+::P|cl.mousecurve.strip|DELETE|DELETE|DELETE|DELETE|DELETE|
+::T|FR|cl.mousecurve.strip.001|RETIRER LES COURBES D'ACCÉLÉRATION SOURIS NON CONFORMES
+::T|FR|cl.mousecurve.strip.002|
+::T|FR|cl.mousecurve.strip.003|  Ce que c est    : SmoothMouseXCurve et SmoothMouseYCurve sont des blocs
+::T|FR|cl.mousecurve.strip.004|                    binaires qui décrivent la réponse de l'accélération du
+::T|FR|cl.mousecurve.strip.005|                    pointeur à la vitesse. De vieux scripts de bidouille,
+::T|FR|cl.mousecurve.strip.006|                    celui-ci compris, en écrivaient des versions
+::T|FR|cl.mousecurve.strip.007|                    tronquées.
+::T|FR|cl.mousecurve.strip.008|
+::T|FR|cl.mousecurve.strip.009|  Effet reel      : Chaque valeur est lue par reg query et conservée
+::T|FR|cl.mousecurve.strip.010|                    seulement si sa chaîne hexadécimale fait exactement 80
+::T|FR|cl.mousecurve.strip.011|                    caractères, soit les 40 octets d'origine. Mesuré à
+::T|FR|cl.mousecurve.strip.012|                    l'instant sur cette machine : X fait 34 caractères
+::T|FR|cl.mousecurve.strip.013|                    hexadécimaux (17 octets) et Y en fait 40 (20 octets) -
+::T|FR|cl.mousecurve.strip.014|                    les deux seraient donc supprimées, ce sont bien les
+::T|FR|cl.mousecurve.strip.015|                    blocs tronqués laissés par OPTY v03.x. La paire
+::T|FR|cl.mousecurve.strip.016|                    d'origine de 40 octets est confirmée dans
+::T|FR|cl.mousecurve.strip.017|                    HKEY_USERS\.DEFAULT. L'étape s'exécute au sein de la
+::T|FR|cl.mousecurve.strip.018|                    restauration souris, qui réécrit d'abord MouseSpeed=1,
+::T|FR|cl.mousecurve.strip.019|                    MouseThreshold1=6 et MouseThreshold2=10 : elle
+::T|FR|cl.mousecurve.strip.020|                    réactive donc l'accélération, et les courbes ne
+::T|FR|cl.mousecurve.strip.021|                    comptent qu'une fois celle-ci active.
+::T|FR|cl.mousecurve.strip.022|
+::T|FR|cl.mousecurve.strip.023|  Gain            : Aucun gain mesurable en soi, et cette machine le
+::T|FR|cl.mousecurve.strip.024|                    démontre : MouseSpeed vaut 0 en ce moment,
+::T|FR|cl.mousecurve.strip.025|                    l'accélération est désactivée et les courbes ne sont
+::T|FR|cl.mousecurve.strip.026|                    pas consultées du tout. L'intérêt est l'hygiène : une
+::T|FR|cl.mousecurve.strip.027|                    courbe de 17 octets est invisible dans toutes les
+::T|FR|cl.mousecurve.strip.028|                    fenêtres de réglages et fausserait le pointeur sans
+::T|FR|cl.mousecurve.strip.029|                    prévenir dès qu'on réactive l'accélération.
+::T|FR|cl.mousecurve.strip.030|
+::T|FR|cl.mousecurve.strip.031|  Cout            : Rien de régénérable n'est perdu, et quelques dizaines
+::T|FR|cl.mousecurve.strip.032|                    d'octets de registre ne sont pas une promesse
+::T|FR|cl.mousecurve.strip.033|                    d'espace. Si vous aviez installé une courbe sur mesure
+::T|FR|cl.mousecurve.strip.034|                    volontairement, elle disparaît, sans sauvegarde ni
+::T|FR|cl.mousecurve.strip.035|                    confirmation.
+::T|FR|cl.mousecurve.strip.036|
+::T|FR|cl.mousecurve.strip.037|  Defaut Windows  : Les deux valeurs présentes, exactement 40 octets
+::T|FR|cl.mousecurve.strip.038|                    chacune - vérifié dans HKEY_USERS\.DEFAULT, le profil
+::T|FR|cl.mousecurve.strip.039|                    que Windows applique à un compte neuf.
+::T|FR|cl.mousecurve.strip.040|
+::T|FR|cl.mousecurve.strip.041|  Valeurs possibles :
+::T|FR|cl.mousecurve.strip.042|    DELETE               : Supprimer une courbe qui ne fait pas les 40
+::T|FR|cl.mousecurve.strip.043|                           octets d'origine. Sur cette machine, cela vise
+::T|FR|cl.mousecurve.strip.044|                           les deux - 17 et 20 octets, écrites par OPTY
+::T|FR|cl.mousecurve.strip.045|                           v03.x - et une courbe tronquée est une réponse
+::T|FR|cl.mousecurve.strip.046|                           d'accélération que personne ne peut voir ni
+::T|FR|cl.mousecurve.strip.047|                           diagnostiquer.
+::T|FR|cl.mousecurve.strip.048|    KEEP                 : Correct pour une courbe d'origine de 40 octets,
+::T|FR|cl.mousecurve.strip.049|                           et c'est déjà ce que fait le code : il mesure
+::T|FR|cl.mousecurve.strip.050|                           d'abord la longueur et laisse une courbe
+::T|FR|cl.mousecurve.strip.051|                           conforme en place.
+::T|FR|cl.mousecurve.strip.052|    ASK                  : Le seul cas qui mérite une question : une
+::T|FR|cl.mousecurve.strip.053|                           courbe que vous avez posée volontairement, via
+::T|FR|cl.mousecurve.strip.054|                           un utilitaire de correction de souris ou un
+::T|FR|cl.mousecurve.strip.055|                           guide de jeu compétitif. Elle est supprimée
+::T|FR|cl.mousecurve.strip.056|                           sans aucune sauvegarde.
+::X|FR|cl.mousecurve.strip.001|  Pourquoi ces profils : Cinq colonnes identiques, et inventer une
+::X|FR|cl.mousecurve.strip.002|                         distinction serait ici pire que d'admettre qu'il
+::X|FR|cl.mousecurve.strip.003|                         n'y en a pas : une courbe d'accélération
+::X|FR|cl.mousecurve.strip.004|                         malformée est aussi fausse sur un serveur que sur
+::X|FR|cl.mousecurve.strip.005|                         une machine de jeu. La colonne 5 dit DELETE
+::X|FR|cl.mousecurve.strip.006|                         plutôt que KEEP parce qu'un bloc de 17 octets
+::X|FR|cl.mousecurve.strip.007|                         n'est pas non plus l'état livré : l'état livré,
+::X|FR|cl.mousecurve.strip.008|                         c'est 40 octets ou rien.
+::X|FR|cl.mousecurve.strip.009|
+::X|FR|cl.mousecurve.strip.010|  Problemes connus : Le reg query est filtré sur REG_BINARY : une courbe
+::X|FR|cl.mousecurve.strip.011|                     stockée sous un autre type n'est jamais vue, donc
+::X|FR|cl.mousecurve.strip.012|                     jamais retirée.
+::X|FR|cl.mousecurve.strip.013|
+::X|FR|cl.mousecurve.strip.014|  Non verifie (en)  : The claim that Windows rebuilds the standard curves
+::X|FR|cl.mousecurve.strip.015|                      at the next logon is not established.
+::X|FR|cl.mousecurve.strip.016|                      HKEY_USERS\.DEFAULT does carry the stock 40-byte
+::X|FR|cl.mousecurve.strip.017|                      curves, which is how a NEW account gets them, but
+::X|FR|cl.mousecurve.strip.018|                      for an existing account the values may simply stay
+::X|FR|cl.mousecurve.strip.019|                      absent while Windows falls back to the identical
+::X|FR|cl.mousecurve.strip.020|                      built-in curve. Behaviour ends up stock either way;
+::X|FR|cl.mousecurve.strip.021|                      whether the registry values physically reappear
+::X|FR|cl.mousecurve.strip.022|                      before you touch Enhance pointer precision in Mouse
+::X|FR|cl.mousecurve.strip.023|                      properties was not tested.
+::X|FR|cl.mousecurve.strip.024|
+::X|FR|cl.mousecurve.strip.025|  Cible           : HKCU\Control Panel\Mouse, values SmoothMouseXCurve and
+::X|FR|cl.mousecurve.strip.026|                    SmoothMouseYCurve (REG_BINARY), guarded delete in
+::X|FR|cl.mousecurve.strip.027|                    :mousecurve / :curvecheck, OPTY.bat lines 2379-2392,
+::X|FR|cl.mousecurve.strip.028|                    called from :mouse_restore.
+::T|EN|cl.mousecurve.strip.001|STRIP NON-STANDARD MOUSE ACCELERATION CURVES
+::T|EN|cl.mousecurve.strip.002|
+::T|EN|cl.mousecurve.strip.003|  What it is      : SmoothMouseXCurve and SmoothMouseYCurve are binary
+::T|EN|cl.mousecurve.strip.004|                    blobs describing how pointer acceleration responds to
+::T|EN|cl.mousecurve.strip.005|                    speed. Old tweak scripts, this one included, used to
+::T|EN|cl.mousecurve.strip.006|                    write truncated versions of them.
+::T|EN|cl.mousecurve.strip.007|
+::T|EN|cl.mousecurve.strip.008|  Actual effect   : Each value is read with reg query and kept only if its
+::T|EN|cl.mousecurve.strip.009|                    hex string is exactly 80 characters, which is the
+::T|EN|cl.mousecurve.strip.010|                    stock 40 bytes. Measured right now on this machine: X
+::T|EN|cl.mousecurve.strip.011|                    is 34 hex characters (17 bytes) and Y is 40 (20
+::T|EN|cl.mousecurve.strip.012|                    bytes), so both would be deleted - they are the
+::T|EN|cl.mousecurve.strip.013|                    truncated blobs OPTY v03.x left behind. The stock
+::T|EN|cl.mousecurve.strip.014|                    40-byte pair is confirmed in HKEY_USERS\.DEFAULT. The
+::T|EN|cl.mousecurve.strip.015|                    step runs inside the mouse restore, which first
+::T|EN|cl.mousecurve.strip.016|                    rewrites MouseSpeed=1, MouseThreshold1=6 and
+::T|EN|cl.mousecurve.strip.017|                    MouseThreshold2=10 - that is, it switches pointer
+::T|EN|cl.mousecurve.strip.018|                    acceleration back on, and the curves only matter once
+::T|EN|cl.mousecurve.strip.019|                    it is on.
+::T|EN|cl.mousecurve.strip.020|
+::T|EN|cl.mousecurve.strip.021|  Gain            : No measurable gain on its own, and this machine proves
+::T|EN|cl.mousecurve.strip.022|                    it: MouseSpeed is currently 0, acceleration is off,
+::T|EN|cl.mousecurve.strip.023|                    and the curves are not consulted at all. The value is
+::T|EN|cl.mousecurve.strip.024|                    hygiene - a 17-byte curve is invisible in every
+::T|EN|cl.mousecurve.strip.025|                    settings dialog and would silently distort the pointer
+::T|EN|cl.mousecurve.strip.026|                    the moment acceleration is switched back on.
+::T|EN|cl.mousecurve.strip.027|
+::T|EN|cl.mousecurve.strip.028|  Cost            : Nothing regenerable is lost, and a few dozen bytes of
+::T|EN|cl.mousecurve.strip.029|                    registry is not a space claim. If you deliberately
+::T|EN|cl.mousecurve.strip.030|                    installed a custom curve, it goes, with no backup and
+::T|EN|cl.mousecurve.strip.031|                    no prompt.
+::T|EN|cl.mousecurve.strip.032|
+::T|EN|cl.mousecurve.strip.033|  Windows default : Both values present, exactly 40 bytes each - verified
+::T|EN|cl.mousecurve.strip.034|                    against HKEY_USERS\.DEFAULT, the profile Windows
+::T|EN|cl.mousecurve.strip.035|                    stamps onto a new account.
+::T|EN|cl.mousecurve.strip.036|
+::T|EN|cl.mousecurve.strip.037|  Possible values:
+::T|EN|cl.mousecurve.strip.038|    DELETE               : Remove a curve that is not the stock 40 bytes.
+::T|EN|cl.mousecurve.strip.039|                           On this machine that means both of them - 17
+::T|EN|cl.mousecurve.strip.040|                           and 20 bytes, written by OPTY v03.x - and a
+::T|EN|cl.mousecurve.strip.041|                           truncated curve is a response curve nobody can
+::T|EN|cl.mousecurve.strip.042|                           see or diagnose.
+::T|EN|cl.mousecurve.strip.043|    KEEP                 : Correct for a stock 40-byte curve, and the code
+::T|EN|cl.mousecurve.strip.044|                           already does exactly that: it measures the
+::T|EN|cl.mousecurve.strip.045|                           length first and leaves a proper curve alone.
+::T|EN|cl.mousecurve.strip.046|    ASK                  : The one case worth asking about: a curve you
+::T|EN|cl.mousecurve.strip.047|                           wrote on purpose, from a mouse-fix utility or a
+::T|EN|cl.mousecurve.strip.048|                           competitive-play guide. It is deleted with no
+::T|EN|cl.mousecurve.strip.049|                           backup.
+::X|EN|cl.mousecurve.strip.001|  Why these profiles : Five identical columns, and inventing a distinction
+::X|EN|cl.mousecurve.strip.002|                       here would be worse than admitting there is none: a
+::X|EN|cl.mousecurve.strip.003|                       malformed acceleration curve is wrong on a server
+::X|EN|cl.mousecurve.strip.004|                       exactly as it is wrong on a gaming rig. Profile 5
+::X|EN|cl.mousecurve.strip.005|                       is DELETE rather than KEEP because a 17-byte blob
+::X|EN|cl.mousecurve.strip.006|                       is not the shipped state either - the shipped state
+::X|EN|cl.mousecurve.strip.007|                       is 40 bytes or nothing.
+::X|EN|cl.mousecurve.strip.008|
+::X|EN|cl.mousecurve.strip.009|  Known problems  : The reg query is filtered on REG_BINARY, so a curve
+::X|EN|cl.mousecurve.strip.010|                    stored under any other type is never seen and never
+::X|EN|cl.mousecurve.strip.011|                    removed.
+::X|EN|cl.mousecurve.strip.012|
+::X|EN|cl.mousecurve.strip.013|  Unverified      : The claim that Windows rebuilds the standard curves at
+::X|EN|cl.mousecurve.strip.014|                    the next logon is not established. HKEY_USERS\.DEFAULT
+::X|EN|cl.mousecurve.strip.015|                    does carry the stock 40-byte curves, which is how a
+::X|EN|cl.mousecurve.strip.016|                    NEW account gets them, but for an existing account the
+::X|EN|cl.mousecurve.strip.017|                    values may simply stay absent while Windows falls back
+::X|EN|cl.mousecurve.strip.018|                    to the identical built-in curve. Behaviour ends up
+::X|EN|cl.mousecurve.strip.019|                    stock either way; whether the registry values
+::X|EN|cl.mousecurve.strip.020|                    physically reappear before you touch Enhance pointer
+::X|EN|cl.mousecurve.strip.021|                    precision in Mouse properties was not tested.
+::X|EN|cl.mousecurve.strip.022|
+::X|EN|cl.mousecurve.strip.023|  Target          : HKCU\Control Panel\Mouse, values SmoothMouseXCurve and
+::X|EN|cl.mousecurve.strip.024|                    SmoothMouseYCurve (REG_BINARY), guarded delete in
+::X|EN|cl.mousecurve.strip.025|                    :mousecurve / :curvecheck, OPTY.bat lines 2379-2392,
+::X|EN|cl.mousecurve.strip.026|                    called from :mouse_restore.
+::
+:: ---- cl.optytemp.scratch (cleanup) -------------------------------
+::P|cl.optytemp.scratch|DELETE|DELETE|DELETE|DELETE|DELETE|
+::T|FR|cl.optytemp.scratch.001|FICHIERS DE TRAVAIL D'OPTY DANS TEMP
+::T|FR|cl.optytemp.scratch.002|
+::T|FR|cl.optytemp.scratch.003|  Ce que c est    : Supprime %TEMP%\opty_pc_before.txt et
+::T|FR|cl.optytemp.scratch.004|                    %TEMP%\opty_nic_list.txt, deux fichiers de travail
+::T|FR|cl.optytemp.scratch.005|                    qu'OPTY écrit en listant les modes d'alimentation et
+::T|FR|cl.optytemp.scratch.006|                    les cartes réseau.
+::T|FR|cl.optytemp.scratch.007|
+::T|FR|cl.optytemp.scratch.008|  Effet reel      : Un simple del /f /q sur ces deux noms exacts dans le
+::T|FR|cl.optytemp.scratch.009|                    TEMP du compte courant - aucun joker, donc rien
+::T|FR|cl.optytemp.scratch.010|                    d'autre ne peut correspondre. La liste des cartes est
+::T|FR|cl.optytemp.scratch.011|                    supprimée avant d'être construite puis de nouveau
+::T|FR|cl.optytemp.scratch.012|                    après usage, pour qu'une liste périmée ne soit pas
+::T|FR|cl.optytemp.scratch.013|                    relue par erreur.
+::T|FR|cl.optytemp.scratch.014|
+::T|FR|cl.optytemp.scratch.015|  Gain            : Rien qui mérite un chiffre. Chaque fichier fait un ou
+::T|FR|cl.optytemp.scratch.016|                    deux kilo-octets ; cette étape figure ici par souci
+::T|FR|cl.optytemp.scratch.017|                    d'exhaustivité, pour que chaque suppression de fichier
+::T|FR|cl.optytemp.scratch.018|                    faite par OPTY soit écrite quelque part de lisible.
+::T|FR|cl.optytemp.scratch.019|
+::T|FR|cl.optytemp.scratch.020|  Cout            : Aucun. Aucune donnée utilisateur ni système n'est
+::T|FR|cl.optytemp.scratch.021|                    concernée, et les deux fichiers sont recréés à
+::T|FR|cl.optytemp.scratch.022|                    l'exécution suivante, le temps d'énumérer les cartes.
+::T|FR|cl.optytemp.scratch.023|
+::T|FR|cl.optytemp.scratch.024|  Defaut Windows  : Sans objet - ces fichiers n'existent pas sur une
+::T|FR|cl.optytemp.scratch.025|                    machine qui n'a jamais lancé OPTY.
+::T|FR|cl.optytemp.scratch.026|
+::T|FR|cl.optytemp.scratch.027|  Valeurs possibles :
+::T|FR|cl.optytemp.scratch.028|    DELETE               : Supprimer les deux fichiers de travail. C'est
+::T|FR|cl.optytemp.scratch.029|                           ce qui empêche l'énumération des cartes réseau
+::T|FR|cl.optytemp.scratch.030|                           de relire une liste laissée par une exécution
+::T|FR|cl.optytemp.scratch.031|                           précédente : une question d'exactitude, pas
+::T|FR|cl.optytemp.scratch.032|                           d'espace.
+::T|FR|cl.optytemp.scratch.033|    KEEP                 : Les garder n'a qu'un usage : ouvrir vous-même
+::T|FR|cl.optytemp.scratch.034|                           opty_nic_list.txt pour voir quelles clés de
+::T|FR|cl.optytemp.scratch.035|                           cartes réseau OPTY a trouvées. De toute façon,
+::T|FR|cl.optytemp.scratch.036|                           il est réécrit de zéro à l'exécution suivante.
+::T|FR|cl.optytemp.scratch.037|    ASK                  : Jamais nécessaire. Ces deux fichiers
+::T|FR|cl.optytemp.scratch.038|                           appartiennent à OPTY, ne contiennent rien de
+::T|FR|cl.optytemp.scratch.039|                           vous, et poser la question ne ferait que vous
+::T|FR|cl.optytemp.scratch.040|                           habituer à valider machinalement des questions
+::T|FR|cl.optytemp.scratch.041|                           qui, elles, comptent.
+::X|FR|cl.optytemp.scratch.001|  Pourquoi ces profils : Cinq colonnes identiques. Ce sont les brouillons
+::X|FR|cl.optytemp.scratch.002|                         du script lui-même ; aucun profil n'a d'avis là-
+::X|FR|cl.optytemp.scratch.003|                         dessus. La colonne 5 dit DELETE et non KEEP parce
+::X|FR|cl.optytemp.scratch.004|                         que « laisser Windows tel qu'il est livré »
+::X|FR|cl.optytemp.scratch.005|                         concerne les fichiers de Windows, et une machine
+::X|FR|cl.optytemp.scratch.006|                         d'origine n'a aucun opty_nic_list.txt à laisser
+::X|FR|cl.optytemp.scratch.007|                         tranquille.
+::X|FR|cl.optytemp.scratch.008|
+::X|FR|cl.optytemp.scratch.009|  Problemes connus : opty_pc_before.txt est supprimé ligne 2270 et n'est
+::X|FR|cl.optytemp.scratch.010|                     écrit nulle part dans tout le fichier : cette ligne
+::X|FR|cl.optytemp.scratch.011|                     est du code mort. Et le ménage est loin d'être
+::X|FR|cl.optytemp.scratch.012|                     complet : TEMP contient en ce moment onze autres
+::X|FR|cl.optytemp.scratch.013|                     fichiers opty_ - opty_drv.csv, opty_drv.xml,
+::X|FR|cl.optytemp.scratch.014|                     opty_ds.csv, opty_ds2.csv, opty_ds_key.txt,
+::X|FR|cl.optytemp.scratch.015|                     opty_dx.txt, opty_guard.log, opty_msi_report.txt,
+::X|FR|cl.optytemp.scratch.016|                     opty_t.log, opty_t4.txt et opty_bang2, environ 340 Ko
+::X|FR|cl.optytemp.scratch.017|                     datés des 15 et 16 août - auxquels cette étape ne
+::X|FR|cl.optytemp.scratch.018|                     touche pas. Seul le nettoyage générique de TEMP finit
+::X|FR|cl.optytemp.scratch.019|                     par les emporter.
+::X|FR|cl.optytemp.scratch.020|
+::X|FR|cl.optytemp.scratch.021|  Cible           : del /f /q "%TEMP%\opty_pc_before.txt" (OPTY.bat line
+::X|FR|cl.optytemp.scratch.022|                    2270) and del /f /q "%TEMP%\opty_nic_list.txt" (lines
+::X|FR|cl.optytemp.scratch.023|                    2865, 3002, 3015, 3070).
+::T|EN|cl.optytemp.scratch.001|OPTY'S OWN SCRATCH FILES IN TEMP
+::T|EN|cl.optytemp.scratch.002|
+::T|EN|cl.optytemp.scratch.003|  What it is      : Removes %TEMP%\opty_pc_before.txt and
+::T|EN|cl.optytemp.scratch.004|                    %TEMP%\opty_nic_list.txt, two working files OPTY
+::T|EN|cl.optytemp.scratch.005|                    writes while listing power schemes and network
+::T|EN|cl.optytemp.scratch.006|                    adapters.
+::T|EN|cl.optytemp.scratch.007|
+::T|EN|cl.optytemp.scratch.008|  Actual effect   : Plain del /f /q on those two exact names in the
+::T|EN|cl.optytemp.scratch.009|                    current account's TEMP - no wildcard, so nothing else
+::T|EN|cl.optytemp.scratch.010|                    can match. The adapter list is deleted before it is
+::T|EN|cl.optytemp.scratch.011|                    built and again after it is consumed, so a stale list
+::T|EN|cl.optytemp.scratch.012|                    from a previous run cannot be read by mistake.
+::T|EN|cl.optytemp.scratch.013|
+::T|EN|cl.optytemp.scratch.014|  Gain            : None worth quoting. Each file is one or two kilobytes;
+::T|EN|cl.optytemp.scratch.015|                    this step is listed for completeness, so that every
+::T|EN|cl.optytemp.scratch.016|                    file deletion OPTY performs is written down somewhere
+::T|EN|cl.optytemp.scratch.017|                    you can read it.
+::T|EN|cl.optytemp.scratch.018|
+::T|EN|cl.optytemp.scratch.019|  Cost            : None. No user or system data is involved and both
+::T|EN|cl.optytemp.scratch.020|                    files are rebuilt on the next run, in the second it
+::T|EN|cl.optytemp.scratch.021|                    takes to enumerate the adapters.
+::T|EN|cl.optytemp.scratch.022|
+::T|EN|cl.optytemp.scratch.023|  Windows default : Not applicable - these files do not exist on a machine
+::T|EN|cl.optytemp.scratch.024|                    that has never run OPTY.
+::T|EN|cl.optytemp.scratch.025|
+::T|EN|cl.optytemp.scratch.026|  Possible values:
+::T|EN|cl.optytemp.scratch.027|    DELETE               : Delete the two work files. This is what keeps
+::T|EN|cl.optytemp.scratch.028|                           the network-adapter enumeration from reading a
+::T|EN|cl.optytemp.scratch.029|                           list left over from a previous run, which is a
+::T|EN|cl.optytemp.scratch.030|                           correctness matter, not a space one.
+::T|EN|cl.optytemp.scratch.031|    KEEP                 : Keeping them has exactly one use: reading
+::T|EN|cl.optytemp.scratch.032|                           opty_nic_list.txt yourself to see which adapter
+::T|EN|cl.optytemp.scratch.033|                           keys OPTY found. It is rewritten from scratch
+::T|EN|cl.optytemp.scratch.034|                           on the next run anyway.
+::T|EN|cl.optytemp.scratch.035|    ASK                  : Never needed. These two files are OPTY's own,
+::T|EN|cl.optytemp.scratch.036|                           they contain nothing of yours, and asking about
+::T|EN|cl.optytemp.scratch.037|                           them would only train you to click through
+::T|EN|cl.optytemp.scratch.038|                           prompts that matter.
+::X|EN|cl.optytemp.scratch.001|  Why these profiles : Five identical columns. These are the script's own
+::X|EN|cl.optytemp.scratch.002|                       scratch files; no profile has an opinion about
+::X|EN|cl.optytemp.scratch.003|                       them. Profile 5 says DELETE rather than KEEP
+::X|EN|cl.optytemp.scratch.004|                       because leaving Windows as shipped concerns Windows
+::X|EN|cl.optytemp.scratch.005|                       files, and a machine as Windows shipped it has no
+::X|EN|cl.optytemp.scratch.006|                       opty_nic_list.txt to leave alone.
+::X|EN|cl.optytemp.scratch.007|
+::X|EN|cl.optytemp.scratch.008|  Known problems  : opty_pc_before.txt is deleted at line 2270 and written
+::X|EN|cl.optytemp.scratch.009|                    nowhere in the whole file - that line is dead code.
+::X|EN|cl.optytemp.scratch.010|                    And the cleanup is far from complete: TEMP on this
+::X|EN|cl.optytemp.scratch.011|                    machine currently holds eleven other opty_ files -
+::X|EN|cl.optytemp.scratch.012|                    opty_drv.csv, opty_drv.xml, opty_ds.csv, opty_ds2.csv,
+::X|EN|cl.optytemp.scratch.013|                    opty_ds_key.txt, opty_dx.txt, opty_guard.log,
+::X|EN|cl.optytemp.scratch.014|                    opty_msi_report.txt, opty_t.log, opty_t4.txt and
+::X|EN|cl.optytemp.scratch.015|                    opty_bang2, about 340 KB dated 15 and 16 August - that
+::X|EN|cl.optytemp.scratch.016|                    this step does not touch. They are only ever removed
+::X|EN|cl.optytemp.scratch.017|                    by the generic TEMP sweep.
+::X|EN|cl.optytemp.scratch.018|
+::X|EN|cl.optytemp.scratch.019|  Target          : del /f /q "%TEMP%\opty_pc_before.txt" (OPTY.bat line
+::X|EN|cl.optytemp.scratch.020|                    2270) and del /f /q "%TEMP%\opty_nic_list.txt" (lines
+::X|EN|cl.optytemp.scratch.021|                    2865, 3002, 3015, 3070).
+::
+:: ---- cl.optyfolder.wipe (risky) --------------------------------
+::P|cl.optyfolder.wipe|ASK|ASK|ASK|ASK|ASK|
+::T|FR|cl.optyfolder.wipe.001|EFFACER TOUS LES FICHIERS À CÔTÉ D'OPTY.BAT
+::T|FR|cl.optyfolder.wipe.002|
+::T|FR|cl.optyfolder.wipe.003|  Ce que c est    : Censé retirer les journaux et rapports qu'OPTY écrit à
+::T|FR|cl.optyfolder.wipe.004|                    côté de lui. En pratique, l'étape supprime tous les
+::T|FR|cl.optyfolder.wipe.005|                    fichiers du dossier qui contient OPTY.bat, sauf
+::T|FR|cl.optyfolder.wipe.006|                    OPTY.bat et OPTY_rollback.bat.
+::T|FR|cl.optyfolder.wipe.007|
+::T|FR|cl.optyfolder.wipe.008|  Effet reel      : Un listing brut dir /b /a-d du dossier du script,
+::T|FR|cl.optyfolder.wipe.009|                    filtré par sous-chaîne, puis un del /f /q sur chaque
+::T|FR|cl.optyfolder.wipe.010|                    nom restant. Trois conséquences. Le filtre porte sur
+::T|FR|cl.optyfolder.wipe.011|                    le nom, pas sur l'extension ni sur l'origine : un
+::T|FR|cl.optyfolder.wipe.012|                    rapport OPTY et votre déclaration d'impôts lui sont
+::T|FR|cl.optyfolder.wipe.013|                    indiscernables. /a-d inclut les fichiers cachés et
+::T|FR|cl.optyfolder.wipe.014|                    système, donc les fichiers commençant par un point et
+::T|FR|cl.optyfolder.wipe.015|                    desktop.ini partent aussi. Et le test par sous-chaîne
+::T|FR|cl.optyfolder.wipe.016|                    protège tout nom contenant le texte OPTY.bat, comme
+::T|FR|cl.optyfolder.wipe.017|                    OPTY.bat.bak, alors qu'OPTY_healed.bat n'est, lui, pas
+::T|FR|cl.optyfolder.wipe.018|                    protégé du tout. Les sous-dossiers ne sont pas
+::T|FR|cl.optyfolder.wipe.019|                    touchés. Mesuré sur le dossier où se trouve réellement
+::T|FR|cl.optyfolder.wipe.020|                    cette copie, E:\compt\Documents\4 - VSC\Shell\OPTY, la
+::T|FR|cl.optyfolder.wipe.021|                    boucle supprimerait .gitattributes, .gitignore,
+::T|FR|cl.optyfolder.wipe.022|                    LICENSE, README.md, les deux fichiers logs, maintenant
+::T|FR|cl.optyfolder.wipe.023|                    et stop - dont quatre fichiers suivis par le dépôt -
+::T|FR|cl.optyfolder.wipe.024|                    pour ne garder qu'OPTY.bat.
+::T|FR|cl.optyfolder.wipe.025|
+::T|FR|cl.optyfolder.wipe.026|  Gain            : Un dossier propre. Mesuré dans ce même dossier :
+::T|FR|cl.optyfolder.wipe.027|                    environ 4 Ko, les deux journaux faisant 974 octets
+::T|FR|cl.optyfolder.wipe.028|                    chacun. Ni vitesse, ni stabilité, ni correction
+::T|FR|cl.optyfolder.wipe.029|                    d'aucune sorte.
+::T|FR|cl.optyfolder.wipe.030|
+::T|FR|cl.optyfolder.wipe.031|  Cout            : C'est l'étape dangereuse. del /f /q contourne la
+::T|FR|cl.optyfolder.wipe.032|                    corbeille : aucun retour en arrière. Dans un dépôt
+::T|FR|cl.optyfolder.wipe.033|                    git, les fichiers suivis reviennent avec git restore ;
+::T|FR|cl.optyfolder.wipe.034|                    tout ce qui n'est pas suivi, unique ou simplement posé
+::T|FR|cl.optyfolder.wipe.035|                    là a disparu. Et le démarrage d'OPTY ne conserve déjà
+::T|FR|cl.optyfolder.wipe.036|                    que les cinq rapports les plus récents de chaque
+::T|FR|cl.optyfolder.wipe.037|                    famille : la place récupérée ici n'a jamais été le
+::T|FR|cl.optyfolder.wipe.038|                    problème.
+::T|FR|cl.optyfolder.wipe.039|
+::T|FR|cl.optyfolder.wipe.040|  Defaut Windows  : Sans objet - ces fichiers sont censés être les sorties
+::T|FR|cl.optyfolder.wipe.041|                    d'OPTY, et l'étape ne vérifie pas qu'ils le sont.
+::T|FR|cl.optyfolder.wipe.042|
+::T|FR|cl.optyfolder.wipe.043|  Valeurs possibles :
+::T|FR|cl.optyfolder.wipe.044|    ASK                  : La seule réponse défendable, et elle doit être
+::T|FR|cl.optyfolder.wipe.045|                           posée avec le chemin du dossier affiché. Ce qui
+::T|FR|cl.optyfolder.wipe.046|                           est supprimé dépend entièrement de l'endroit où
+::T|FR|cl.optyfolder.wipe.047|                           se trouve OPTY.bat, ce qu'aucun profil ne peut
+::T|FR|cl.optyfolder.wipe.048|                           savoir.
+::T|FR|cl.optyfolder.wipe.049|    DELETE               : Acceptable dans un seul cas : OPTY.bat vit seul
+::T|FR|cl.optyfolder.wipe.050|                           dans un dossier créé pour lui, sans rien
+::T|FR|cl.optyfolder.wipe.051|                           d'autre qui vous manquerait. Déplacez-le
+::T|FR|cl.optyfolder.wipe.052|                           d'abord et le risque disparaît.
+::T|FR|cl.optyfolder.wipe.053|    KEEP                 : La bonne réponse partout ailleurs :
+::T|FR|cl.optyfolder.wipe.054|                           Téléchargements, Bureau, clé USB, dépôt git.
+::T|FR|cl.optyfolder.wipe.055|                           Les vieux journaux d'OPTY pèsent quelques kilo-
+::T|FR|cl.optyfolder.wipe.056|                           octets et sont déjà limités aux cinq derniers
+::T|FR|cl.optyfolder.wipe.057|                           de chaque famille au démarrage.
+::X|FR|cl.optyfolder.wipe.001|  Pourquoi ces profils : Cinq colonnes ASK, volontairement. Toute réponse
+::X|FR|cl.optyfolder.wipe.002|                         par profil serait une supposition sur le contenu
+::X|FR|cl.optyfolder.wipe.003|                         d'un dossier que le script n'inspecte jamais, et
+::X|FR|cl.optyfolder.wipe.004|                         l'échec se traduit par la perte irrécupérable de
+::X|FR|cl.optyfolder.wipe.005|                         fichiers qui n'ont jamais appartenu à OPTY.
+::X|FR|cl.optyfolder.wipe.006|                         Déplacez OPTY.bat dans un dossier dédié et la
+::X|FR|cl.optyfolder.wipe.007|                         réponse devient DELETE pour les cinq.
+::X|FR|cl.optyfolder.wipe.008|
+::X|FR|cl.optyfolder.wipe.009|  Cible           : :Clean_Opty_Curl, OPTY.bat lines 3167-3177. The loop
+::X|FR|cl.optyfolder.wipe.010|                    is: for /f in ('dir /b /a-d "%~dp0" ^/ findstr /i /v
+::X|FR|cl.optyfolder.wipe.011|                    /c:"OPTY.bat" /c:"OPTY_rollback.bat"') do del /f /q
+::X|FR|cl.optyfolder.wipe.012|                    "%~dp0<name>". Reached from Maintenance, option 2.
+::T|EN|cl.optyfolder.wipe.001|WIPE EVERY FILE BESIDE OPTY.BAT
+::T|EN|cl.optyfolder.wipe.002|
+::T|EN|cl.optyfolder.wipe.003|  What it is      : Meant to remove the logs and reports OPTY writes next
+::T|EN|cl.optyfolder.wipe.004|                    to itself. In practice it deletes every file in
+::T|EN|cl.optyfolder.wipe.005|                    whatever folder contains OPTY.bat, except OPTY.bat and
+::T|EN|cl.optyfolder.wipe.006|                    OPTY_rollback.bat.
+::T|EN|cl.optyfolder.wipe.007|
+::T|EN|cl.optyfolder.wipe.008|  Actual effect   : A bare dir /b /a-d listing of the script's own folder,
+::T|EN|cl.optyfolder.wipe.009|                    filtered by substring, then del /f /q on each
+::T|EN|cl.optyfolder.wipe.010|                    surviving name. Three things follow from that. The
+::T|EN|cl.optyfolder.wipe.011|                    filter is by name, not by extension or origin, so an
+::T|EN|cl.optyfolder.wipe.012|                    OPTY report and your tax return are indistinguishable
+::T|EN|cl.optyfolder.wipe.013|                    to it. /a-d includes hidden and system files, so
+::T|EN|cl.optyfolder.wipe.014|                    dotfiles and desktop.ini go with the rest. And the
+::T|EN|cl.optyfolder.wipe.015|                    substring test protects anything merely containing the
+::T|EN|cl.optyfolder.wipe.016|                    text OPTY.bat, such as OPTY.bat.bak, while
+::T|EN|cl.optyfolder.wipe.017|                    OPTY_healed.bat is not protected at all. Subfolders
+::T|EN|cl.optyfolder.wipe.018|                    are not touched. Measured against the folder this copy
+::T|EN|cl.optyfolder.wipe.019|                    actually sits in, E:\compt\Documents\4 -
+::T|EN|cl.optyfolder.wipe.020|                    VSC\Shell\OPTY, the loop would delete .gitattributes,
+::T|EN|cl.optyfolder.wipe.021|                    .gitignore, LICENSE, README.md, the two logs files,
+::T|EN|cl.optyfolder.wipe.022|                    maintenant and stop - four of them tracked files of
+::T|EN|cl.optyfolder.wipe.023|                    the repository - and keep only OPTY.bat.
+::T|EN|cl.optyfolder.wipe.024|
+::T|EN|cl.optyfolder.wipe.025|  Gain            : A tidy folder. Measured in that same folder: about 4
+::T|EN|cl.optyfolder.wipe.026|                    KB, because the two logs are 974 bytes each. No speed,
+::T|EN|cl.optyfolder.wipe.027|                    no stability, no fix of any kind.
+::T|EN|cl.optyfolder.wipe.028|
+::T|EN|cl.optyfolder.wipe.029|  Cost            : This is the dangerous one. del /f /q bypasses the
+::T|EN|cl.optyfolder.wipe.030|                    Recycle Bin, so there is no undo. In a git checkout
+::T|EN|cl.optyfolder.wipe.031|                    the tracked files come back with git restore; anything
+::T|EN|cl.optyfolder.wipe.032|                    untracked, unique, or dropped there in passing is
+::T|EN|cl.optyfolder.wipe.033|                    simply gone. And OPTY's startup already keeps only the
+::T|EN|cl.optyfolder.wipe.034|                    five most recent of each report family, so the space
+::T|EN|cl.optyfolder.wipe.035|                    this recovers was never the problem.
+::T|EN|cl.optyfolder.wipe.036|
+::T|EN|cl.optyfolder.wipe.037|  Windows default : Not applicable - these are meant to be OPTY's own
+::T|EN|cl.optyfolder.wipe.038|                    output files, and the step does not verify that they
+::T|EN|cl.optyfolder.wipe.039|                    are.
+::T|EN|cl.optyfolder.wipe.040|
+::T|EN|cl.optyfolder.wipe.041|  Possible values:
+::T|EN|cl.optyfolder.wipe.042|    ASK                  : The only defensible answer, and it must be
+::T|EN|cl.optyfolder.wipe.043|                           asked with the folder path on screen. What this
+::T|EN|cl.optyfolder.wipe.044|                           deletes depends entirely on where OPTY.bat
+::T|EN|cl.optyfolder.wipe.045|                           happens to sit, which no profile can know.
+::T|EN|cl.optyfolder.wipe.046|    DELETE               : Acceptable in exactly one situation: OPTY.bat
+::T|EN|cl.optyfolder.wipe.047|                           lives alone in a folder created for it,
+::T|EN|cl.optyfolder.wipe.048|                           containing nothing else you would miss. Move it
+::T|EN|cl.optyfolder.wipe.049|                           there first and the risk disappears.
+::T|EN|cl.optyfolder.wipe.050|    KEEP                 : The right answer anywhere else - Downloads,
+::T|EN|cl.optyfolder.wipe.051|                           Desktop, a USB stick, a git checkout. Old OPTY
+::T|EN|cl.optyfolder.wipe.052|                           logs cost a few kilobytes and are already
+::T|EN|cl.optyfolder.wipe.053|                           capped at five per family at startup.
+::X|EN|cl.optyfolder.wipe.001|  Why these profiles : Five ASK columns, deliberately. Every profile
+::X|EN|cl.optyfolder.wipe.002|                       answer would be a guess about the contents of a
+::X|EN|cl.optyfolder.wipe.003|                       folder the script never inspects, and the failure
+::X|EN|cl.optyfolder.wipe.004|                       mode is unrecoverable deletion of files that were
+::X|EN|cl.optyfolder.wipe.005|                       never OPTY's. Move OPTY.bat into a folder of its
+::X|EN|cl.optyfolder.wipe.006|                       own and the answer becomes DELETE for all five.
+::X|EN|cl.optyfolder.wipe.007|
+::X|EN|cl.optyfolder.wipe.008|  Target          : :Clean_Opty_Curl, OPTY.bat lines 3167-3177. The loop
+::X|EN|cl.optyfolder.wipe.009|                    is: for /f in ('dir /b /a-d "%~dp0" ^/ findstr /i /v
+::X|EN|cl.optyfolder.wipe.010|                    /c:"OPTY.bat" /c:"OPTY_rollback.bat"') do del /f /q
+::X|EN|cl.optyfolder.wipe.011|                    "%~dp0<name>". Reached from Maintenance, option 2.
+::
+:: ---- cl.chromium.caches (cleanup) --------------------------------
+::P|cl.chromium.caches|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.chromium.caches.001|CACHES DES NAVIGATEURS CHROMIUM, TOUS PROFILS
+::T|FR|cl.chromium.caches.002|
+::T|FR|cl.chromium.caches.003|  Ce que c est    : Les caches jetables de tous les navigateurs de la
+::T|FR|cl.chromium.caches.004|                    famille Chromium - Chrome, Chrome Beta, Chromium,
+::T|FR|cl.chromium.caches.005|                    Edge, Brave, Vivaldi, Opera, Opera GX et Yandex - pour
+::T|FR|cl.chromium.caches.006|                    chaque profil de chacun d'eux.
+::T|FR|cl.chromium.caches.007|
+::T|FR|cl.chromium.caches.008|  Effet reel      : del /F /S /Q supprime les fichiers et laisse
+::T|FR|cl.chromium.caches.009|                    l'arborescence en place, ce qu'attend Chromium. Si le
+::T|FR|cl.chromium.caches.010|                    navigateur tourne, tout le dossier est ignoré avec un
+::T|FR|cl.chromium.caches.011|                    avertissement : OPTY ne ferme jamais votre navigateur,
+::T|FR|cl.chromium.caches.012|                    car supprimer sous un Chromium en cours d'exécution,
+::T|FR|cl.chromium.caches.013|                    c'est exactement ce qui crée la corruption qu'on veut
+::T|FR|cl.chromium.caches.014|                    éviter. Il n'y a volontairement aucun joker *.log :
+::T|FR|cl.chromium.caches.015|                    sous User Data, ce sont des journaux d'écriture
+::T|FR|cl.chromium.caches.016|                    LevelDB qui contiennent l'état vivant des extensions
+::T|FR|cl.chromium.caches.017|                    et d'IndexedDB. Jamais sur le chemin : Cookies, Login
+::T|FR|cl.chromium.caches.018|                    Data, Web Data, History, Bookmarks, Local Storage,
+::T|FR|cl.chromium.caches.019|                    IndexedDB, Preferences.
+::T|FR|cl.chromium.caches.020|
+::T|FR|cl.chromium.caches.021|  Gain            : Mesuré sur cette machine, pour Chrome seul : Service
+::T|FR|cl.chromium.caches.022|                    Worker CacheStorage 1380 Mo, Code Cache 573 Mo, Cache
+::T|FR|cl.chromium.caches.023|                    365 Mo, ScriptCache 71 Mo, extensions_crx_cache 65 Mo,
+::T|FR|cl.chromium.caches.024|                    component_crx_cache 29 Mo, GrShaderCache 13 Mo, caches
+::T|FR|cl.chromium.caches.025|                    GPU et Dawn 14 Mo, BrowserMetrics 4 Mo, Crashpad 3 Mo,
+::T|FR|cl.chromium.caches.026|                    plus un second profil à 104 Mo. Edge ajoute environ 46
+::T|FR|cl.chromium.caches.027|                    Mo. Soit près de 2,6 Go en une passe : c'est le plus
+::T|FR|cl.chromium.caches.028|                    gros gain de place de tout le nettoyage.
+::T|FR|cl.chromium.caches.029|
+::T|FR|cl.chromium.caches.030|  Cout            : Les sites se retéléchargent au fil de vos visites, le
+::T|FR|cl.chromium.caches.031|                    JavaScript est recompilé au premier chargement et les
+::T|FR|cl.chromium.caches.032|                    paquets d'extensions sont récupérés à nouveau. Les 1,4
+::T|FR|cl.chromium.caches.033|                    Go de Service Worker CacheStorage sont du contenu
+::T|FR|cl.chromium.caches.034|                    d'applications hors ligne : un site qui fonctionnait
+::T|FR|cl.chromium.caches.035|                    sans connexion cesse de le faire jusqu'à ce que vous
+::T|FR|cl.chromium.caches.036|                    l'ouvriez une fois en ligne. Aucune connexion, aucun
+::T|FR|cl.chromium.caches.037|                    cookie, aucun mot de passe, aucun favori ni élément
+::T|FR|cl.chromium.caches.038|                    d'historique n'est perdu : rien de tout cela ne figure
+::T|FR|cl.chromium.caches.039|                    dans les chemins ci-dessus.
+::T|FR|cl.chromium.caches.040|
+::T|FR|cl.chromium.caches.041|  Defaut Windows  : Sans objet - cache tiers régénérable, reconstruit au
+::T|FR|cl.chromium.caches.042|                    fil de la navigation. Windows ne le crée ni ne le
+::T|FR|cl.chromium.caches.043|                    purge.
+::T|FR|cl.chromium.caches.044|
+::T|FR|cl.chromium.caches.045|  Valeurs possibles :
+::T|FR|cl.chromium.caches.046|    DELETE               : Vider les caches, navigateurs fermés. Mesuré
+::T|FR|cl.chromium.caches.047|                           ici : 2,6 Go, et c'est le remède standard aux
+::T|FR|cl.chromium.caches.048|                           pages qui s'affichent mal, aux caches de
+::T|FR|cl.chromium.caches.049|                           shaders cassés par un changement de pilote GPU
+::T|FR|cl.chromium.caches.050|                           et aux extensions qui refusent de se mettre à
+::T|FR|cl.chromium.caches.051|                           jour.
+::T|FR|cl.chromium.caches.052|    KEEP                 : Défendable sur une connexion limitée ou lente :
+::T|FR|cl.chromium.caches.053|                           les 1,4 Go de contenu Service Worker mesurés
+::T|FR|cl.chromium.caches.054|                           ici sont retéléchargés par le réseau, pas
+::T|FR|cl.chromium.caches.055|                           régénérés localement.
+::T|FR|cl.chromium.caches.056|    ASK                  : À ne demander que si un site dont vous dépendez
+::T|FR|cl.chromium.caches.057|                           fonctionne hors connexion - une messagerie web,
+::T|FR|cl.chromium.caches.058|                           une carte consultable sans réseau - car cette
+::T|FR|cl.chromium.caches.059|                           copie hors ligne réside dans CacheStorage et
+::T|FR|cl.chromium.caches.060|                           part avec le reste.
+::X|FR|cl.chromium.caches.001|  Pourquoi ces profils : Les mêmes quatre colonnes, parce qu'un cache de
+::X|FR|cl.chromium.caches.002|                         navigateur se moque de l'usage de la machine : il
+::X|FR|cl.chromium.caches.003|                         est jetable sur un poste de jeu, sur un serveur
+::X|FR|cl.chromium.caches.004|                         comme sur un portable, et le gain se compte en
+::X|FR|cl.chromium.caches.005|                         gigaoctets partout. La colonne 5 dit KEEP pour
+::X|FR|cl.chromium.caches.006|                         une raison étroite - « laisser Windows tel qu'il
+::X|FR|cl.chromium.caches.007|                         est livré » ne dit rien des dossiers tiers - et
+::X|FR|cl.chromium.caches.008|                         non parce que les supprimer nuirait.
+::X|FR|cl.chromium.caches.009|
+::X|FR|cl.chromium.caches.010|  Cible           : :chromecache, OPTY.bat lines 3269-3310. Per profile
+::X|FR|cl.chromium.caches.011|                    (Default, Profile *, Guest Profile): Cache, Code
+::X|FR|cl.chromium.caches.012|                    Cache, GPUCache, DawnWebGPUCache, DawnGraphiteCache,
+::X|FR|cl.chromium.caches.013|                    Service Worker\CacheStorage, Service
+::X|FR|cl.chromium.caches.014|                    Worker\ScriptCache. Per browser: GrShaderCache,
+::X|FR|cl.chromium.caches.015|                    ShaderCache, GraphiteDawnCache, GPUPersistentCache,
+::X|FR|cl.chromium.caches.016|                    component_crx_cache, extensions_crx_cache,
+::X|FR|cl.chromium.caches.017|                    Crashpad\reports, BrowserMetrics\*.pma. Called nine
+::X|FR|cl.chromium.caches.018|                    times per user from :userclean lines 3369-3377.
+::T|EN|cl.chromium.caches.001|CHROMIUM BROWSER CACHES, EVERY PROFILE
+::T|EN|cl.chromium.caches.002|
+::T|EN|cl.chromium.caches.003|  What it is      : The disposable caches of every Chromium-family browser
+::T|EN|cl.chromium.caches.004|                    - Chrome, Chrome Beta, Chromium, Edge, Brave, Vivaldi,
+::T|EN|cl.chromium.caches.005|                    Opera, Opera GX and Yandex - for every profile inside
+::T|EN|cl.chromium.caches.006|                    each one.
+::T|EN|cl.chromium.caches.007|
+::T|EN|cl.chromium.caches.008|  Actual effect   : del /F /S /Q removes the files and leaves the
+::T|EN|cl.chromium.caches.009|                    directory tree standing, which is what Chromium
+::T|EN|cl.chromium.caches.010|                    expects. If the browser process is running the whole
+::T|EN|cl.chromium.caches.011|                    folder is skipped with a warning: OPTY never closes
+::T|EN|cl.chromium.caches.012|                    your browser, because deleting underneath a live
+::T|EN|cl.chromium.caches.013|                    Chromium is what creates the corruption this is meant
+::T|EN|cl.chromium.caches.014|                    to fix. There is deliberately no *.log wildcard, since
+::T|EN|cl.chromium.caches.015|                    under User Data those are LevelDB write-ahead logs
+::T|EN|cl.chromium.caches.016|                    holding live extension and IndexedDB state. Never in
+::T|EN|cl.chromium.caches.017|                    the path: Cookies, Login Data, Web Data, History,
+::T|EN|cl.chromium.caches.018|                    Bookmarks, Local Storage, IndexedDB, Preferences.
+::T|EN|cl.chromium.caches.019|
+::T|EN|cl.chromium.caches.020|  Gain            : Measured on this machine, Chrome alone: Service Worker
+::T|EN|cl.chromium.caches.021|                    CacheStorage 1380 MB, Code Cache 573 MB, Cache 365 MB,
+::T|EN|cl.chromium.caches.022|                    ScriptCache 71 MB, extensions_crx_cache 65 MB,
+::T|EN|cl.chromium.caches.023|                    component_crx_cache 29 MB, GrShaderCache 13 MB, the
+::T|EN|cl.chromium.caches.024|                    GPU and Dawn caches 14 MB, BrowserMetrics 4 MB,
+::T|EN|cl.chromium.caches.025|                    Crashpad 3 MB, and a second profile at 104 MB. Edge
+::T|EN|cl.chromium.caches.026|                    adds about 46 MB. Roughly 2.6 GB in one pass, which
+::T|EN|cl.chromium.caches.027|                    makes this the single largest space recovery in the
+::T|EN|cl.chromium.caches.028|                    whole cleanup.
+::T|EN|cl.chromium.caches.029|
+::T|EN|cl.chromium.caches.030|  Cost            : Sites refetch as you revisit them, JavaScript is
+::T|EN|cl.chromium.caches.031|                    recompiled on first load, and extension packages are
+::T|EN|cl.chromium.caches.032|                    downloaded again. The 1.4 GB of Service Worker
+::T|EN|cl.chromium.caches.033|                    CacheStorage is offline-app payload, so a site that
+::T|EN|cl.chromium.caches.034|                    worked without a connection stops doing so until you
+::T|EN|cl.chromium.caches.035|                    open it online once. No login, cookie, password,
+::T|EN|cl.chromium.caches.036|                    bookmark or history entry is lost - none of them are
+::T|EN|cl.chromium.caches.037|                    in the paths above.
+::T|EN|cl.chromium.caches.038|
+::T|EN|cl.chromium.caches.039|  Windows default : Not applicable - third-party regenerable cache,
+::T|EN|cl.chromium.caches.040|                    rebuilt as you browse. Windows neither creates nor
+::T|EN|cl.chromium.caches.041|                    prunes it.
+::T|EN|cl.chromium.caches.042|
+::T|EN|cl.chromium.caches.043|  Possible values:
+::T|EN|cl.chromium.caches.044|    DELETE               : Empty the caches with the browsers closed.
+::T|EN|cl.chromium.caches.045|                           Measured here it is 2.6 GB, and it is the
+::T|EN|cl.chromium.caches.046|                           standard fix for pages that render wrong,
+::T|EN|cl.chromium.caches.047|                           shader caches broken by a GPU driver change,
+::T|EN|cl.chromium.caches.048|                           and extensions that will not update.
+::T|EN|cl.chromium.caches.049|    KEEP                 : Defensible on a metered or slow connection: the
+::T|EN|cl.chromium.caches.050|                           1.4 GB of Service Worker payload measured here
+::T|EN|cl.chromium.caches.051|                           is refetched over the network, not regenerated
+::T|EN|cl.chromium.caches.052|                           locally.
+::T|EN|cl.chromium.caches.053|    ASK                  : Only worth asking when a site you rely on works
+::T|EN|cl.chromium.caches.054|                           offline - a web mail client or a mapping app
+::T|EN|cl.chromium.caches.055|                           kept available without a connection - since
+::T|EN|cl.chromium.caches.056|                           that offline copy lives in CacheStorage and
+::T|EN|cl.chromium.caches.057|                           goes with the rest.
+::X|EN|cl.chromium.caches.001|  Why these profiles : The same four columns because a browser cache does
+::X|EN|cl.chromium.caches.002|                       not care what the machine is for: it is disposable
+::X|EN|cl.chromium.caches.003|                       on a game rig, on a server and on a laptop alike,
+::X|EN|cl.chromium.caches.004|                       and the gain is measured in gigabytes on all of
+::X|EN|cl.chromium.caches.005|                       them. Profile 5 is KEEP for the narrow reason that
+::X|EN|cl.chromium.caches.006|                       leaving Windows as shipped says nothing about
+::X|EN|cl.chromium.caches.007|                       third-party folders, not because deleting them
+::X|EN|cl.chromium.caches.008|                       would hurt.
+::X|EN|cl.chromium.caches.009|
+::X|EN|cl.chromium.caches.010|  Target          : :chromecache, OPTY.bat lines 3269-3310. Per profile
+::X|EN|cl.chromium.caches.011|                    (Default, Profile *, Guest Profile): Cache, Code
+::X|EN|cl.chromium.caches.012|                    Cache, GPUCache, DawnWebGPUCache, DawnGraphiteCache,
+::X|EN|cl.chromium.caches.013|                    Service Worker\CacheStorage, Service
+::X|EN|cl.chromium.caches.014|                    Worker\ScriptCache. Per browser: GrShaderCache,
+::X|EN|cl.chromium.caches.015|                    ShaderCache, GraphiteDawnCache, GPUPersistentCache,
+::X|EN|cl.chromium.caches.016|                    component_crx_cache, extensions_crx_cache,
+::X|EN|cl.chromium.caches.017|                    Crashpad\reports, BrowserMetrics\*.pma. Called nine
+::X|EN|cl.chromium.caches.018|                    times per user from :userclean lines 3369-3377.
+::
+:: ---- cl.firefox.caches (cleanup) ---------------------------------
+::P|cl.firefox.caches|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.firefox.caches.001|CACHES DE FIREFOX, TOUS PROFILS
+::T|FR|cl.firefox.caches.002|
+::T|FR|cl.firefox.caches.003|  Ce que c est    : cache2, startupCache, jumpListCache et thumbnails dans
+::T|FR|cl.firefox.caches.004|                    chaque profil Firefox de chaque compte de la machine.
+::T|FR|cl.firefox.caches.005|                    Le bloc est entièrement sauté si firefox.exe tourne.
+::T|FR|cl.firefox.caches.006|
+::T|FR|cl.firefox.caches.007|  Effet reel      : del /F /S /Q sur le contenu de ces quatre dossiers,
+::T|FR|cl.firefox.caches.008|                    pour chaque répertoire de profil trouvé. Firefox les
+::T|FR|cl.firefox.caches.009|                    reconstruit au lancement suivant, sans la moindre
+::T|FR|cl.firefox.caches.010|                    modification de configuration. Le test de processus
+::T|FR|cl.firefox.caches.011|                    est fait une fois par profil utilisateur mais porte
+::T|FR|cl.firefox.caches.012|                    sur toute la machine : un seul Firefox ouvert quelque
+::T|FR|cl.firefox.caches.013|                    part bloque le nettoyage pour tout le monde.
+::T|FR|cl.firefox.caches.014|
+::T|FR|cl.firefox.caches.015|  Gain            : Mesuré ici : les deux profils Firefox totalisent 25
+::T|FR|cl.firefox.caches.016|                    Mo, dont 24,9 pour le principal. Ce n'est pas un gain
+::T|FR|cl.firefox.caches.017|                    de place sur cette machine. Ce qui justifie l'étape,
+::T|FR|cl.firefox.caches.018|                    c'est la réparation précise - un startupCache corrompu
+::T|FR|cl.firefox.caches.019|                    qui laisse Firefox tourner sans fenêtre visible -
+::T|FR|cl.firefox.caches.020|                    qu'aucun redémarrage ne règle tout seul.
+::T|FR|cl.firefox.caches.021|
+::T|FR|cl.firefox.caches.022|  Cout            : Un premier lancement plus lent et un premier
+::T|FR|cl.firefox.caches.023|                    chargement plus lent pour chaque site. Rien d'autre :
+::T|FR|cl.firefox.caches.024|                    mots de passe, cookies, historique, favoris,
+::T|FR|cl.firefox.caches.025|                    extensions et paramètres résident dans le profil
+::T|FR|cl.firefox.caches.026|                    Roaming et ne figurent pas sur ces chemins.
+::T|FR|cl.firefox.caches.027|
+::T|FR|cl.firefox.caches.028|  Defaut Windows  : Sans objet - cache tiers régénérable.
+::T|FR|cl.firefox.caches.029|
+::T|FR|cl.firefox.caches.030|  Valeurs possibles :
+::T|FR|cl.firefox.caches.031|    DELETE               : Vider les quatre dossiers, Firefox fermé. La
+::T|FR|cl.firefox.caches.032|                           vraie raison est la réparation : un
+::T|FR|cl.firefox.caches.033|                           startupCache périmé est la cause classique du
+::T|FR|cl.firefox.caches.034|                           Firefox qui démarre sans afficher la moindre
+::T|FR|cl.firefox.caches.035|                           fenêtre.
+::T|FR|cl.firefox.caches.036|    KEEP                 : Honnête sur cette machine, où l'ensemble pèse
+::T|FR|cl.firefox.caches.037|                           25 Mo. Si Firefox démarre et navigue
+::T|FR|cl.firefox.caches.038|                           normalement, il n'y a quasiment rien à gagner
+::T|FR|cl.firefox.caches.039|                           ici.
+::T|FR|cl.firefox.caches.040|    ASK                  : Inutile. Rien dans ces quatre dossiers n'est
+::T|FR|cl.firefox.caches.041|                           une donnée utilisateur, et l'étape refuse déjà
+::T|FR|cl.firefox.caches.042|                           de s'exécuter tant que Firefox est ouvert.
+::X|FR|cl.firefox.caches.001|  Pourquoi ces profils : De nouveau quatre colonnes identiques. Aucun
+::X|FR|cl.firefox.caches.002|                         mécanisme ne fait qu'un cache de navigateur se
+::X|FR|cl.firefox.caches.003|                         comporte autrement sur un serveur que sur un
+::X|FR|cl.firefox.caches.004|                         portable, et 25 Mo restent 25 Mo partout. La
+::X|FR|cl.firefox.caches.005|                         colonne 5 dit KEEP uniquement parce que Windows
+::X|FR|cl.firefox.caches.006|                         n'a aucun état d'origine pour un dossier Mozilla.
+::X|FR|cl.firefox.caches.007|
+::X|FR|cl.firefox.caches.008|  Cible           : cache2, startupCache, jumpListCache and thumbnails
+::X|FR|cl.firefox.caches.009|                    under every %LOCALAPPDATA%\Mozilla\Firefox\Profiles\*
+::X|FR|cl.firefox.caches.010|                    of every user profile, behind call :isrunning
+::X|FR|cl.firefox.caches.011|                    "firefox.exe" - OPTY.bat lines 3379-3386, inside
+::X|FR|cl.firefox.caches.012|                    :userclean.
+::T|EN|cl.firefox.caches.001|FIREFOX CACHES, EVERY PROFILE
+::T|EN|cl.firefox.caches.002|
+::T|EN|cl.firefox.caches.003|  What it is      : cache2, startupCache, jumpListCache and thumbnails
+::T|EN|cl.firefox.caches.004|                    under every Firefox profile of every account on the
+::T|EN|cl.firefox.caches.005|                    machine. The block is skipped entirely if firefox.exe
+::T|EN|cl.firefox.caches.006|                    is running.
+::T|EN|cl.firefox.caches.007|
+::T|EN|cl.firefox.caches.008|  Actual effect   : del /F /S /Q on the contents of those four folders,
+::T|EN|cl.firefox.caches.009|                    per profile directory found. Firefox rebuilds them at
+::T|EN|cl.firefox.caches.010|                    the next launch with no configuration change of any
+::T|EN|cl.firefox.caches.011|                    kind. The running check is made once per user profile
+::T|EN|cl.firefox.caches.012|                    and is machine-wide, so one open Firefox anywhere
+::T|EN|cl.firefox.caches.013|                    blocks the sweep for everybody.
+::T|EN|cl.firefox.caches.014|
+::T|EN|cl.firefox.caches.015|  Gain            : Measured here: the two Firefox profiles total 25 MB,
+::T|EN|cl.firefox.caches.016|                    24.9 of it in the main one. That is not a space win on
+::T|EN|cl.firefox.caches.017|                    this machine. What justifies the step is the one
+::T|EN|cl.firefox.caches.018|                    specific repair - a corrupt startupCache leaving
+::T|EN|cl.firefox.caches.019|                    Firefox running with no visible window - which no
+::T|EN|cl.firefox.caches.020|                    amount of restarting fixes on its own.
+::T|EN|cl.firefox.caches.021|
+::T|EN|cl.firefox.caches.022|  Cost            : A slower first launch and a slower first load of each
+::T|EN|cl.firefox.caches.023|                    site. Nothing else: passwords, cookies, history,
+::T|EN|cl.firefox.caches.024|                    bookmarks, extensions and settings live in the Roaming
+::T|EN|cl.firefox.caches.025|                    profile and are not in these paths.
+::T|EN|cl.firefox.caches.026|
+::T|EN|cl.firefox.caches.027|  Windows default : Not applicable - third-party regenerable cache.
+::T|EN|cl.firefox.caches.028|
+::T|EN|cl.firefox.caches.029|  Possible values:
+::T|EN|cl.firefox.caches.030|    DELETE               : Empty the four folders with Firefox closed. The
+::T|EN|cl.firefox.caches.031|                           real reason is the repair: a stale startupCache
+::T|EN|cl.firefox.caches.032|                           is the classic cause of Firefox starting with
+::T|EN|cl.firefox.caches.033|                           no window at all.
+::T|EN|cl.firefox.caches.034|    KEEP                 : Honest on this machine, where the whole thing
+::T|EN|cl.firefox.caches.035|                           is 25 MB. If Firefox starts and browses
+::T|EN|cl.firefox.caches.036|                           normally there is close to nothing to gain
+::T|EN|cl.firefox.caches.037|                           here.
+::T|EN|cl.firefox.caches.038|    ASK                  : Not needed. Nothing in these four folders is
+::T|EN|cl.firefox.caches.039|                           user data, and the step already refuses to run
+::T|EN|cl.firefox.caches.040|                           while Firefox is open.
+::X|EN|cl.firefox.caches.001|  Why these profiles : Four identical columns again. There is no mechanism
+::X|EN|cl.firefox.caches.002|                       by which a browser cache behaves differently on a
+::X|EN|cl.firefox.caches.003|                       server than on a laptop, and 25 MB is 25 MB
+::X|EN|cl.firefox.caches.004|                       everywhere. Profile 5 is KEEP only because Windows
+::X|EN|cl.firefox.caches.005|                       has no shipped state for a Mozilla folder.
+::X|EN|cl.firefox.caches.006|
+::X|EN|cl.firefox.caches.007|  Target          : cache2, startupCache, jumpListCache and thumbnails
+::X|EN|cl.firefox.caches.008|                    under every %LOCALAPPDATA%\Mozilla\Firefox\Profiles\*
+::X|EN|cl.firefox.caches.009|                    of every user profile, behind call :isrunning
+::X|EN|cl.firefox.caches.010|                    "firefox.exe" - OPTY.bat lines 3379-3386, inside
+::X|EN|cl.firefox.caches.011|                    :userclean.
+::
+:: ---- cl.drivesweep.caches (cleanup) ------------------------------
+::P|cl.drivesweep.caches|ASK|ASK|ASK|ASK|KEEP|
+::T|FR|cl.drivesweep.caches.001|CACHES DE MISE À JOUR ET DE DISTRIBUTION SUR CHAQUE DISQUE FIXE
+::T|FR|cl.drivesweep.caches.002|
+::T|FR|cl.drivesweep.caches.003|  Ce que c est    : Windows dépose les données de mise à jour à la racine
+::T|FR|cl.drivesweep.caches.004|                    du volume qu'il a choisi, pas seulement sur C:. Ceci
+::T|FR|cl.drivesweep.caches.005|                    vide DeliveryOptimization, WUDownloadCache, le cache
+::T|FR|cl.drivesweep.caches.006|                    Delivery Optimization de ProgramData et un dossier
+::T|FR|cl.drivesweep.caches.007|                    nommé .cache, sur chaque disque fixe.
+::T|FR|cl.drivesweep.caches.008|
+::T|FR|cl.drivesweep.caches.009|  Effet reel      : del /F /S /Q sur ces quatre chemins, disque par
+::T|FR|cl.drivesweep.caches.010|                    disque. Le filtre de disques fonctionne : les disques
+::T|FR|cl.drivesweep.caches.011|                    fixes sont ici C, D, E, G et J, et les onze partages
+::T|FR|cl.drivesweep.caches.012|                    SMB montés - F, I, K, L, Q, R, V, W, X, Y, Z - sont
+::T|FR|cl.drivesweep.caches.013|                    correctement exclus, ce qui compte car un partage
+::T|FR|cl.drivesweep.caches.014|                    déconnecté coûte 30 secondes de délai chacun. La même
+::T|FR|cl.drivesweep.caches.015|                    routine supprime ensuite les dossiers de préparation
+::T|FR|cl.drivesweep.caches.016|                    de mise à niveau, qui ont leur propre fiche. À noter :
+::T|FR|cl.drivesweep.caches.017|                    le troisième chemin est construit par disque, donc sur
+::T|FR|cl.drivesweep.caches.018|                    D: il cherche D:\ProgramData, qui n'existe pas.
+::T|FR|cl.drivesweep.caches.019|
+::T|FR|cl.drivesweep.caches.020|  Gain            : Mesuré sur cette machine, et ce n'est pas ce que
+::T|FR|cl.drivesweep.caches.021|                    l'étape promet. C:\DeliveryOptimization,
+::T|FR|cl.drivesweep.caches.022|                    C:\WUDownloadCache et C:\ProgramData\Microsoft\Windows
+::T|FR|cl.drivesweep.caches.023|                    \DeliveryOptimization\Cache sont tous absents ;
+::T|FR|cl.drivesweep.caches.024|                    D:\DeliveryOptimization et D:\WUDownloadCache existent
+::T|FR|cl.drivesweep.caches.025|                    mais pèsent 0 octet. Les trois chemins Windows ne
+::T|FR|cl.drivesweep.caches.026|                    récupèrent donc rien du tout ici. Le cache Delivery
+::T|FR|cl.drivesweep.caches.027|                    Optimization qui existe réellement fait 222 Mo et
+::T|FR|cl.drivesweep.caches.028|                    réside sous C:\Windows\ServiceProfiles\NetworkService\
+::T|FR|cl.drivesweep.caches.029|                    AppData\Local\Microsoft\Windows\DeliveryOptimization,
+::T|FR|cl.drivesweep.caches.030|                    un chemin auquel cette étape ne touche jamais et que
+::T|FR|cl.drivesweep.caches.031|                    le service DoSvc garde ouvert. Récupération totale
+::T|FR|cl.drivesweep.caches.032|                    mesurée : 0,9 Mo, entièrement issus de C:\.cache.
+::T|FR|cl.drivesweep.caches.033|
+::T|FR|cl.drivesweep.caches.034|  Cout            : Pour les trois chemins Windows, rien : Windows
+::T|FR|cl.drivesweep.caches.035|                    retélécharge les données de mise à jour dont il a
+::T|FR|cl.drivesweep.caches.036|                    encore besoin. Le quatrième mérite réflexion. Sur
+::T|FR|cl.drivesweep.caches.037|                    cette machine, C:\.cache contient AMD\DxCache et
+::T|FR|cl.drivesweep.caches.038|                    AMD\DxcCache - un cache de shaders DirectX AMD, 0,9
+::T|FR|cl.drivesweep.caches.039|                    Mo, reconstruit en quelques secondes. Sur une machine
+::T|FR|cl.drivesweep.caches.040|                    de développement, le même nom abrite souvent une
+::T|FR|cl.drivesweep.caches.041|                    réserve Bazel, Yarn, Cargo ou Hugging Face, et là
+::T|FR|cl.drivesweep.caches.042|                    c'est un retéléchargement de plusieurs gigaoctets qui
+::T|FR|cl.drivesweep.caches.043|                    se compte en heures : la règle des trente minutes
+::T|FR|cl.drivesweep.caches.044|                    n'est plus respectée.
+::T|FR|cl.drivesweep.caches.045|
+::T|FR|cl.drivesweep.caches.046|  Defaut Windows  : Sans objet - données Windows Update et Delivery
+::T|FR|cl.drivesweep.caches.047|                    Optimization régénérables. Windows fait expirer son
+::T|FR|cl.drivesweep.caches.048|                    propre cache Delivery Optimization sans aide.
+::T|FR|cl.drivesweep.caches.049|
+::T|FR|cl.drivesweep.caches.050|  Valeurs possibles :
+::T|FR|cl.drivesweep.caches.051|    ASK                  : La bonne réponse pour les quatre profils réels,
+::T|FR|cl.drivesweep.caches.052|                           à cause d'un chemin sur quatre. Aucun profil ne
+::T|FR|cl.drivesweep.caches.053|                           peut savoir si <disque>:\.cache est un cache de
+::T|FR|cl.drivesweep.caches.054|                           shaders de 0,9 Mo ou une réserve de modèles de
+::T|FR|cl.drivesweep.caches.055|                           40 Go, et l'étape le vide dans les deux cas.
+::T|FR|cl.drivesweep.caches.056|    DELETE               : Correct une fois que vous avez regardé.
+::T|FR|cl.drivesweep.caches.057|                           Vérifiez la racine de chaque disque fixe pour
+::T|FR|cl.drivesweep.caches.058|                           un dossier .cache ; s'il contient un cache de
+::T|FR|cl.drivesweep.caches.059|                           pilote ou de shaders comme celui d'AMD ici,
+::T|FR|cl.drivesweep.caches.060|                           c'est gratuit. Les trois chemins Windows, eux,
+::T|FR|cl.drivesweep.caches.061|                           ne coûtent rien de toute façon.
+::T|FR|cl.drivesweep.caches.062|    KEEP                 : La réponse sur une machine de développement
+::T|FR|cl.drivesweep.caches.063|                           dont le .cache racine contient des paquets ou
+::T|FR|cl.drivesweep.caches.064|                           des modèles - et la réponse honnête ici aussi,
+::T|FR|cl.drivesweep.caches.065|                           où les trois chemins Windows libéreraient
+::T|FR|cl.drivesweep.caches.066|                           exactement zéro octet.
+::X|FR|cl.drivesweep.caches.001|  Pourquoi ces profils : Quatre colonnes ASK, non parce que les chemins
+::X|FR|cl.drivesweep.caches.002|                         Windows seraient risqués - ils sont vides ici -
+::X|FR|cl.drivesweep.caches.003|                         mais parce que l'étape est indivisible et que le
+::X|FR|cl.drivesweep.caches.004|                         quatrième chemin échappe à tout profil. Sur cette
+::X|FR|cl.drivesweep.caches.005|                         machine précise, la réponse serait DELETE pour
+::X|FR|cl.drivesweep.caches.006|                         0,9 Mo de cache de shaders AMD ; aucun profil ne
+::X|FR|cl.drivesweep.caches.007|                         pouvait le savoir à l'avance. La colonne 5 dit
+::X|FR|cl.drivesweep.caches.008|                         KEEP parce que Windows fait déjà expirer ces
+::X|FR|cl.drivesweep.caches.009|                         données selon son propre calendrier.
+::X|FR|cl.drivesweep.caches.010|
+::X|FR|cl.drivesweep.caches.011|  Non verifie (en)  : OPTY cannot tell a Windows .cache from a tool's
+::X|FR|cl.drivesweep.caches.012|                      .cache at the root of a drive: the path is matched
+::X|FR|cl.drivesweep.caches.013|                      by name, with no ownership or content check.
+::X|FR|cl.drivesweep.caches.014|                      :bigcache prints a warning when the folder exceeds
+::X|FR|cl.drivesweep.caches.015|                      about 2000 MB, but it warns and deletes in the same
+::X|FR|cl.drivesweep.caches.016|                      breath - it never stops and never asks. This also
+::X|FR|cl.drivesweep.caches.017|                      sits in direct tension with the rule that a delete
+::X|FR|cl.drivesweep.caches.018|                      is only allowed when regeneration takes well under
+::X|FR|cl.drivesweep.caches.019|                      thirty minutes.
+::X|FR|cl.drivesweep.caches.020|
+::X|FR|cl.drivesweep.caches.021|  Cible           : :drivesweep, OPTY.bat lines 3335-3358, run once per
+::X|FR|cl.drivesweep.caches.022|                    letter of FIXEDLIST. Paths:
+::X|FR|cl.drivesweep.caches.023|                    <D>:\DeliveryOptimization\*, <D>:\WUDownloadCache\*, <
+::X|FR|cl.drivesweep.caches.024|                    D>:\ProgramData\Microsoft\Windows\DeliveryOptimization
+::X|FR|cl.drivesweep.caches.025|                    \Cache\*, then call :bigcache followed by del /F /S /Q
+::X|FR|cl.drivesweep.caches.026|                    <D>:\.cache\*.
+::T|EN|cl.drivesweep.caches.001|UPDATE AND DELIVERY CACHES ON EVERY FIXED DRIVE
+::T|EN|cl.drivesweep.caches.002|
+::T|EN|cl.drivesweep.caches.003|  What it is      : Windows drops update payload at the root of whichever
+::T|EN|cl.drivesweep.caches.004|                    volume it picked, not only C:. This clears
+::T|EN|cl.drivesweep.caches.005|                    DeliveryOptimization, WUDownloadCache, the ProgramData
+::T|EN|cl.drivesweep.caches.006|                    Delivery Optimization cache and a folder named .cache,
+::T|EN|cl.drivesweep.caches.007|                    on every fixed drive.
+::T|EN|cl.drivesweep.caches.008|
+::T|EN|cl.drivesweep.caches.009|  Actual effect   : del /F /S /Q on those four paths per drive. The drive
+::T|EN|cl.drivesweep.caches.010|                    filter works: fixed drives here are C, D, E, G and J,
+::T|EN|cl.drivesweep.caches.011|                    and the eleven mapped SMB shares - F, I, K, L, Q, R,
+::T|EN|cl.drivesweep.caches.012|                    V, W, X, Y, Z - are correctly excluded, which matters
+::T|EN|cl.drivesweep.caches.013|                    because a disconnected share costs a 30 second timeout
+::T|EN|cl.drivesweep.caches.014|                    each. The same routine then removes the feature-update
+::T|EN|cl.drivesweep.caches.015|                    staging folders, which have their own card. Note that
+::T|EN|cl.drivesweep.caches.016|                    the third path is built per drive, so on D: it looks
+::T|EN|cl.drivesweep.caches.017|                    for D:\ProgramData, which does not exist.
+::T|EN|cl.drivesweep.caches.018|
+::T|EN|cl.drivesweep.caches.019|  Gain            : Measured on this machine, and it is not what the step
+::T|EN|cl.drivesweep.caches.020|                    claims. C:\DeliveryOptimization, C:\WUDownloadCache
+::T|EN|cl.drivesweep.caches.021|                    and C:\ProgramData\Microsoft\Windows\DeliveryOptimizat
+::T|EN|cl.drivesweep.caches.022|                    ion\Cache are all absent; D:\DeliveryOptimization and
+::T|EN|cl.drivesweep.caches.023|                    D:\WUDownloadCache exist but hold 0 bytes. The three
+::T|EN|cl.drivesweep.caches.024|                    Windows paths recover nothing at all here. The
+::T|EN|cl.drivesweep.caches.025|                    Delivery Optimization cache that does exist is 222 MB
+::T|EN|cl.drivesweep.caches.026|                    and lives under C:\Windows\ServiceProfiles\NetworkServ
+::T|EN|cl.drivesweep.caches.027|                    ice\AppData\Local\Microsoft\Windows\DeliveryOptimizati
+::T|EN|cl.drivesweep.caches.028|                    on, a path this step never touches and which the DoSvc
+::T|EN|cl.drivesweep.caches.029|                    service holds open. Total measured recovery: 0.9 MB,
+::T|EN|cl.drivesweep.caches.030|                    all of it from C:\.cache.
+::T|EN|cl.drivesweep.caches.031|
+::T|EN|cl.drivesweep.caches.032|  Cost            : For the three Windows paths, nothing: Windows re-
+::T|EN|cl.drivesweep.caches.033|                    downloads any update payload it still needs. The
+::T|EN|cl.drivesweep.caches.034|                    fourth path is the one to think about. On this machine
+::T|EN|cl.drivesweep.caches.035|                    C:\.cache contains AMD\DxCache and AMD\DxcCache - an
+::T|EN|cl.drivesweep.caches.036|                    AMD DirectX shader cache, 0.9 MB, back in seconds. On
+::T|EN|cl.drivesweep.caches.037|                    a development machine the same name is often a Bazel,
+::T|EN|cl.drivesweep.caches.038|                    Yarn, Cargo or Hugging Face store, and that is a
+::T|EN|cl.drivesweep.caches.039|                    multi-gigabyte refetch measured in hours, which fails
+::T|EN|cl.drivesweep.caches.040|                    the regeneration test outright.
+::T|EN|cl.drivesweep.caches.041|
+::T|EN|cl.drivesweep.caches.042|  Windows default : Not applicable - regenerable Windows Update and
+::T|EN|cl.drivesweep.caches.043|                    Delivery Optimization data. Windows expires its own
+::T|EN|cl.drivesweep.caches.044|                    Delivery Optimization cache without help.
+::T|EN|cl.drivesweep.caches.045|
+::T|EN|cl.drivesweep.caches.046|  Possible values:
+::T|EN|cl.drivesweep.caches.047|    ASK                  : The right answer for the four real profiles,
+::T|EN|cl.drivesweep.caches.048|                           because of one path out of four. Nothing in a
+::T|EN|cl.drivesweep.caches.049|                           profile can tell whether <drive>:\.cache is a
+::T|EN|cl.drivesweep.caches.050|                           shader cache worth 0.9 MB or a model store
+::T|EN|cl.drivesweep.caches.051|                           worth 40 GB, and the step empties it either
+::T|EN|cl.drivesweep.caches.052|                           way.
+::T|EN|cl.drivesweep.caches.053|    DELETE               : Correct once you have looked. Check the root of
+::T|EN|cl.drivesweep.caches.054|                           each fixed drive for a .cache folder; if it
+::T|EN|cl.drivesweep.caches.055|                           holds a driver or shader cache like the AMD one
+::T|EN|cl.drivesweep.caches.056|                           here, this is free. The three Windows paths
+::T|EN|cl.drivesweep.caches.057|                           cost nothing in any case.
+::T|EN|cl.drivesweep.caches.058|    KEEP                 : The answer on a development machine with a
+::T|EN|cl.drivesweep.caches.059|                           root-level .cache holding packages or models,
+::T|EN|cl.drivesweep.caches.060|                           and the honest answer on this one too, where
+::T|EN|cl.drivesweep.caches.061|                           the three Windows paths would free exactly zero
+::T|EN|cl.drivesweep.caches.062|                           bytes.
+::X|EN|cl.drivesweep.caches.001|  Why these profiles : Four ASK columns, not because the Windows paths are
+::X|EN|cl.drivesweep.caches.002|                       risky - they are empty here - but because the step
+::X|EN|cl.drivesweep.caches.003|                       is indivisible and the fourth path is unknowable
+::X|EN|cl.drivesweep.caches.004|                       from a profile. On this specific machine the answer
+::X|EN|cl.drivesweep.caches.005|                       would be DELETE for 0.9 MB of AMD shader cache; no
+::X|EN|cl.drivesweep.caches.006|                       profile could have known that in advance. Profile 5
+::X|EN|cl.drivesweep.caches.007|                       is KEEP because Windows already expires this data
+::X|EN|cl.drivesweep.caches.008|                       on its own schedule.
+::X|EN|cl.drivesweep.caches.009|
+::X|EN|cl.drivesweep.caches.010|  Unverified      : OPTY cannot tell a Windows .cache from a tool's .cache
+::X|EN|cl.drivesweep.caches.011|                    at the root of a drive: the path is matched by name,
+::X|EN|cl.drivesweep.caches.012|                    with no ownership or content check. :bigcache prints a
+::X|EN|cl.drivesweep.caches.013|                    warning when the folder exceeds about 2000 MB, but it
+::X|EN|cl.drivesweep.caches.014|                    warns and deletes in the same breath - it never stops
+::X|EN|cl.drivesweep.caches.015|                    and never asks. This also sits in direct tension with
+::X|EN|cl.drivesweep.caches.016|                    the rule that a delete is only allowed when
+::X|EN|cl.drivesweep.caches.017|                    regeneration takes well under thirty minutes.
+::X|EN|cl.drivesweep.caches.018|
+::X|EN|cl.drivesweep.caches.019|  Target          : :drivesweep, OPTY.bat lines 3335-3358, run once per
+::X|EN|cl.drivesweep.caches.020|                    letter of FIXEDLIST. Paths:
+::X|EN|cl.drivesweep.caches.021|                    <D>:\DeliveryOptimization\*, <D>:\WUDownloadCache\*, <
+::X|EN|cl.drivesweep.caches.022|                    D>:\ProgramData\Microsoft\Windows\DeliveryOptimization
+::X|EN|cl.drivesweep.caches.023|                    \Cache\*, then call :bigcache followed by del /F /S /Q
+::X|EN|cl.drivesweep.caches.024|                    <D>:\.cache\*.
+::
+:: ---- cl.allusers.fanout (cleanup) --------------------------------
+::P|cl.allusers.fanout|DELETE|DELETE|DELETE|DELETE|KEEP|
+::T|FR|cl.allusers.fanout.001|APPLIQUER LE NETTOYAGE DES CACHES À TOUS LES COMPTES
+::T|FR|cl.allusers.fanout.002|
+::T|FR|cl.allusers.fanout.003|  Ce que c est    : L'étape qui parcourt tous les dossiers de profil
+::T|FR|cl.allusers.fanout.004|                    utilisateur de la machine, et pas seulement le compte
+::T|FR|cl.allusers.fanout.005|                    qui lance OPTY, puis lance pour chacun les neuf passes
+::T|FR|cl.allusers.fanout.006|                    Chromium plus la passe Firefox.
+::T|FR|cl.allusers.fanout.007|
+::T|FR|cl.allusers.fanout.008|  Effet reel      : Pour chaque dossier sous C:\Users, elle vérifie
+::T|FR|cl.allusers.fanout.009|                    AppData\Local puis appelle les fonctions de nettoyage.
+::T|FR|cl.allusers.fanout.010|                    Les profils dépourvus d'un navigateur donné ressortent
+::T|FR|cl.allusers.fanout.011|                    au premier test d'existence : les neuf appels ne
+::T|FR|cl.allusers.fanout.012|                    coûtent donc rien sur une machine à un seul
+::T|FR|cl.allusers.fanout.013|                    navigateur. Mesuré ici, C:\Users contient compt,
+::T|FR|cl.allusers.fanout.014|                    Public, Default et les deux jonctions héritées All
+::T|FR|cl.allusers.fanout.015|                    Users et Default User ; Public, Default et les deux
+::T|FR|cl.allusers.fanout.016|                    jonctions ressortent au test AppData\Local sans erreur
+::T|FR|cl.allusers.fanout.017|                    ni attente. La boucle est figée sur
+::T|FR|cl.allusers.fanout.018|                    %SystemDrive%\Users : un profil déplacé sur un autre
+::T|FR|cl.allusers.fanout.019|                    disque n'est jamais visité.
+::T|FR|cl.allusers.fanout.020|
+::T|FR|cl.allusers.fanout.021|  Gain            : Sur une machine familiale ou partagée, c'est là que se
+::T|FR|cl.allusers.fanout.022|                    trouve l'essentiel de la place : les caches des autres
+::T|FR|cl.allusers.fanout.023|                    comptes sont invisibles pour un nettoyage limité à
+::T|FR|cl.allusers.fanout.024|                    votre profil et dépassent souvent le vôtre, de l'ordre
+::T|FR|cl.allusers.fanout.025|                    des 2,6 Go mesurés sur ce seul profil. Sur cette
+::T|FR|cl.allusers.fanout.026|                    machine, l'apport est exactement de 0 octet, puisqu'il
+::T|FR|cl.allusers.fanout.027|                    n'y a qu'un profil réel sous C:\Users.
+::T|FR|cl.allusers.fanout.028|
+::T|FR|cl.allusers.fanout.029|  Cout            : Une nuance à connaître : le test « le navigateur
+::T|FR|cl.allusers.fanout.030|                    tourne-t-il » porte sur toute la machine, pas sur
+::T|FR|cl.allusers.fanout.031|                    chaque utilisateur. Si un compte quelconque a Chrome
+::T|FR|cl.allusers.fanout.032|                    ouvert, y compris une session laissée en arrière-plan,
+::T|FR|cl.allusers.fanout.033|                    le cache Chrome d'aucun compte n'est nettoyé et
+::T|FR|cl.allusers.fanout.034|                    l'étape le signale comme ignorée. Rien n'est supprimé
+::T|FR|cl.allusers.fanout.035|                    dangereusement, vous récupérez simplement moins que
+::T|FR|cl.allusers.fanout.036|                    prévu. Les connexions, cookies, favoris et historiques
+::T|FR|cl.allusers.fanout.037|                    des autres ne figurent jamais sur ces chemins.
+::T|FR|cl.allusers.fanout.038|
+::T|FR|cl.allusers.fanout.039|  Defaut Windows  : Sans objet - caches tiers régénérables.
+::T|FR|cl.allusers.fanout.040|
+::T|FR|cl.allusers.fanout.041|  Valeurs possibles :
+::T|FR|cl.allusers.fanout.042|    DELETE               : Balayer tous les comptes, pas seulement le
+::T|FR|cl.allusers.fanout.043|                           vôtre. Sur un PC partagé ou familial, c'est là
+::T|FR|cl.allusers.fanout.044|                           que se trouve l'essentiel de la place, et les
+::T|FR|cl.allusers.fanout.045|                           connexions, cookies et favoris des autres ne
+::T|FR|cl.allusers.fanout.046|                           sont jamais sur ces chemins.
+::T|FR|cl.allusers.fanout.047|    KEEP                 : Raisonnable si vous administrez une machine
+::T|FR|cl.allusers.fanout.048|                           dont les autres comptes ne vous appartiennent
+::T|FR|cl.allusers.fanout.049|                           pas. L'étape ne supprime que des caches, mais
+::T|FR|cl.allusers.fanout.050|                           dans des dossiers appartenant à des gens à qui
+::T|FR|cl.allusers.fanout.051|                           on n'a rien demandé.
+::T|FR|cl.allusers.fanout.052|    ASK                  : À demander sur un poste professionnel : vider
+::T|FR|cl.allusers.fanout.053|                           le cache navigateur d'un autre compte engage le
+::T|FR|cl.allusers.fanout.054|                           temps de travail de quelqu'un d'autre, pas
+::T|FR|cl.allusers.fanout.055|                           seulement de l'espace disque.
+::X|FR|cl.allusers.fanout.001|  Pourquoi ces profils : Les quatre colonnes reprennent celles de la fiche
+::X|FR|cl.allusers.fanout.002|                         Chromium, car cette étape n'est que la fiche
+::X|FR|cl.allusers.fanout.003|                         Chromium appliquée plus largement : elle ajoute
+::X|FR|cl.allusers.fanout.004|                         de la portée, pas du risque. La colonne 5 dit
+::X|FR|cl.allusers.fanout.005|                         KEEP pour la même raison étroite : Windows n'a
+::X|FR|cl.allusers.fanout.006|                         aucun avis d'origine sur le cache navigateur d'un
+::X|FR|cl.allusers.fanout.007|                         autre utilisateur.
+::X|FR|cl.allusers.fanout.008|
+::X|FR|cl.allusers.fanout.009|  Cible           : for /d %%U in ("%SystemDrive%\Users\*") do call
+::X|FR|cl.allusers.fanout.010|                    :userclean "%%~fU" - OPTY.bat line 1071; the
+::X|FR|cl.allusers.fanout.011|                    :userclean routine itself is at lines 3360-3387.
+::T|EN|cl.allusers.fanout.001|APPLY THE CACHE CLEANUP TO EVERY ACCOUNT
+::T|EN|cl.allusers.fanout.002|
+::T|EN|cl.allusers.fanout.003|  What it is      : The step that walks every user profile folder on the
+::T|EN|cl.allusers.fanout.004|                    machine, not just the account running OPTY, and
+::T|EN|cl.allusers.fanout.005|                    dispatches the nine Chromium sweeps plus the Firefox
+::T|EN|cl.allusers.fanout.006|                    sweep for each of them.
+::T|EN|cl.allusers.fanout.007|
+::T|EN|cl.allusers.fanout.008|  Actual effect   : For every folder under C:\Users it checks
+::T|EN|cl.allusers.fanout.009|                    AppData\Local and then calls the browser cache
+::T|EN|cl.allusers.fanout.010|                    helpers. Profiles without a given browser fall out at
+::T|EN|cl.allusers.fanout.011|                    the first existence test, so the nine calls cost
+::T|EN|cl.allusers.fanout.012|                    nothing on a machine with one browser. Measured here,
+::T|EN|cl.allusers.fanout.013|                    C:\Users holds compt, Public, Default and the two
+::T|EN|cl.allusers.fanout.014|                    legacy junctions All Users and Default User; Public,
+::T|EN|cl.allusers.fanout.015|                    Default and both junctions drop out at the
+::T|EN|cl.allusers.fanout.016|                    AppData\Local test with no error and no delay. The
+::T|EN|cl.allusers.fanout.017|                    loop is hardcoded to %SystemDrive%\Users, so a profile
+::T|EN|cl.allusers.fanout.018|                    relocated to another drive is never visited.
+::T|EN|cl.allusers.fanout.019|
+::T|EN|cl.allusers.fanout.020|  Gain            : On a family or shared machine this is where most of
+::T|EN|cl.allusers.fanout.021|                    the space is - the other accounts' caches are
+::T|EN|cl.allusers.fanout.022|                    invisible to a per-user cleanup and are frequently
+::T|EN|cl.allusers.fanout.023|                    larger than yours, on the order of the 2.6 GB measured
+::T|EN|cl.allusers.fanout.024|                    in this one profile. On this machine it adds exactly 0
+::T|EN|cl.allusers.fanout.025|                    bytes, because there is only one real profile under
+::T|EN|cl.allusers.fanout.026|                    C:\Users.
+::T|EN|cl.allusers.fanout.027|
+::T|EN|cl.allusers.fanout.028|  Cost            : One nuance worth knowing: the is-the-browser-running
+::T|EN|cl.allusers.fanout.029|                    check is machine-wide, not per user. If any account
+::T|EN|cl.allusers.fanout.030|                    has Chrome open, including a switched-out session,
+::T|EN|cl.allusers.fanout.031|                    then no account's Chrome cache is cleaned and the step
+::T|EN|cl.allusers.fanout.032|                    reports it as skipped. Nothing is deleted unsafely,
+::T|EN|cl.allusers.fanout.033|                    you simply get less than you expected. Other users'
+::T|EN|cl.allusers.fanout.034|                    logins, cookies, bookmarks and history are never in
+::T|EN|cl.allusers.fanout.035|                    the paths.
+::T|EN|cl.allusers.fanout.036|
+::T|EN|cl.allusers.fanout.037|  Windows default : Not applicable - third-party regenerable caches.
+::T|EN|cl.allusers.fanout.038|
+::T|EN|cl.allusers.fanout.039|  Possible values:
+::T|EN|cl.allusers.fanout.040|    DELETE               : Sweep every account, not just yours. On a
+::T|EN|cl.allusers.fanout.041|                           shared or family PC this is where most of the
+::T|EN|cl.allusers.fanout.042|                           space actually is, and other users' logins,
+::T|EN|cl.allusers.fanout.043|                           cookies and bookmarks are never in the paths.
+::T|EN|cl.allusers.fanout.044|    KEEP                 : Reasonable if you administer a machine whose
+::T|EN|cl.allusers.fanout.045|                           other accounts are not yours to touch. It
+::T|EN|cl.allusers.fanout.046|                           deletes only caches, but it does so in folders
+::T|EN|cl.allusers.fanout.047|                           belonging to people who were not asked.
+::T|EN|cl.allusers.fanout.048|    ASK                  : Worth asking on a workplace PC, where clearing
+::T|EN|cl.allusers.fanout.049|                           another account's browser cache is a decision
+::T|EN|cl.allusers.fanout.050|                           about somebody else's machine time, not about
+::T|EN|cl.allusers.fanout.051|                           disk space.
+::X|EN|cl.allusers.fanout.001|  Why these profiles : The four columns match the Chromium card because
+::X|EN|cl.allusers.fanout.002|                       this step is the Chromium card applied more widely
+::X|EN|cl.allusers.fanout.003|                       - it adds reach, not risk. Profile 5 is KEEP for
+::X|EN|cl.allusers.fanout.004|                       the same narrow reason: Windows has no shipped
+::X|EN|cl.allusers.fanout.005|                       opinion about another user's browser cache.
+::X|EN|cl.allusers.fanout.006|
+::X|EN|cl.allusers.fanout.007|  Target          : for /d %%U in ("%SystemDrive%\Users\*") do call
+::X|EN|cl.allusers.fanout.008|                    :userclean "%%~fU" - OPTY.bat line 1071; the
+::X|EN|cl.allusers.fanout.009|                    :userclean routine itself is at lines 3360-3387.
 :: ============================================================
 :: ==================  CLEAN STEP MEMBERSHIP  =================
 :: ============================================================
