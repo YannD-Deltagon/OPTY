@@ -2618,7 +2618,7 @@ echo %date% %time% : msetup "%choice%"                            >> %logs%
 if "%choice%"=="1" goto mnetwork
 if "%choice%"=="2" goto setup_gpu
 if "%choice%"=="3" goto mregprofil
-if "%choice%"=="4" goto debloat2026
+if "%choice%"=="4" goto setup_privacy
 if "%choice%"=="5" goto mreenable
 if /i "%choice%"=="P" goto setup_profile
 if /i "%choice%"=="L" goto setup_lang
@@ -2700,6 +2700,139 @@ goto msetup
 :: setting.
 set "GPUAMD="
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0000" /v DriverDesc 2>nul | findstr /i /c:"Radeon" /c:"AMD" >nul && set "GPUAMD=1"
+goto :eof
+
+:setup_privacy
+:: Privacy and debloat, driven entirely by the card tables.
+::
+:: What this replaces: :debloat2026 wrote nineteen values the moment you
+:: picked the menu entry - no explanation, no question - and the only way
+:: back was a separate restore branch carrying a second copy of every path.
+:: That duplication is what let :regsc_map_only and :gaming_restore end up
+:: setting the same services to opposite values, with whichever ran last
+:: winning. Here answering 5 IS the restore, out of the same table, so the
+:: two halves cannot disagree - there is only one half.
+echo.                                                           >> %logs%
+echo ====================== :SETUP_PRIVACY ===================== >> %logs%
+echo %date% %time% : Entered :setup_privacy label                 >> %logs%
+cls
+call :banner "PRIVACY AND DEBLOAT"
+echo(
+call :ti "Every one of these is a POLICY value. Windows ships them absent, so" "Chacun de ces reglages est une valeur de STRATEGIE. Windows les livre absentes,"
+call :ti "answer 5 deletes rather than writing 0 - writing 0 would be a third" "donc repondre 5 les SUPPRIME au lieu d ecrire 0 : ecrire 0 serait un troisieme"
+call :ti "state, and it leaves the managed-by-your-organization banner behind." "etat, et laisserait la banniere gere par votre organisation."
+echo(
+if not defined AUTOPROFILE pause
+
+:: --- Recall: the always-on screen recorder.
+:: Three writes behind one question, so :ask once and drive them by hand.
+:: :askreg is only for a card with a single registry value.
+call :ask "db.recall.off" 1
+if "%ANSWER%"=="SKIP" goto sp_copilot
+call :profval "db.recall.off" "%ANSWER%"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis" REG_DWORD "%PROFVAL%" "Recall (machine policy)"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" "AllowRecallEnablement" REG_DWORD 0 "Recall enablement"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Policies\Microsoft\Windows\WindowsAI" "DisableAIDataAnalysis" REG_DWORD "%PROFVAL%" "Recall (user policy)"
+:sp_copilot
+
+:: --- Copilot.
+call :ask "db.copilot.off" 1
+if "%ANSWER%"=="SKIP" goto sp_consumer
+call :profval "db.copilot.off" "%ANSWER%"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot"
+if /i not "%PROFVAL%"=="DELETE" if /i not "%PROFVAL%"=="SKIP" call :regset "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" REG_DWORD "%PROFVAL%" "Copilot (machine policy)"
+if /i "%PROFVAL%"=="SKIP"   goto sp_consumer
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot" "TurnOffWindowsCopilot" REG_DWORD "%PROFVAL%" "Copilot (user policy)"
+:sp_consumer
+
+:: --- Sponsored apps that install themselves.
+call :askreg "db.consumerfeatures.off" 1 "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableWindowsConsumerFeatures" REG_DWORD "Sponsored app installs"
+
+:: --- Widgets and Task View.
+call :ask "db.widgets.off" 1
+if "%ANSWER%"=="SKIP" goto sp_ads
+call :profval "db.widgets.off" "%ANSWER%"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKLM\SOFTWARE\Policies\Microsoft\Dsh" "AllowNewsAndInterests"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKLM\SOFTWARE\Policies\Microsoft\Dsh" "AllowNewsAndInterests" REG_DWORD "%PROFVAL%" "Widgets (news and interests)"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa" REG_DWORD 0 "Widgets button on the taskbar"
+:sp_ads
+
+:: --- Advertising ID.
+call :askreg "db.advertisingid.off" 1 "HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" REG_DWORD "Advertising ID"
+
+:: --- Suggested content, silent installs, lock-screen overlays.
+call :ask "db.cdm.suggestions.off" 1
+if "%ANSWER%"=="SKIP" goto sp_spotlight
+call :profval "db.cdm.suggestions.off" "%ANSWER%"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338393Enabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338393Enabled" REG_DWORD "%PROFVAL%" "SubscribedContent-338393Enabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353694Enabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353694Enabled" REG_DWORD "%PROFVAL%" "SubscribedContent-353694Enabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353696Enabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353696Enabled" REG_DWORD "%PROFVAL%" "SubscribedContent-353696Enabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SystemPaneSuggestionsEnabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SystemPaneSuggestionsEnabled" REG_DWORD "%PROFVAL%" "SystemPaneSuggestionsEnabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338389Enabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338389Enabled" REG_DWORD "%PROFVAL%" "SubscribedContent-338389Enabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SilentInstalledAppsEnabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SilentInstalledAppsEnabled" REG_DWORD "%PROFVAL%" "SilentInstalledAppsEnabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "PreInstalledAppsEnabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "PreInstalledAppsEnabled" REG_DWORD "%PROFVAL%" "PreInstalledAppsEnabled"
+if /i "%PROFVAL%"=="DELETE" call :killkey "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "RotatingLockScreenOverlayEnabled"
+if /i not "%PROFVAL%"=="DELETE" call :regset "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "RotatingLockScreenOverlayEnabled" REG_DWORD "%PROFVAL%" "RotatingLockScreenOverlayEnabled"
+:sp_spotlight
+
+:: --- Windows Spotlight.
+call :askreg "db.spotlight.off" 1 "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" "DisableWindowsSpotlightFeatures" REG_DWORD "Windows Spotlight"
+
+:: --- Telemetry scheduled tasks. Not a registry value, so it is asked and
+:: --- applied by hand rather than through :askreg.
+call :ask "telemetry.tasks.disable" 1
+if "%ANSWER%"=="SKIP" goto sp_done
+call :profval "telemetry.tasks.disable" "%ANSWER%"
+if /i "%PROFVAL%"=="disabled" call :taskset disable
+if /i "%PROFVAL%"=="enabled"  call :taskset enable
+:sp_done
+
+call :L "%cOK%" "Privacy section done."
+if not defined AUTOPROFILE pause
+goto msetup
+
+:taskset
+:: %~1 = enable or disable, applied to the seven telemetry and compatibility
+:: tasks. schtasks reports per task, so a name that does not exist on this
+:: build fails alone instead of taking the rest with it - the appraiser task
+:: is called "Microsoft Compatibility Appraiser Exp" on some builds and the
+:: classic name on others, and guessing wrong used to fail silently.
+for %%T in (
+  "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser"
+  "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser Exp"
+  "\Microsoft\Windows\Application Experience\PcaPatchDbTask"
+  "\Microsoft\Windows\Application Experience\StartupAppTask"
+  "\Microsoft\Windows\Customer Experience Improvement Program\Consolidator"
+  "\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip"
+  "\Microsoft\Windows\Feedback\Siuf\DmClient"
+  "\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload"
+) do call :taskone %%T %~1
+goto :eof
+
+:taskone
+:: %~1 = task path, %~2 = enable or disable. Reports what actually happened
+:: rather than assuming: a task absent on this build is said to be absent,
+:: never counted as changed.
+schtasks /Query /TN "%~1" >nul 2>&1
+if errorlevel 1 goto :eof
+schtasks /Change /TN "%~1" /%~2 >nul 2>&1
+if errorlevel 1 (
+    call :L "%cErr%" "  FAILED   %~1 (access denied)"
+) else (
+    call :L "%cOK%" "  %~2d  %~1"
+)
 goto :eof
 
 :setup_lang

@@ -336,6 +336,34 @@ foreach ($line in $lines) {
 if ($bang.Count) { Fail ("card text contains '!' - delayed expansion eats it in the ASCII path:`n      " + ($bang -join "`n      ")) }
 Write-Ok 'no "!" in card text'
 
+# --- gate 13: no card is asked twice ----------------------------------------
+# :askreg asks AND writes. Calling :askreg and then :ask for the same id puts
+# the same question on screen twice in a row, and the user has no way to know
+# the second one is the same setting.
+# I made this mistake in :setup_gpu, found it, fixed it, wrote a commit message
+# about it - and then made it again in :setup_privacy an hour later, three times
+# in one section. Habit beats memory, so it gets a gate.
+# :askreg is for a card with exactly ONE registry value. A card with several
+# targets calls :ask once and drives its own writes from PROFVAL.
+$askCount = @{}
+$n = 0
+foreach ($line in $codeLines) {
+    $n++
+    if ($line -match '(?i)call\s+:ask(reg)?\s+"([a-z0-9_.]+)"') {
+        $id = $matches[2]
+        if (-not $askCount.ContainsKey($id)) { $askCount[$id] = @() }
+        $askCount[$id] += $n
+    }
+}
+$dbl = @()
+foreach ($id in $askCount.Keys) {
+    if ($askCount[$id].Count -gt 1) {
+        $dbl += "${id} is asked $($askCount[$id].Count) times (lines $($askCount[$id] -join ', ')) - one question per card"
+    }
+}
+if ($dbl.Count) { Fail ("card asked more than once:`n      " + ($dbl -join "`n      ")) }
+Write-Ok "$($askCount.Count) card(s) wired, none asked twice"
+
 # --- gate 8: CLEAN step membership declared exactly once ---------------
 # Membership used to live only in scattered "if /i %autoclean% == N goto x"
 # lines, with nothing tying them to what the manual menu told the user. This
