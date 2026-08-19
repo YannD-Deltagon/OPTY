@@ -3138,6 +3138,13 @@ goto mrestore
 
 
 :net_apply
+:: Counters, read at the end. :nicset increments NICWROTE on a real write and
+:: NICSKIP on a keyword this driver does not expose. Without them the profile
+:: could not tell "applied 17 settings" from "matched none of them" - and on
+:: a Wi-Fi adapter it is always the second, because the keyword sets are
+:: disjoint: the AX210 exposes 22 keywords and shares none with this list.
+set "NICWROTE=0"
+set "NICSKIP=0"
 echo.                                                           >> %logs%
 echo ====================== :NET_APPLY ======================== >> %logs%
 echo %date% %time% : Entered :net_apply label                    >> %logs%
@@ -3251,6 +3258,20 @@ if "%choice%"=="3" goto net_prof_thr
 call :L "%cInfo%" "Balanced - Flow Control and the MMCSS cap left at their defaults"
 call :nicset "%NICKEY%" "*FlowControl" "3"
 call :regset "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" "NetworkThrottlingIndex" REG_DWORD 10 "NetworkThrottlingIndex"
+
+:: Say what happened. A profile that matched nothing is not a profile that
+:: was applied, and printing a success either way is the exact failure this
+:: file exists to eliminate.
+if %NICWROTE% GTR 0 (
+    call :L "%cOK%" "  %NICWROTE% keyword(s) written, %NICSKIP% not supported by this driver"
+) else (
+    call :L "%cErr%" "  NOTHING was written - none of these keywords exist on this adapter"
+    call :L "%cWarn%" "  This profile targets Ethernet keywords. A Wi-Fi card exposes a"
+    call :L "%cWarn%" "  completely different set - roaming, MIMO power save, band choice -"
+    call :L "%cWarn%" "  and none of them overlap. Use the Wi-Fi questions in SETUP instead."
+    >>%logs% echo %date% %time% : net_apply matched 0 keywords on this adapter ^(%NICSKIP% skipped^)
+)
+
 goto net_prof_done
 
 :net_prof_lat
@@ -3471,14 +3492,21 @@ echo %date% %time% : Entered :Clean_Opty_Curl label                >> %logs%
 :: It also deleted the run\'s own log: %logs% lives in %~dp0, so the loop wrote
 :: "Deleting file ..." into a file that was itself on the list, destroying the
 :: record of what it had just removed. The current log is now skipped by name.
-for %%P in (logs_*.txt netinfo_*.txt netprops_*.json new_OPTY.bat OPTY_healed.bat OPTY_healed.target opty_nic_list.txt) do (
-    for /f "delims=" %%f in ('dir /b /a-d "%~dp0%%P" 2^>nul') do (
-        if /i not "%~dp0%%f"=="%logs:"=%" (
-            echo %date% %time% : Deleting "%~dp0%%f"                >> %logs%
-            del /f /q "%~dp0%%f" >nul 2>&1
-        )
-    )
-)
+:: One call per pattern, NOT a plain for over the list. A bare
+::     for %%P in (logs_*.txt ...) do
+:: does not iterate those strings - cmd expands each as a FILE PATTERN
+:: against the CURRENT DIRECTORY, and quotes do not stop it. It happened to
+:: work here only because OPTY does cd /d "%~dp0" at startup, so the current
+:: directory was the folder being pruned. Move the script or change directory
+:: first and it prunes the wrong folder. Arguments are never globbed, so a
+:: subroutine per pattern removes the dependency outright.
+call :prune_pat "logs_*.txt"
+call :prune_pat "netinfo_*.txt"
+call :prune_pat "netprops_*.json"
+call :prune_pat "new_OPTY.bat"
+call :prune_pat "OPTY_healed.bat"
+call :prune_pat "OPTY_healed.target"
+call :prune_pat "opty_nic_list.txt"
 call :L "%cOK%" "OPTY artifacts pruned - only files OPTY itself wrote were touched"
 goto mmaint
 
@@ -3869,7 +3897,11 @@ goto :eof
 :: The value is clamped to the driver's own max and rounded down to its step,
 :: both read from Ndi\Params, so nothing is ever hardcoded per chipset.
 :: Keywords this driver does not expose are skipped.
-reg query "%~1\Ndi\Params\%~2" >nul 2>&1 || goto :eof
+:: Count the misses. A keyword the driver does not expose is not an error,
+:: but a run where EVERY keyword misses is a run that did nothing, and the
+:: caller has to be able to tell the difference. Before this, choosing the
+:: Wi-Fi adapter wrote zero values and still reported a profile applied.
+reg query "%~1\Ndi\Params\%~2" >nul 2>&1 || (set /a NICSKIP+=1 & goto :eof)
 set "NV=%~3"
 set "NMAX="
 set "NSTEP="
@@ -3885,8 +3917,10 @@ set "OLDV="
 for /f "tokens=3" %%O in ('reg query "%~1" /v "%~2" 2^>nul ^| findstr /i /c:"REG_SZ"') do set "OLDV=%%O"
 reg add "%~1" /v "%~2" /t REG_SZ /d "%NV%" /f >nul 2>&1
 if not defined OLDV (
+    set /a NICWROTE+=1
     call :L "%cOK%" "  SET      %~2 = %NV%   (was absent)"
 ) else if "%OLDV%"=="%NV%" (
+    set /a NICWROTE+=1
     call :L "%cInfo%" "  written  %~2 = %NV%   (was already correct)"
 ) else (
     call :L "%cOK%" "  FIXED    %~2 : was %OLDV%, now %NV%"
@@ -4401,6 +4435,18 @@ if not defined SVS ( call :L "%cInfo%" "    >> %~1 : not present on this edition
 set /a SVS=%SVS% 2>nul
 sc query "%~1" 2>nul | findstr /i /c:"RUNNING" >nul && set "SVR=RUNNING" || set "SVR=stopped"
 call :L "%cVal%" "    >> on this machine: %~1 Start=%SVS%, %SVR%"
+goto :eof
+
+:prune_pat
+:: %~1 = one filename pattern, matched inside %~dp0 only. The current run\'s
+:: own log is skipped by name: %logs% lives in this folder, so without the
+:: test the loop would delete the file recording what it had just deleted.
+for /f "delims=" %%f in ('dir /b /a-d "%~dp0%~1" 2^>nul') do (
+    if /i not "%~dp0%%f"=="%logs:"=%" (
+        echo %date% %time% : Deleting "%~dp0%%f"                >> %logs%
+        del /f /q "%~dp0%%f" >nul 2>&1
+    )
+)
 goto :eof
 
 :bigcache
