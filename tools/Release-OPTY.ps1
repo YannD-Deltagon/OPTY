@@ -126,6 +126,45 @@ if ($long.Count) {
 }
 Write-Ok 'no line over 1000 chars (self-heal safe)'
 
+# --- gate 6: every card exists in BOTH languages, and every ::P| has a card ---
+# A missing translation is invisible until a French user hits that one question
+# and gets a blank screen with a prompt under it.
+$lines = $text -split "`r`n"
+$cardIds = @{}
+$profIds = @{}
+foreach ($line in $lines) {
+    if ($line -match '^::T\|(FR|EN)\|([a-z0-9_.]+)\.[0-9a-z]\|') {
+        $key = $matches[2]
+        if (-not $cardIds.ContainsKey($key)) { $cardIds[$key] = @{} }
+        $cardIds[$key][$matches[1]] = $true
+    }
+    if ($line -match '^::P\|([a-z0-9_.]+)\|') { $profIds[$matches[1]] = $true }
+}
+$cardProblems = @()
+foreach ($id in $cardIds.Keys) {
+    if (-not $cardIds[$id].ContainsKey('FR')) { $cardProblems += "$id has EN text but no FR" }
+    if (-not $cardIds[$id].ContainsKey('EN')) { $cardProblems += "$id has FR text but no EN" }
+}
+foreach ($id in $profIds.Keys) {
+    if (-not $cardIds.ContainsKey($id)) { $cardProblems += "$id has a ::P| profile row but no ::T| card text" }
+}
+if ($cardProblems.Count) { Fail ("card table problems:`n      " + ($cardProblems -join "`n      ")) }
+if ($cardIds.Count) { Write-Ok "$($cardIds.Count) card(s), all bilingual, $($profIds.Count) with a profile row" }
+
+# --- gate 7: no "!" in card text ------------------------------------------
+# The ASCII fallback renders cards under `setlocal enabledelayedexpansion`,
+# where "!" is an expansion delimiter and is eaten. The UTF-8 path shows it and
+# the ASCII path silently drops it, so the bug only appears on the machines
+# least able to diagnose it.
+$bang = @()
+$n = 0
+foreach ($line in $lines) {
+    $n++
+    if ($line -match '^::[TX]\|' -and $line.Contains('!')) { $bang += "line ${n}: $($line.Substring(0, [Math]::Min(70, $line.Length)))" }
+}
+if ($bang.Count) { Fail ("card text contains '!' - delayed expansion eats it in the ASCII path:`n      " + ($bang -join "`n      ")) }
+Write-Ok 'no "!" in card text'
+
 # --- gate 8: CLEAN step membership declared exactly once ---------------
 # Membership used to live only in scattered "if /i %autoclean% == N goto x"
 # lines, with nothing tying them to what the manual menu told the user. This

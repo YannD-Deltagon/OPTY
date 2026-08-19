@@ -3625,6 +3625,108 @@ if not defined SMT (
 if /i "%UILANG%"=="FR" (call :L "%cInfo%" "     cette etape tourne aussi dans : %SMT%") else (call :L "%cInfo%" "     this step also runs in: %SMT%")
 goto :eof
 
+:profval
+:: %~1 = card id, %~2 = answer digit 1-5 -> PROFVAL = the value to write.
+:: Profile values live in the ::P| table, ONE row per setting:
+::   ::P|<id>|<p1 gaming>|<p2 server>|<p3 office>|<p4 laptop>|<p5 windows>|
+:: The answer digit means the same thing in every question in this script, so a
+:: user who has decided "I am a 1" can answer 1 everywhere and get a coherent
+:: machine. SKIP means that profile deliberately leaves the setting alone;
+:: DELETE means the real Windows default is the value being absent.
+set "PROFVAL="
+for /f "usebackq tokens=2,3,4,5,6,7 delims=|" %%A in (`findstr /b /l /c:"::P|%~1|" "%SELF%"`) do (
+    if "%~2"=="1" set "PROFVAL=%%B"
+    if "%~2"=="2" set "PROFVAL=%%C"
+    if "%~2"=="3" set "PROFVAL=%%D"
+    if "%~2"=="4" set "PROFVAL=%%E"
+    if "%~2"=="5" set "PROFVAL=%%F"
+)
+goto :eof
+
+:cardx
+:: The EXTENDED block for a card - printed only when the user answers "?".
+:: Same grammar as ::T| but with the X marker, so the short card stays readable
+:: and the long explanation is one keystroke away instead of scrolling past.
+if defined ASCIIONLY goto cardx_ascii
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in (`findstr /b /l /c:"::X|%UILANG%|%~1." "%SELF%"`) do echo(%cInfo%    %%D%cR%
+goto :eof
+:cardx_ascii
+setlocal enabledelayedexpansion
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in (`findstr /b /l /c:"::X|%UILANG%|%~1." "%SELF%"`) do (
+    set "M=%%D"
+    call :deaccvar
+    echo(%cInfo%    !M!%cR%
+)
+endlocal
+goto :eof
+
+:ask
+:: %~1 = card id, %~2 = recommended answer 1-5 -> ANSWER (1-5), or SKIP.
+:: If AUTOPROFILE is set, every question answers itself with that digit and
+:: prints one line instead of a screen - that is the "configure a new PC in two
+:: minutes" path. Risky cards override it by calling :ask with AUTOPROFILE
+:: temporarily cleared, so a destructive step is never auto-answered.
+set "ANSWER="
+if defined AUTOPROFILE (
+    set "ANSWER=%AUTOPROFILE%"
+    call :profval "%~1" "%AUTOPROFILE%"
+    call :L "%cInfo%" "  auto [%AUTOPROFILE%] %~1 = %PROFVAL%"
+    goto :eof
+)
+:ask_show
+cls
+call :rule
+call :card "%~1"
+echo(
+call :profval "%~1" 1
+echo(     %cVal%1%cR%  %cInfo%GAMING%cR%       %PROFVAL%
+call :profval "%~1" 2
+echo(     %cVal%2%cR%  %cInfo%SERVER%cR%       %PROFVAL%
+call :profval "%~1" 3
+echo(     %cVal%3%cR%  %cInfo%OFFICE%cR%       %PROFVAL%
+call :profval "%~1" 4
+echo(     %cVal%4%cR%  %cInfo%LAPTOP%cR%       %PROFVAL%
+call :profval "%~1" 5
+echo(     %cVal%5%cR%  %cInfo%WINDOWS%cR%      %PROFVAL%
+echo(
+if /i "%UILANG%"=="FR" (
+    echo(     %cVal%?%cR%  en savoir plus     %cVal%s%cR%  passer     %cVal%Entree%cR%  = %~2 recommande
+) else (
+    echo(     %cVal%?%cR%  explain more       %cVal%s%cR%  skip       %cVal%Enter%cR%  = %~2 recommended
+)
+call :rule
+set "choice="
+set /p choice= ^> 
+if not defined choice set "choice=%~2"
+if "%choice%"=="?" ( cls & call :rule & call :card "%~1" & echo( & call :cardx "%~1" & echo( & pause & goto ask_show )
+if /i "%choice%"=="s" ( set "ANSWER=SKIP" & goto :eof )
+if "%choice%"=="1" ( set "ANSWER=1" & goto ask_done )
+if "%choice%"=="2" ( set "ANSWER=2" & goto ask_done )
+if "%choice%"=="3" ( set "ANSWER=3" & goto ask_done )
+if "%choice%"=="4" ( set "ANSWER=4" & goto ask_done )
+if "%choice%"=="5" ( set "ANSWER=5" & goto ask_done )
+goto ask_show
+:ask_done
+>>%logs% echo %date% %time% : ASK %~1 -^> profile %ANSWER%
+goto :eof
+
+:askreg
+:: %~1 card id  %~2 recommended  %~3 key  %~4 value name  %~5 type  %~6 label
+:: Asks, then WRITES the profile's value unconditionally - even when the value
+:: already looks right. On a fresh or foreign machine the write is what makes it
+:: true, and "it looked correct" is never a reason to skip. :regset still reports
+:: whether it repaired anything or was already correct.
+:: A profile value of SKIP leaves it alone; DELETE removes it, which is the right
+:: restore for every setting whose real Windows default is the value being absent.
+call :ask "%~1" "%~2"
+if "%ANSWER%"=="SKIP" ( call :L "%cInfo%" "  skipped  %~6" & goto :eof )
+call :profval "%~1" "%ANSWER%"
+if not defined PROFVAL ( call :L "%cErr%" "  no profile value declared for %~1 answer %ANSWER%" & goto :eof )
+if /i "%PROFVAL%"=="SKIP" ( call :L "%cInfo%" "  left alone  %~6 (profile %ANSWER% does not set it)" & goto :eof )
+if /i "%PROFVAL%"=="DELETE" ( call :killkey "%~3" "%~4" & goto :eof )
+call :regset "%~3" "%~4" %~5 "%PROFVAL%" "%~6"
+goto :eof
+
 :cp_read
 :: CURCP = the console's current code page, locale-proof. chcp's LABEL is
 :: translated ("Page de codes active :" / "Active code page:"), so the label is
@@ -3849,6 +3951,77 @@ if errorlevel 1 (
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "SystemRestorePointCreationFrequency" /t REG_DWORD /d 1440 /f >nul 2>&1
 echo %date% %time% : Restore-point throttle put back to 1440 min     >> %logs%
 goto :eof
+::
+:: ---- gpu.ulps : AMD Ultra Low Power State -----------------------------------
+::P|gpu.ulps|0|1|1|1|1|
+::T|FR|gpu.ulps.1|ULPS - MISE EN VEILLE PROFONDE DU GPU AMD
+::T|FR|gpu.ulps.2|
+::T|FR|gpu.ulps.3|  Ce que c'est   : EnableUlps laisse la carte AMD descendre dans un
+::T|FR|gpu.ulps.4|                   etat de tres basse consommation quand le bureau est
+::T|FR|gpu.ulps.5|                   immobile. PP_ULPSDelayIntervalInMilliSeconds fixe le
+::T|FR|gpu.ulps.6|                   delai, souvent 30000 ms.
+::T|FR|gpu.ulps.7|
+::T|FR|gpu.ulps.8|  1 active       : defaut AMD. Consommation au repos plus basse, moins
+::T|FR|gpu.ulps.9|                   de chaleur et de bruit de ventilateur.
+::T|FR|gpu.ulps.a|  0 desactive    : la carte garde ses horloges. Plus de latence de
+::T|FR|gpu.ulps.b|                   reveil, mais la consommation au repos remonte.
+::T|FR|gpu.ulps.c|
+::T|FR|gpu.ulps.d|  Defaut Windows : sans objet, c'est un reglage du pilote AMD. Il est
+::T|FR|gpu.ulps.e|                   remis a 1 a CHAQUE mise a jour du pilote.
+::T|FR|gpu.ulps.f|
+::T|FR|gpu.ulps.g|  Gain reel      : non demontre sur une machine de reference. Teste et
+::T|FR|gpu.ulps.h|                   mesure : mettre 0 n'a PAS corrige le lag de bureau
+::T|FR|gpu.ulps.i|                   qu'on cherchait, et a ajoute des artefacts de curseur.
+::T|FR|gpu.ulps.j|                   Ne l'appliquez que si vous mesurez un gain chez vous.
+::X|FR|gpu.ulps.1|  Pourquoi cette fiche est prudente, en detail :
+::X|FR|gpu.ulps.2|
+::X|FR|gpu.ulps.3|  Le symptome qui pousse les gens vers ULPS est reel : un GPU endormi
+::X|FR|gpu.ulps.4|  met du temps a revenir, et ca se voit sur le curseur. On l'a mesure
+::X|FR|gpu.ulps.5|  avec PresentMon sur une RX 7900 XTX : MsGPUBusy 0,43 ms mais
+::X|FR|gpu.ulps.6|  MsGPUWait 15 ms - le GPU attendait, il ne travaillait pas.
+::X|FR|gpu.ulps.7|
+::X|FR|gpu.ulps.8|  MAIS : mettre EnableUlps a 0 sur cette machine n'a rien change au
+::X|FR|gpu.ulps.9|  probleme, et a fait apparaitre un curseur fantome sur le second
+::X|FR|gpu.ulps.a|  ecran. C'est exactement pour ca que cette fiche ne le recommande
+::X|FR|gpu.ulps.b|  qu'au profil 1, et encore, comme un test a valider soi-meme.
+::X|FR|gpu.ulps.c|
+::X|FR|gpu.ulps.d|  Piege de type : EnableUlps est un REG_DWORD, EnableUlps_NA est une
+::X|FR|gpu.ulps.e|  REG_SZ. Ecrire le mauvais type est ignore en silence par le pilote,
+::X|FR|gpu.ulps.f|  exactement comme les mots-cles NDIS des cartes reseau.
+::T|EN|gpu.ulps.1|ULPS - AMD ULTRA LOW POWER STATE
+::T|EN|gpu.ulps.2|
+::T|EN|gpu.ulps.3|  What it is     : EnableUlps lets the AMD card drop into a very low
+::T|EN|gpu.ulps.4|                   power state while the desktop sits still.
+::T|EN|gpu.ulps.5|                   PP_ULPSDelayIntervalInMilliSeconds sets the delay,
+::T|EN|gpu.ulps.6|                   commonly 30000 ms.
+::T|EN|gpu.ulps.7|
+::T|EN|gpu.ulps.8|  1 enabled      : the AMD default. Lower idle power, less heat and
+::T|EN|gpu.ulps.9|                   less fan noise.
+::T|EN|gpu.ulps.a|  0 disabled     : the card holds its clocks. Less wake latency, but
+::T|EN|gpu.ulps.b|                   idle power goes back up.
+::T|EN|gpu.ulps.c|
+::T|EN|gpu.ulps.d|  Windows default: n/a - this is an AMD driver setting. It is reset
+::T|EN|gpu.ulps.e|                   to 1 by EVERY AMD driver update.
+::T|EN|gpu.ulps.f|
+::T|EN|gpu.ulps.g|  Real gain      : not demonstrated on the reference machine. Tested
+::T|EN|gpu.ulps.h|                   and measured: setting 0 did NOT fix the desktop lag
+::T|EN|gpu.ulps.i|                   it was meant to fix, and added cursor artefacts.
+::T|EN|gpu.ulps.j|                   Only apply it if you can measure a gain yourself.
+::X|EN|gpu.ulps.1|  Why this card is cautious, in detail:
+::X|EN|gpu.ulps.2|
+::X|EN|gpu.ulps.3|  The symptom that sends people to ULPS is real: a sleeping GPU takes
+::X|EN|gpu.ulps.4|  time to come back, and you see it on the cursor. Measured with
+::X|EN|gpu.ulps.5|  PresentMon on an RX 7900 XTX: MsGPUBusy 0.43 ms but MsGPUWait
+::X|EN|gpu.ulps.6|  15 ms - the GPU was waiting, not working.
+::X|EN|gpu.ulps.7|
+::X|EN|gpu.ulps.8|  BUT: setting EnableUlps to 0 on that machine changed nothing about
+::X|EN|gpu.ulps.9|  the problem, and produced a ghost cursor on the second monitor.
+::X|EN|gpu.ulps.a|  That is exactly why this card only suggests it for profile 1, and
+::X|EN|gpu.ulps.b|  even then as a test you should validate yourself.
+::X|EN|gpu.ulps.c|
+::X|EN|gpu.ulps.d|  Type trap: EnableUlps is a REG_DWORD, EnableUlps_NA is a REG_SZ.
+::X|EN|gpu.ulps.e|  Writing the wrong type is silently ignored by the driver, exactly
+::X|EN|gpu.ulps.f|  like the NDIS keywords on network adapters.
 :: ============================================================
 :: ==================  CLEAN STEP MEMBERSHIP  =================
 :: ============================================================
