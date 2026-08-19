@@ -597,21 +597,12 @@ timeout /t 5
 
 :mdism
 echo.                                                           >> %logs%
-echo ====================== :MDISM ======================        >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :mdism label                            >> %logs%
-cls
-echo Do you want to DISM the Windows image and correct problems?
-set "choice="
-set /p choice= 1 (Yes) - 2 (No)
-echo %date% %time% : Opti-mdism "%choice%"                              >> %logs%
-if /i "%choice%"=="1" goto dism
-if /i "%choice%"=="2" goto msfc
-if /i "%choice%"=="0" goto menu
-echo This is not a valid action                                      
-echo %date% %time% : Invalid option in :mdism                            >> %logs%
-timeout /t 5
-goto mdism
+echo ====================== :MDISM ====================== >> %logs%
+echo %date% %time% : Entered :mdism label                    >> %logs%
+call :step "dism.restorehealth" "clean.dism" "DISM"
+if "%STEPYES%"=="REDRAW" goto mdism
+if defined STEPYES goto dism
+goto msfc
 
 :dism
 echo.                                                           >> %logs%
@@ -636,21 +627,12 @@ timeout /t 5
 
 :msfc
 echo.                                                           >> %logs%
-echo ====================== :MSFC ======================        >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :msfc label                               >> %logs%
-cls
-echo Do you want to run SFC to verify system file integrity and fix problems?
-set "choice="
-set /p choice= 1 (Yes) - 2 (No)
-echo %date% %time% : Opti-msfc "%choice%"                              >> %logs%
-if /i "%choice%"=="1" goto sfc
-if /i "%choice%"=="2" goto mwupdate
-if /i "%choice%"=="0" goto menu
-echo This is not a valid action                                      
-echo %date% %time% : Invalid option in :msfc                            >> %logs%
-timeout /t 5
-goto msfc
+echo ====================== :MSFC ====================== >> %logs%
+echo %date% %time% : Entered :msfc label                    >> %logs%
+call :step "sfc.scannow" "clean.sfc" "SFC"
+if "%STEPYES%"=="REDRAW" goto msfc
+if defined STEPYES goto sfc
+goto mwupdate
 
 :sfc
 echo.                                                           >> %logs%
@@ -1196,21 +1178,12 @@ timeout /t 5
 
 :mdefrag
 echo.                                                           >> %logs%
-echo ====================== :MDEFRAG ======================       >> %logs%
-echo.                                                           >> %logs%
-echo %date% %time% : Entered :mdefrag label                          >> %logs%
-cls
-echo Do you want to defragment HDD or optimize SSD - DEFRAG?
-set "choice="
-set /p choice= 1 (Yes) - 2 (No)
-echo %date% %time% : Opti-mdefrag "%choice%"                            >> %logs%
-if /i "%choice%"=="1" goto defrag
-if /i "%choice%"=="2" goto mchkdsk
-if /i "%choice%"=="0" goto menu
-echo This is not a valid action                                      
-echo %date% %time% : Invalid option in :mdefrag                          >> %logs%
-timeout /t 5
-goto mdefrag
+echo ====================== :MDEFRAG ====================== >> %logs%
+echo %date% %time% : Entered :mdefrag label                    >> %logs%
+call :step "defrag.all.volumes" "clean.defrag" "DEFRAG"
+if "%STEPYES%"=="REDRAW" goto mdefrag
+if defined STEPYES goto defrag
+goto mchkdsk
 
 :defrag
 echo.                                                           >> %logs%
@@ -3676,6 +3649,42 @@ if not defined PWAC goto :eof
 set /a PWACN=%PWAC% 2>nul
 call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not changed)"
 >>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
+goto :eof
+
+:step
+:: %~1 = card id, %~2 = CLEAN step id (for the membership line), %~3 = label
+:: -> STEPYES=1 when the user wants this step run.
+::
+:: The manual CLEAN prompt. It renders the card, then states - read from the
+:: ::S| table, never hardcoded - whether this same step also runs unattended in
+:: Auto lite and Auto full. That sentence is the whole point of manual mode:
+:: knowing that saying yes here is the same thing Auto full does to you later.
+:: In an auto run this never draws anything; the caller gates on %autoclean%.
+set "STEPYES="
+cls
+call :rule
+call :card "%~1"
+echo(
+call :stepmodes "%~2"
+echo(
+if /i "%UILANG%"=="FR" (
+    echo(     %cVal%1%cR%  Executer cette etape      %cVal%2%cR%  Passer      %cVal%?%cR%  En savoir plus
+) else (
+    echo(     %cVal%1%cR%  Run this step             %cVal%2%cR%  Skip        %cVal%?%cR%  Explain more
+)
+call :rule
+set "choice="
+set /p choice= ^> 
+if "%choice%"=="?" ( cls & call :rule & call :card "%~1" & echo( & call :cardx "%~1" & echo( & pause & goto step_redraw )
+if "%choice%"=="1" set "STEPYES=1"
+>>%logs% echo %date% %time% : STEP %~2 -^> %choice%
+goto :eof
+:step_redraw
+:: Redrawing means re-entering :step, which would need its arguments again.
+:: Falling through to :eof with STEPYES unset would silently skip the step, so
+:: the caller re-asks instead - the loop lives at the call site, where the
+:: arguments still exist.
+set "STEPYES=REDRAW"
 goto :eof
 
 :stepmeta
