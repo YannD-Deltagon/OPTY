@@ -210,6 +210,49 @@ foreach ($line in $codeLines) {
 if ($blockBugs.Count) { Fail ("parenthesised-block expansion bug(s):`n      " + ($blockBugs -join "`n      ")) }
 Write-Ok 'no subroutine output read inside its own ( ) block'
 
+# --- gate 11: no recursive delete of a folder that holds user data --------
+# The one absolute rule here is that cleanup never removes configuration,
+# saved logins, cookies, history or entitlements. It shipped broken twice,
+# and neither time was visible in a diff, because both paths read like cache:
+#   del /F /S /Q "%LOCALAPPDATA%\Steam\htmlcache\*"
+#       htmlcache is Steam's whole CEF user-data directory - Cookies, Login
+#       Data, Preferences, History, Web Data all sat inside it.
+#   del /F /S /Q "...\Ubisoft Game Launcher\cache\*"
+#       cache\ownership and cache\activations are entitlement state.
+# So the gate matches on the CONTAINER, not on the word cache: these roots
+# may only be deleted one disposable subfolder at a time.
+$userDataRoots = @(
+    'htmlcache\*',
+    'User Data\*',
+    'Ubisoft Game Launcher\cache\*',
+    'EA Desktop\cache\*'
+)
+# Individual files that are user data wherever they appear.
+$userDataFiles = @(
+    'Login Data', 'Cookies', 'Web Data', 'Bookmarks', 'Secure Preferences'
+)
+$udBugs = @()
+$n = 0
+foreach ($line in $codeLines) {
+    $n++
+    if ($line -notmatch '(?i)^\s*(if [^&]*)?(del|rd|rmdir)\s') { continue }
+    foreach ($root in $userDataRoots) {
+        # The closing quote is load-bearing: without it PowerShell reads the
+        # trailing star of the pattern as a wildcard, so cache\http2\* matches
+        # cache\* and every correctly-narrowed line is flagged. Four of the six
+        # first hits were exactly that.
+        if ($line.Contains($root + [char]34)) {
+            $udBugs += "line ${n}: recursive delete of ${root} - that container holds user data, target its disposable subfolders instead"
+        }
+    }
+    foreach ($f in $userDataFiles) {
+        if ($line.Contains([char]92 + $f)) {
+            $udBugs += "line ${n}: deletes ${f}, which is user data, not cache"
+        }
+    }
+}
+if ($udBugs.Count) { Fail ("user-data deletion:`n      " + ($udBugs -join "`n      ")) }
+Write-Ok 'no recursive delete of a user-data folder'
 # --- gate 6: every card exists in BOTH languages, and every ::P| has a card ---
 # A missing translation is invisible until a French user hits that one question
 # and gets a blank screen with a prompt under it.

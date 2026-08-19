@@ -1175,7 +1175,27 @@ del /F /S /Q "%STEAMPATH%\dumps\*"               >nul 2>&1
 :: (141 MB here). Stale guides still point at SteamRoot\htmlcache, which no
 :: longer exists. Only touched when Steam is closed.
 call :isrunning "steam.exe"
-if not defined RUNNING del /F /S /Q "%LOCALAPPDATA%\Steam\htmlcache\*" >nul 2>&1
+:: htmlcache is NOT a cache folder - it is Steam\'s full CEF user-data
+:: directory. The previous line was  del /F /S /Q "...\htmlcache\*"  which
+:: recursively deleted, measured on the reference machine:
+::   Default\Network\Cookies 192 KB, Default\Login Data 40 KB (saved Steam
+::   logins), Login Data For Account 40 KB, Preferences, Secure Preferences,
+::   History 640 KB, Web Data 126 KB, Local State, Top Sites, Favicons.
+:: That is the project\'s one absolute prohibition, and it contradicted this
+:: file\'s own :chromecache helper, which refuses to touch exactly those files
+:: for browsers. Now only the genuinely disposable subfolders go - about
+:: 119 MB of the 163 MB measured, with nothing functional in it.
+if defined RUNNING goto steam_done
+set "STC=%LOCALAPPDATA%\Steam\htmlcache"
+del /F /S /Q "%STC%\Default\Cache\*"          >nul 2>&1
+del /F /S /Q "%STC%\Default\Code Cache\*"     >nul 2>&1
+del /F /S /Q "%STC%\Default\GPUCache\*"       >nul 2>&1
+del /F /S /Q "%STC%\ShaderCache\*"            >nul 2>&1
+del /F /S /Q "%STC%\GrShaderCache\*"          >nul 2>&1
+del /F /S /Q "%STC%\GraphiteDawnCache\*"      >nul 2>&1
+del /F /S /Q "%STC%\extensions_crx_cache\*"   >nul 2>&1
+>>%logs% echo %date% %time% : Steam CEF caches cleared (logins, cookies, history left alone)
+:steam_done
 set "STEAMPATH="
 :: Launcher caches - each one guarded, for the same reason as Discord: a
 :: half-deleted cache under a running client is worse than not cleaning at all.
@@ -1188,7 +1208,13 @@ set "STEAMPATH="
 set "RUNUBI=" & set "RUNEA="
 call :isrunning "upc.exe"
 if defined RUNNING set "RUNUBI=1"
-if not defined RUNUBI del /F /S /Q "%ProgramFiles(x86)%\Ubisoft\Ubisoft Game Launcher\cache\*" >nul 2>&1
+:: NOT cache\* - that tree holds cache\ownership and cache\activations, the
+:: offline entitlement and activation state. Deleting them can leave games
+:: unable to start without going back online. Only the refetchable parts go.
+set "UBIPF=%ProgramFiles(x86)%\Ubisoft\Ubisoft Game Launcher\cache"
+if not defined RUNUBI del /F /S /Q "%UBIPF%\http2\*"  >nul 2>&1
+if not defined RUNUBI del /F /S /Q "%UBIPF%\club\*"   >nul 2>&1
+if not defined RUNUBI del /F /S /Q "%UBIPF%\ulcf\*"   >nul 2>&1
 if defined RUNUBI call :L "%cWarn%" "  Ubisoft Connect is running - skipped"
 call :isrunning "EADesktop.exe"
 if defined RUNNING set "RUNEA=1"
@@ -3442,8 +3468,19 @@ set "UR=%~1\AppData\Roaming"
 :: they deleted nothing and logged a clean anyway.
 del /F /S /Q "%UL%\Microsoft\Windows\WER\*"                >nul 2>&1
 del /F /S /Q "%UL%\CrashDumps\*"                           >nul 2>&1
-if not defined RUNUBI  del /F /S /Q "%UL%\Ubisoft Game Launcher\cache\*"      >nul 2>&1
-if not defined RUNEA   del /F /S /Q "%UL%\Electronic Arts\EA Desktop\cache\*" >nul 2>&1
+:: Same restriction as the Program Files copy: ownership and activations are
+:: entitlement state, not cache.
+if not defined RUNUBI  del /F /S /Q "%UL%\Ubisoft Game Launcher\cache\http2\*" >nul 2>&1
+if not defined RUNUBI  del /F /S /Q "%UL%\Ubisoft Game Launcher\cache\club\*"  >nul 2>&1
+if not defined RUNUBI  del /F /S /Q "%UL%\Ubisoft Game Launcher\cache\ulcf\*"  >nul 2>&1
+:: NOT cache\* . EA Desktop\cache does not exist on the reference machine, so
+:: unlike Steam and Ubisoft its contents could not be enumerated - and both of
+:: those turned out to keep logins or entitlements in a folder called cache.
+:: Sweeping a container nobody has looked inside is how the other two got
+:: shipped. Only the Electron subfolders that are disposable by definition.
+if not defined RUNEA   del /F /S /Q "%UL%\Electronic Arts\EA Desktop\cache\Cache\*"      >nul 2>&1
+if not defined RUNEA   del /F /S /Q "%UL%\Electronic Arts\EA Desktop\cache\Code Cache\*" >nul 2>&1
+if not defined RUNEA   del /F /S /Q "%UL%\Electronic Arts\EA Desktop\cache\GPUCache\*"   >nul 2>&1
 del /F /S /Q "%UL%\Origin\Logs\*"                          >nul 2>&1
 del /F /S /Q "%UR%\Origin\Logs\*"                          >nul 2>&1
 if not defined RUNEPIC for /d %%W in ("%UL%\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" >nul 2>&1
