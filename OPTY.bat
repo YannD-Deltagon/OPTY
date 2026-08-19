@@ -619,8 +619,19 @@ echo %date% %time% : Executed DISM /CheckHealth                        >> %logs%
 dism /Online /Cleanup-image /RestoreHealth
 >>%logs% echo %date% %time% : DISM RestoreHealth exit=%errorlevel%
 echo %date% %time% : Executed DISM /RestoreHealth                      >> %logs%
-dism /Online /Cleanup-image /StartComponentCleanup
-echo %date% %time% : Executed DISM /StartComponentCleanup (no /ResetBase) >> %logs%
+:: /ResetBase, on the maintainer's explicit instruction, repeated twice:
+:: "je m'en fous, supprime les". It removes every superseded component version
+:: instead of only the ones past their grace period, which is where the real
+:: space is - typically several GB on a machine that has taken a year of
+:: cumulative updates.
+:: The cost is not small and is not hidden: installed updates can no longer be
+:: uninstalled, so a bad update has to be waited out or fixed forward rather
+:: than rolled back. That is the same trade he already accepted for Windows.old
+:: and the feature-update staging folders.
+:: The README has claimed /ResetBase since before this line existed - the code
+:: was the half that was out of step, not the documentation.
+dism /Online /Cleanup-image /StartComponentCleanup /ResetBase
+>>%logs% echo %date% %time% : DISM StartComponentCleanup /ResetBase exit=%errorlevel%
 if /i %autoclean% == 2 goto sfc
 timeout /t 5
 
@@ -14790,17 +14801,18 @@ goto :eof
 ::T|FR|dism.restorehealth.004|                    la copie de reference de chaque fichier systeme a
 ::T|FR|dism.restorehealth.005|                    partir de laquelle Windows sait se reparer. OPTY lance
 ::T|FR|dism.restorehealth.006|                    d'abord trois passes en lecture seule, puis la
-::T|FR|dism.restorehealth.007|                    reparation, puis un nettoyage - volontairement sans
-::T|FR|dism.restorehealth.008|                    /ResetBase.
+::T|FR|dism.restorehealth.007|                    reparation, puis un nettoyage AVEC /ResetBase.
 ::T|FR|dism.restorehealth.009|
-::T|FR|dism.restorehealth.010|  Effet reel      : /RestoreHealth confronte le magasin a ses manifestes
-::T|FR|dism.restorehealth.011|                    et remplace tout ce dont l'empreinte ne correspond
-::T|FR|dism.restorehealth.012|                    pas, en telechargeant les charges utiles depuis
-::T|FR|dism.restorehealth.013|                    Windows Update quand la copie locale est inutilisable.
-::T|FR|dism.restorehealth.014|                    /StartComponentCleanup elimine ensuite les versions
-::T|FR|dism.restorehealth.015|                    remplacees ; comme OPTY omet /ResetBase, les mises a
-::T|FR|dism.restorehealth.016|                    jour recentes restent desinstallables.
-::T|FR|dism.restorehealth.017|
+::T|FR|dism.restorehealth.010|  Effet reel      : /RestoreHealth confronte le magasin a ses manifestes
+::T|FR|dism.restorehealth.011|                    et remplace tout ce dont l'empreinte ne correspond
+::T|FR|dism.restorehealth.012|                    pas, en telechargeant les charges utiles depuis
+::T|FR|dism.restorehealth.013|                    Windows Update quand la copie locale est inutilisable.
+::T|FR|dism.restorehealth.014|                    /StartComponentCleanup elimine ensuite les versions
+::T|FR|dism.restorehealth.015|                    remplacees ; avec /ResetBase il elimine TOUTES les
+::T|FR|dism.restorehealth.016|                    versions remplacees et non seulement celles hors delai
+::T|FR|dism.restorehealth.017|                    de grace, ce qui est la ou se trouve le vrai gain de
+::T|FR|dism.restorehealth.018|                    place.
+::T|FR|dism.restorehealth.019|
 ::T|FR|dism.restorehealth.018|  Gain            : Aucun gain de performance, point. Ce n'est pas une
 ::T|FR|dism.restorehealth.019|                    etape d'optimisation : sur une machine saine, elle
 ::T|FR|dism.restorehealth.020|                    affiche « aucune corruption detectee » et ne change
@@ -14816,7 +14828,13 @@ goto :eof
 ::T|FR|dism.restorehealth.030|                    avec une barre de progression qui stagne longuement a
 ::T|FR|dism.restorehealth.031|                    20 %. Tous les coeurs travaillent et de la bande
 ::T|FR|dism.restorehealth.032|                    passante Windows Update est consommee. Aucun fichier,
-::T|FR|dism.restorehealth.033|                    profil ou reglage utilisateur n'est touche.
+::T|FR|dism.restorehealth.033|                    profil ou reglage utilisateur n'est touche.
+::T|FR|dism.restorehealth.033a|                    Le vrai cout est ailleurs : avec /ResetBase, les
+::T|FR|dism.restorehealth.033b|                    mises a jour deja installees ne sont plus
+::T|FR|dism.restorehealth.033c|                    desinstallables. Une mise a jour ratee se corrige
+::T|FR|dism.restorehealth.033d|                    alors en avant, plus en arriere. C'est le meme
+::T|FR|dism.restorehealth.033e|                    compromis que pour Windows.old et les dossiers de
+::T|FR|dism.restorehealth.033f|                    mise a niveau, accepte volontairement.
 ::T|FR|dism.restorehealth.034|
 ::T|FR|dism.restorehealth.035|  Defaut Windows  : Sans objet : ce n'est pas un reglage. Windows ne lance
 ::T|FR|dism.restorehealth.036|                    jamais /RestoreHealth de lui-meme ; il n'execute que
@@ -14877,7 +14895,7 @@ goto :eof
 ::X|FR|dism.restorehealth.027|                     vers une ISO montee avec /Source:wim:, il va au bout.
 ::X|FR|dism.restorehealth.028|
 ::X|FR|dism.restorehealth.029|  Non verifie (en)  : The exact grace-period behaviour of a manual
-::X|FR|dism.restorehealth.030|                      /StartComponentCleanup without /ResetBase (whether
+::X|FR|dism.restorehealth.030|                      /StartComponentCleanup avec /ResetBase (voir le
 ::X|FR|dism.restorehealth.031|                      it honours the same 30-day window as the scheduled
 ::X|FR|dism.restorehealth.032|                      task) I have not verified on 25H2. It matters only
 ::X|FR|dism.restorehealth.033|                      for how far back you can uninstall updates
@@ -14886,22 +14904,21 @@ goto :eof
 ::X|FR|dism.restorehealth.036|  Cible           : OPTY.bat label :dism, lines 601-611 - dism /Online
 ::X|FR|dism.restorehealth.037|                    /Cleanup-Image /AnalyzeComponentStore, then /Cleanup-
 ::X|FR|dism.restorehealth.038|                    image /ScanHealth, /CheckHealth, /RestoreHealth,
-::X|FR|dism.restorehealth.039|                    /StartComponentCleanup (no /ResetBase)
+::X|FR|dism.restorehealth.039|                    /StartComponentCleanup /ResetBase
 ::T|EN|dism.restorehealth.001|DISM COMPONENT STORE REPAIR
 ::T|EN|dism.restorehealth.002|
 ::T|EN|dism.restorehealth.003|  What it is      : The component store (C:\Windows\WinSxS) holds the
 ::T|EN|dism.restorehealth.004|                    reference copy of every system file Windows can
 ::T|EN|dism.restorehealth.005|                    restore from. OPTY runs three read-only passes first,
-::T|EN|dism.restorehealth.006|                    then the repair, then a cleanup - deliberately without
-::T|EN|dism.restorehealth.007|                    /ResetBase.
+::T|EN|dism.restorehealth.006|                    then the repair, then a cleanup WITH /ResetBase.
 ::T|EN|dism.restorehealth.008|
 ::T|EN|dism.restorehealth.009|  Actual effect   : /RestoreHealth compares the store against its
 ::T|EN|dism.restorehealth.010|                    manifests and replaces anything whose hash does not
 ::T|EN|dism.restorehealth.011|                    match, pulling payloads from Windows Update when the
 ::T|EN|dism.restorehealth.012|                    local copy is unusable. /StartComponentCleanup then
-::T|EN|dism.restorehealth.013|                    discards superseded component versions; because OPTY
-::T|EN|dism.restorehealth.014|                    omits /ResetBase, recently installed updates stay
-::T|EN|dism.restorehealth.015|                    uninstallable.
+::T|EN|dism.restorehealth.013|                    discards superseded component versions; with /ResetBase it
+::T|EN|dism.restorehealth.014|                    discards EVERY superseded version rather than only those
+::T|EN|dism.restorehealth.015|                    past their grace period, which is where the real space is.
 ::T|EN|dism.restorehealth.016|
 ::T|EN|dism.restorehealth.017|  Gain            : No performance gain whatsoever - this is not a tuning
 ::T|EN|dism.restorehealth.018|                    step, and on a healthy machine it prints 'no component
@@ -14918,6 +14935,11 @@ goto :eof
 ::T|EN|dism.restorehealth.029|                    stretch. All cores stay busy and Windows Update
 ::T|EN|dism.restorehealth.030|                    bandwidth is used. No user file, profile or setting is
 ::T|EN|dism.restorehealth.031|                    touched.
+::T|EN|dism.restorehealth.030a|                    The real cost is elsewhere: with /ResetBase, updates
+::T|EN|dism.restorehealth.030b|                    already installed can no longer be uninstalled. A bad
+::T|EN|dism.restorehealth.030c|                    update then has to be fixed forward rather than
+::T|EN|dism.restorehealth.030d|                    rolled back. Same trade already accepted for
+::T|EN|dism.restorehealth.030e|                    Windows.old and the upgrade staging folders.
 ::T|EN|dism.restorehealth.032|
 ::T|EN|dism.restorehealth.033|  Windows default : Not a setting. Windows never runs /RestoreHealth on
 ::T|EN|dism.restorehealth.034|                    its own - it only runs the StartComponentCleanup
@@ -14970,7 +14992,7 @@ goto :eof
 ::X|EN|dism.restorehealth.023|                    with /Source:wim: finishes the job.
 ::X|EN|dism.restorehealth.024|
 ::X|EN|dism.restorehealth.025|  Unverified      : The exact grace-period behaviour of a manual
-::X|EN|dism.restorehealth.026|                    /StartComponentCleanup without /ResetBase (whether it
+::X|EN|dism.restorehealth.026|                    /StartComponentCleanup with /ResetBase (see the cost
 ::X|EN|dism.restorehealth.027|                    honours the same 30-day window as the scheduled task)
 ::X|EN|dism.restorehealth.028|                    I have not verified on 25H2. It matters only for how
 ::X|EN|dism.restorehealth.029|                    far back you can uninstall updates afterwards.
@@ -14978,7 +15000,7 @@ goto :eof
 ::X|EN|dism.restorehealth.031|  Target          : OPTY.bat label :dism, lines 601-611 - dism /Online
 ::X|EN|dism.restorehealth.032|                    /Cleanup-Image /AnalyzeComponentStore, then /Cleanup-
 ::X|EN|dism.restorehealth.033|                    image /ScanHealth, /CheckHealth, /RestoreHealth,
-::X|EN|dism.restorehealth.034|                    /StartComponentCleanup (no /ResetBase)
+::X|EN|dism.restorehealth.034|                    /StartComponentCleanup /ResetBase
 ::
 :: ---- gr.mpo.restore (repair) ------------------------------------
 ::P|gr.mpo.restore|DELETE|DELETE|DELETE|DELETE|DELETE|
