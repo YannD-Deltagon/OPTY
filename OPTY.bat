@@ -78,7 +78,13 @@ set GitHubRawLink=https://raw.githubusercontent.com/YannD-Deltagon/OPTY/master/r
 set GitHubLatestLink=https://github.com/YannD-Deltagon/OPTY/releases/latest/download/
 
 :: ---- User / paths configuration (edit here if your username or layout differs) ----
-set "USERHOME=C:\Users\compt"
+:: USERHOME was hardcoded to one machine's profile path. On any other
+:: account every step using it silently did nothing while still logging a
+:: clean - the precise failure this file exists to eliminate, shipped for
+:: months. The per-user cache steps have moved into :userclean, which
+:: already loops over every profile on the machine; what stays here is
+:: Docker/WSL, which is genuinely per-user and belongs to whoever runs it.
+set "USERHOME=%USERPROFILE%"
 set "WSL_DOCKER_VHDX=%USERHOME%\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
 set "WSL_SEARCH1=%USERHOME%\AppData\Local\Packages"
 set "WSL_SEARCH2=%USERHOME%\AppData\Local\wsl"
@@ -997,7 +1003,7 @@ call :L "%cInfo%" "Emptying the Recycle Bin on every fixed drive"
 for %%D in (%FIXEDLIST%) do if exist "%%D:\$Recycle.Bin" rd /S /Q "%%D:\$Recycle.Bin" >nul 2>&1
 
 :: --- Thumbnail & icon cache (rebuilt automatically; locked files are skipped) ---
-echo %date% %time% : Deleting icon cache (thumbnails kept)          >> %logs%
+echo %date% %time% : Thumbnail cache cleared - icon cache deliberately NOT touched, see comment above >> %logs%
 :: thumbcache kept: Explorer visibly re-generates every thumbnail afterwards,
 :: painful in large footage folders. iconcache is cheap so it stays.
 :: REMOVED: del of iconcache_*.db. Measured on a live machine: the five files
@@ -1013,9 +1019,10 @@ echo %date% %time% : Deleting icon cache (thumbnails kept)          >> %logs%
 
 :: --- Windows Error Reporting reports + crash dumps ---
 echo %date% %time% : Deleting WER reports and crash dumps           >> %logs%
+:: The machine-wide store stays here. The per-user WER and CrashDumps
+:: folders moved into :userclean so every profile is covered, not only the
+:: account that happens to be running OPTY.
 del /F /S /Q "%ProgramData%\Microsoft\Windows\WER\*" 2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\Microsoft\Windows\WER\*" 2>nul
-del /F /S /Q "%USERHOME%\AppData\Local\CrashDumps\*" 2>nul
 
 :: --- Unbounded log/telemetry files: the real invisible wins ---
 :: These are append-only and nothing ever prunes them. Measured on this machine
@@ -1137,27 +1144,29 @@ if not defined RUNNING del /F /S /Q "%LOCALAPPDATA%\Steam\htmlcache\*" >nul 2>&1
 set "STEAMPATH="
 :: Launcher caches - each one guarded, for the same reason as Discord: a
 :: half-deleted cache under a running client is worse than not cleaning at all.
+:: Machine-wide paths only. The per-user cache folders moved into :userclean,
+:: which loops over every profile - they used to be written against one
+:: hardcoded profile and deleted nothing on any other account.
+:: The running-process guards stay here on purpose: whether a launcher is up
+:: is a machine-wide fact, so re-testing it once per profile would be noise.
+:: RUNUBI / RUNEA carry the answer down to :userclean.
+set "RUNUBI=" & set "RUNEA="
 call :isrunning "upc.exe"
-if not defined RUNNING (
-    del /F /S /Q "%USERHOME%\AppData\Local\Ubisoft Game Launcher\cache\*"        >nul 2>&1
-    del /F /S /Q "C:\Program Files (x86)\Ubisoft\Ubisoft Game Launcher\cache\*"  >nul 2>&1
-) else ( call :L "%cWarn%" "  Ubisoft Connect is running - skipped" )
+if defined RUNNING set "RUNUBI=1"
+if not defined RUNUBI del /F /S /Q "%ProgramFiles(x86)%\Ubisoft\Ubisoft Game Launcher\cache\*" >nul 2>&1
+if defined RUNUBI call :L "%cWarn%" "  Ubisoft Connect is running - skipped"
 call :isrunning "EADesktop.exe"
-if not defined RUNNING (
-    del /F /S /Q "%USERHOME%\AppData\Local\Electronic Arts\EA Desktop\cache\*"   >nul 2>&1
-    del /F /S /Q "%ProgramData%\EA Core\cache\*"                                 >nul 2>&1
-) else ( call :L "%cWarn%" "  EA App is running - skipped" )
+if defined RUNNING set "RUNEA=1"
+if not defined RUNEA del /F /S /Q "%ProgramData%\EA Core\cache\*" >nul 2>&1
+if defined RUNEA call :L "%cWarn%" "  EA App is running - skipped"
 :: Origin (legacy): ONLY the cache/log subfolders. Never the folder itself -
 :: %ProgramData%\Origin\LocalContent holds game entitlement data and wiping it
 :: can stop games from launching.
-del /F /S /Q "%USERHOME%\AppData\Local\Origin\Logs\*"                        >nul 2>&1
-del /F /S /Q "%USERHOME%\AppData\Roaming\Origin\Logs\*"                      >nul 2>&1
 del /F /S /Q "%ProgramData%\Origin\Logs\*"                                   >nul 2>&1
+set "RUNEPIC="
 call :isrunning "EpicGamesLauncher.exe"
-if not defined RUNNING (
-    for /d %%W in ("%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" >nul 2>&1
-    del /F /S /Q "%USERHOME%\AppData\Local\EpicGamesLauncher\Saved\Logs\*"   >nul 2>&1
-) else ( call :L "%cWarn%" "  Epic Games Launcher is running - skipped" )
+if defined RUNNING set "RUNEPIC=1"
+if defined RUNEPIC call :L "%cWarn%" "  Epic Games Launcher is running - skipped"
 
 :: --- REMOVED: Adobe Common Media Cache ---
 :: Deleting it forces Premiere/After Effects to re-conform audio and re-render
@@ -2278,7 +2287,8 @@ goto powercfg_done
 call :L "%cInfo%" "Ultimate Performance already exists - not duplicating again"
 echo %date% %time% : Ultimate Performance already present, skipped    >> %logs%
 :powercfg_done
-del /f /q "%TEMP%\opty_pc_before.txt" >nul 2>&1
+:: REMOVED: del of %TEMP%\opty_pc_before.txt. Nothing anywhere in this
+:: file creates it - the line deleted a file that has never existed.
 powercfg.cpl
 echo %date% %time% : Launched powercfg.cpl GUI                         >> %logs%
 pause
@@ -3375,6 +3385,24 @@ goto :eof
 if not exist "%~1\AppData\Local" goto :eof
 set "UL=%~1\AppData\Local"
 set "UR=%~1\AppData\Roaming"
+:: Crash reports and launcher caches, per profile. These used to sit in the
+:: main body against a single hardcoded profile path, so on any other account
+:: they deleted nothing and logged a clean anyway.
+del /F /S /Q "%UL%\Microsoft\Windows\WER\*"                >nul 2>&1
+del /F /S /Q "%UL%\CrashDumps\*"                           >nul 2>&1
+if not defined RUNUBI  del /F /S /Q "%UL%\Ubisoft Game Launcher\cache\*"      >nul 2>&1
+if not defined RUNEA   del /F /S /Q "%UL%\Electronic Arts\EA Desktop\cache\*" >nul 2>&1
+del /F /S /Q "%UL%\Origin\Logs\*"                          >nul 2>&1
+del /F /S /Q "%UR%\Origin\Logs\*"                          >nul 2>&1
+if not defined RUNEPIC for /d %%W in ("%UL%\EpicGamesLauncher\Saved\webcache*") do rd /S /Q "%%W" >nul 2>&1
+if not defined RUNEPIC del /F /S /Q "%UL%\EpicGamesLauncher\Saved\Logs\*"     >nul 2>&1
+:: Discord beta and canary carry the same three cache folders as stable and
+:: were never targeted - an account on the beta channel kept its whole cache.
+for %%D in (discord discordptb discordcanary) do (
+    del /F /S /Q "%UR%\%%D\Cache\*"        >nul 2>&1
+    del /F /S /Q "%UR%\%%D\Code Cache\*"   >nul 2>&1
+    del /F /S /Q "%UR%\%%D\GPUCache\*"     >nul 2>&1
+)
 :: Chromium-family browsers, including ones that are not installed here
 :: (guarded by :chromecache, which returns immediately if the folder is absent)
 call :chromecache "%UL%\Google\Chrome\User Data" "chrome.exe"
