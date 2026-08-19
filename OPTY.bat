@@ -2540,17 +2540,21 @@ color 0D
 cls
 call :banner "SETUP - settings you apply once on a new PC"
 echo(
-echo(  %cInfo%Nothing here needs running again unless Windows or an update undoes it.%cR%
-echo(  %cInfo%Every write reports whether it repaired something or was already right,%cR%
-echo(  %cInfo%and everything is reversible from the main menu, option 4.%cR%
+call :ti "Nothing here needs running again unless Windows or an update undoes it." "Rien ici n a besoin d etre relance, sauf si Windows ou une mise a jour le defait."
+call :ti "Every question explains what it does, what it costs, and what Windows" "Chaque question explique ce qu elle fait, ce qu elle coute, et ce que Windows"
+call :ti "ships by default. Answer 1-5 - the digit means the same thing every time." "livre par defaut. Repondez 1-5 : le chiffre a toujours le meme sens."
 echo(
-echo(     %cVal%1.%cR%  Network            %cInfo%adapter settings + usage profile%cR%
-echo(     %cVal%2.%cR%  Display ^& GPU      %cInfo%MPO / HAGS - opt-in, read the notes%cR%
-echo(     %cVal%3.%cR%  System ^& gaming    %cInfo%registry profile, power plan, mouse%cR%
-echo(     %cVal%4.%cR%  Privacy ^& debloat  %cInfo%Recall, Copilot, ads, widgets, telemetry%cR%
-echo(     %cVal%5.%cR%  Re-enable updates  %cInfo%Office / Chrome / Windows Update behind GPO%cR%
+if defined AUTOPROFILE call :L "%cWarn%" "  profile %AUTOPROFILE% is armed - questions answer themselves"
+if defined AUTOPROFILE echo(
+call :mopt 1 "Network"           "Reseau"            "Ethernet and Wi-Fi, per-adapter" "Ethernet et Wi-Fi, par carte"
+call :mopt 2 "Display & GPU"      "Affichage & GPU"   "MPO, HAGS, overlays, shader caches" "MPO, HAGS, overlays, caches de shaders"
+call :mopt 3 "System & gaming"    "Systeme & jeu"     "registry, power plan, mouse" "registre, plan d alimentation, souris"
+call :mopt 4 "Privacy & debloat"  "Vie privee"        "Recall, Copilot, ads, telemetry" "Recall, Copilot, pub, telemetrie"
+call :mopt 5 "Re-enable updates" "Reactiver les MAJ" "Office / Chrome / Windows Update" "Office / Chrome / Windows Update"
 echo(
-echo(     %cVal%0.%cR%  Menu
+call :mopt P "Apply one profile to everything" "Appliquer un profil a tout" "the two-minute path" "le chemin en deux minutes"
+call :mopt L "Language: %UILANG%" "Langue : %UILANG%" "switch FR / EN" "basculer FR / EN"
+call :mopt 0 "Menu" "Menu" "" ""
 echo(
 call :rule
 set "choice="
@@ -2561,10 +2565,22 @@ if "%choice%"=="2" goto display_tweaks
 if "%choice%"=="3" goto mregprofil
 if "%choice%"=="4" goto debloat2026
 if "%choice%"=="5" goto mreenable
+if /i "%choice%"=="P" goto setup_profile
+if /i "%choice%"=="L" goto setup_lang
 if "%choice%"=="0" goto menu
 color 0C
-echo This is not a valid action
+call :t "This is not a valid action" "Ce n est pas une action valide"
 timeout /t 3 >nul
+goto msetup
+
+:setup_lang
+:: Manual override of the detected language. :lang_detect guesses from the
+:: user profile, which is right almost always - but a French speaker running
+:: an English Windows, or the reverse, is exactly the case a guess gets wrong,
+:: and being stuck in the wrong language is not a small annoyance in a script
+:: whose entire value is the explanations.
+if /i "%UILANG%"=="FR" (set "UILANG=EN") else (set "UILANG=FR")
+>>%logs% echo %date% %time% : UILANG switched manually to %UILANG%
 goto msetup
 
 
@@ -3624,6 +3640,91 @@ if not defined SMT (
 )
 if /i "%UILANG%"=="FR" (call :L "%cInfo%" "     cette etape tourne aussi dans : %SMT%") else (call :L "%cInfo%" "     this step also runs in: %SMT%")
 goto :eof
+
+:t
+:: %~1 = English text, %~2 = French text -> prints whichever matches UILANG.
+:: The one-line bilingual primitive every menu uses.
+::
+:: Everything goes through delayed expansion, and that is not decoration. The
+:: first version echoed %~2 directly and a label containing "&" broke the menu:
+:: tilde-n strips the quotes, cmd re-parses what is left, and the ampersand
+:: becomes a command separator: "Display & GPU" printed "Display ^" and then
+:: tried to run GPU as a command. Same trap :L documents, found the same way:
+:: by rendering it, not by reading it. Note also that writing tilde-n with a
+:: NON-digit in a "::" line is itself a syntax error cmd reports out loud -
+:: that one cost a second test run to find.
+setlocal enabledelayedexpansion
+set "EN=%~1"
+set "FR=%~2"
+if /i "%UILANG%"=="FR" (echo(!FR!) else (echo(!EN!)
+endlocal
+goto :eof
+
+:ti
+:: Same, indented and dimmed - the explanatory line under a menu entry.
+setlocal enabledelayedexpansion
+set "EN=%~1"
+set "FR=%~2"
+if /i "%UILANG%"=="FR" (echo(     %cInfo%!FR!%cR%) else (echo(     %cInfo%!EN!%cR%)
+endlocal
+goto :eof
+
+:mopt
+:: %~1 = key, %~2 = English label, %~3 = French label, %~4 = English hint,
+:: %~5 = French hint. One menu row, identical shape everywhere in the script.
+:: A label may contain & < > | ( ) - they survive because nothing here is
+:: re-parsed after expansion. It may NOT contain "!" or a double quote.
+setlocal enabledelayedexpansion
+set "K=%~1"
+set "EL=%~2"
+set "FL=%~3"
+set "EH=%~4"
+set "FH=%~5"
+if /i "%UILANG%"=="FR" (
+    echo(     %cVal%!K!.%cR%  !FL!   %cInfo%!FH!%cR%
+) else (
+    echo(     %cVal%!K!.%cR%  !EL!   %cInfo%!EH!%cR%
+)
+endlocal
+goto :eof
+
+:setup_profile
+:: The "configure a new PC in two minutes" entry point. Picks one digit and
+:: answers every SETUP question with it, printing one line per setting instead
+:: of a screen. Cards classified risky still stop and ask - a destructive step
+:: is never auto-answered, which is the whole reason AUTOPROFILE is a variable
+:: the risky path can clear rather than a mode the whole run is locked into.
+cls
+call :banner "SETUP - apply one profile to everything"
+echo(
+call :ti "Pick the profile that matches this machine. Every question below is" "Choisissez le profil qui correspond a cette machine. Chaque question"
+call :ti "then answered with that same digit, and each write is reported." "recoit ensuite ce meme chiffre, et chaque ecriture est rapportee."
+call :ti "Anything that can lose data still stops and asks." "Tout ce qui peut perdre des donnees s'arrete quand meme pour demander."
+echo(
+call :mopt 1 "GAMING"  "JEU"          "max performance, min latency, desktop" "performance max, latence min, fixe"
+call :mopt 2 "SERVER"  "SERVEUR"      "torrent, Plex, game servers, headless" "torrent, Plex, serveurs de jeux, sans ecran"
+call :mopt 3 "OFFICE"  "BUREAUTIQUE"  "quiet, low power, everything works"    "silencieux, sobre, tout fonctionne"
+call :mopt 4 "LAPTOP"  "PORTABLE"     "battery first, on-battery caps kept"   "autonomie d'abord, plafonds batterie respectes"
+call :mopt 5 "WINDOWS" "DEFAUT"       "the shipped defaults, nothing else"    "les valeurs d'origine, rien d'autre"
+echo(
+call :mopt 9 "One question at a time" "Une question a la fois" "read and decide each setting" "lire et decider chaque reglage"
+call :mopt 0 "Back" "Retour" "" ""
+echo(
+call :rule
+set "choice="
+set /p choice= ^> 
+if "%choice%"=="0" goto msetup
+if "%choice%"=="9" ( set "AUTOPROFILE=" & goto msetup )
+set "AUTOPROFILE="
+if "%choice%"=="1" set "AUTOPROFILE=1"
+if "%choice%"=="2" set "AUTOPROFILE=2"
+if "%choice%"=="3" set "AUTOPROFILE=3"
+if "%choice%"=="4" set "AUTOPROFILE=4"
+if "%choice%"=="5" set "AUTOPROFILE=5"
+if not defined AUTOPROFILE goto setup_profile
+>>%logs% echo %date% %time% : AUTOPROFILE=%AUTOPROFILE% selected
+call :L "%cStep%" "Applying profile %AUTOPROFILE% to every SETUP question"
+goto msetup
 
 :profval
 :: %~1 = card id, %~2 = answer digit 1-5 -> PROFVAL = the value to write.
