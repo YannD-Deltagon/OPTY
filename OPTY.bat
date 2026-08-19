@@ -3551,6 +3551,43 @@ call :L "%cWarn%" "  FOUND    %~2 overridden to %PWACN% on this power plan (not 
 >>%logs% echo %date% %time% : %~2 override present = %PWACN% ^(report only^)
 goto :eof
 
+:stepmeta
+:: %~1 = a CLEAN step id -> STEPMEM = its membership string, STEPLBL = the code
+:: label that performs it. Read from the ::S| table near the bottom of the file,
+:: which is the ONE place membership is declared.
+::
+:: Why this exists: membership used to live only in fourteen scattered
+:: "if /i %autoclean% == 2 goto x" lines. Nothing tied them together, so the
+:: manual menu could describe a step as "also runs in Auto full" while the code
+:: had stopped doing that - the same shape of bug that once had :regsc_map_only
+:: and :gaming_restore setting the same services to opposite values, where
+:: whichever ran last won.
+:: Declaring it here is only half the fix. The other half is validator gate 8,
+:: which recomputes membership from the actual gotos and fails the release if the
+:: two disagree, so the table cannot rot silently.
+set "STEPMEM=" & set "STEPLBL="
+for /f "usebackq tokens=2,3,4 delims=|" %%A in (`findstr /b /l /c:"::S|%~1 " "%SELF%"`) do (
+    set "STEPMEM=%%B"
+    set "STEPLBL=%%C"
+)
+goto :eof
+
+:stepmodes
+:: %~1 = step id -> prints "also runs in: Auto lite, Auto full" under a manual
+:: menu entry, in the active language, straight from :stepmeta. Never hardcode
+:: this sentence at a call site: that is precisely how the two drift apart.
+call :stepmeta "%~1"
+if not defined STEPMEM goto :eof
+set "SMT="
+echo(%STEPMEM%| findstr /c:"L" >nul && set "SMT=Auto lite"
+echo(%STEPMEM%| findstr /c:"F" >nul && (if defined SMT (set "SMT=%SMT% + Auto full") else (set "SMT=Auto full"))
+if not defined SMT (
+    if /i "%UILANG%"=="FR" (call :L "%cInfo%" "     mode manuel uniquement - jamais lance sans surveillance") else (call :L "%cInfo%" "     manual mode only - never runs unattended")
+    goto :eof
+)
+if /i "%UILANG%"=="FR" (call :L "%cInfo%" "     cette etape tourne aussi dans : %SMT%") else (call :L "%cInfo%" "     this step also runs in: %SMT%")
+goto :eof
+
 :cp_read
 :: CURCP = the console's current code page, locale-proof. chcp's LABEL is
 :: translated ("Page de codes active :" / "Active code page:"), so the label is
@@ -3775,3 +3812,35 @@ if errorlevel 1 (
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore" /v "SystemRestorePointCreationFrequency" /t REG_DWORD /d 1440 /f >nul 2>&1
 echo %date% %time% : Restore-point throttle put back to 1440 min     >> %logs%
 goto :eof
+:: ============================================================
+:: ==================  CLEAN STEP MEMBERSHIP  =================
+:: ============================================================
+:: Format:  ::S|<step id padded>|<membership>|<code label>|
+::   L = runs in Auto lite (menu 1, mode 2)
+::   F = runs in Auto full (menu 1, mode 3)
+::   _ = not in that mode
+:: Manual mode (mode 1) offers EVERY row regardless.
+::
+:: This is the single source of truth. :stepmeta reads it, :stepmodes renders
+:: "this step also runs in: ..." from it, and validator gate 8 recomputes the
+:: same membership from the actual "if /i %autoclean% == N goto x" lines and
+:: fails the release when the two disagree. Change the code without changing
+:: this table and the release stops - which is the point.
+::
+:: These lines are DATA. CMD never parses a "::" line, so nothing here needs
+:: escaping and nothing here is ever executed.
+::S|clean.stopapps   |_F|stopapps|
+::S|clean.startready |_F|startready|
+::S|clean.netdns     |_F|netdns|
+::S|clean.dism       |_F|dism|
+::S|clean.sfc        |_F|sfc|
+::S|clean.wupdate    |LF|wupdate|
+::S|clean.delete     |LF|delete|
+::S|clean.compact    |_F|clean|
+::S|clean.defrag     |_F|defrag|
+::S|clean.chkdsk     |__|chkdsk|
+::
+:: Steps the auto path enters that are NOT user-facing cleanup steps. Gate 8
+:: ignores these rather than demanding a row for each - they are control flow,
+:: not work the owner chooses.
+::S|IGNORE|endready mshutdownreboot|

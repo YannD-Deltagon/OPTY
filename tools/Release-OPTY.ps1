@@ -126,6 +126,54 @@ if ($long.Count) {
 }
 Write-Ok 'no line over 1000 chars (self-heal safe)'
 
+# --- gate 8: CLEAN step membership declared exactly once ---------------
+# Membership used to live only in scattered "if /i %autoclean% == N goto x"
+# lines, with nothing tying them to what the manual menu told the user. This
+# gate recomputes membership FROM THE CODE and fails when it disagrees with
+# the ::S| table, so the table cannot rot silently.
+$tableRows = @{}
+$ignored = @()
+foreach ($line in ($text -split "`r`n")) {
+    if ($line -match '^::S\|IGNORE\|([^|]*)\|') { $ignored = $matches[1].Trim() -split '\s+'; continue }
+    if ($line -match '^::S\|([^|]+)\|([^|]*)\|([^|]*)\|') {
+        $tableRows[$matches[3].Trim().ToLower()] = @{ Id = $matches[1].Trim(); Mem = $matches[2].Trim() }
+    }
+}
+if ($tableRows.Count -eq 0) { Fail 'no ::S| CLEAN membership table found' }
+
+# autoclean 1 = Auto lite, 2 = Auto full. A step belongs to a mode if a gate
+# jumps to it in that mode, or if the mode selector enters it directly.
+$fullFromCode = [Collections.Generic.HashSet[string]]::new()
+$liteFromCode = [Collections.Generic.HashSet[string]]::new()
+foreach ($m in [regex]::Matches($code, '(?im)if\s+/i\s+%autoclean%\s*==\s*([12])\s+goto\s+([A-Za-z0-9_\-]+)')) {
+    $t = $m.Groups[2].Value.ToLower()
+    if ($m.Groups[1].Value -eq '2') { [void]$fullFromCode.Add($t) } else { [void]$liteFromCode.Add($t) }
+}
+foreach ($m in [regex]::Matches($code, '(?im)set\s+"autoclean=([12])"[^\r\n]*?goto\s+([A-Za-z0-9_\-]+)')) {
+    $t = $m.Groups[2].Value.ToLower()
+    if ($m.Groups[1].Value -eq '2') { [void]$fullFromCode.Add($t) } else { [void]$liteFromCode.Add($t) }
+}
+
+$drift = @()
+foreach ($lbl in $tableRows.Keys) {
+    $mem = $tableRows[$lbl].Mem
+    $id  = $tableRows[$lbl].Id
+    $sayFull = $mem -like '*F*'
+    $sayLite = $mem -like '*L*'
+    if ($sayFull -and -not $fullFromCode.Contains($lbl)) { $drift += "$id claims Auto-full but no code path reaches :$lbl in mode 2" }
+    if ($sayLite -and -not $liteFromCode.Contains($lbl)) { $drift += "$id claims Auto-lite but no code path reaches :$lbl in mode 1" }
+    if (-not $sayFull -and $fullFromCode.Contains($lbl)) { $drift += "$id claims NOT Auto-full but the code jumps to :$lbl in mode 2" }
+    if (-not $sayLite -and $liteFromCode.Contains($lbl)) { $drift += "$id claims NOT Auto-lite but the code jumps to :$lbl in mode 1" }
+}
+$reached = @($fullFromCode) + @($liteFromCode) | Sort-Object -Unique
+foreach ($t in $reached) {
+    if (-not $tableRows.ContainsKey($t) -and $ignored -notcontains $t) {
+        $drift += "code reaches :$t in an auto mode but no ::S| row declares it (add a row, or list it in ::S|IGNORE|)"
+    }
+}
+if ($drift.Count) { Fail ("CLEAN membership drift between the ::S| table and the code:`n      " + ($drift -join "`n      ")) }
+Write-Ok "$($tableRows.Count) CLEAN steps, table matches the code"
+
 # 6. version marker
 $vm = [regex]::Match($text, '(?m)^set current_version=([0-9.]+)\s*$')
 if (-not $vm.Success) { Fail 'could not read "set current_version=" from OPTY.bat' }
