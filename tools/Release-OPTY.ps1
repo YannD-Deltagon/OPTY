@@ -133,7 +133,10 @@ $lines = $text -split "`r`n"
 $cardIds = @{}
 $profIds = @{}
 foreach ($line in $lines) {
-    if ($line -match '^::T\|(FR|EN)\|([a-z0-9_.]+)\.[0-9a-z]\|') {
+    # Greedy id capture, then the sequence token. The sequence has no fixed
+    # width - a one-char alphabet silently truncated long cards - so the id is
+    # 'everything up to the LAST dot', not 'everything up to a single char'.
+    if ($line -match '^::T\|(FR|EN)\|(.+)\.[0-9a-z]+\|') {
         $key = $matches[2]
         if (-not $cardIds.ContainsKey($key)) { $cardIds[$key] = @{} }
         $cardIds[$key][$matches[1]] = $true
@@ -147,6 +150,16 @@ foreach ($id in $cardIds.Keys) {
 }
 foreach ($id in $profIds.Keys) {
     if (-not $cardIds.ContainsKey($id)) { $cardProblems += "$id has a ::P| profile row but no ::T| card text" }
+}
+# findstr matches by PREFIX, so a card id that is a prefix of another id
+# would render BOTH cards as one blob. It costs nothing to forbid now and is
+# invisible until someone adds the colliding id months later.
+foreach ($a in $cardIds.Keys) {
+    foreach ($b in $cardIds.Keys) {
+        if ($a -ne $b -and $b.StartsWith("$a.")) {
+            $cardProblems += "card id '$a' is a prefix of '$b' - findstr would render both as one"
+        }
+    }
 }
 if ($cardProblems.Count) { Fail ("card table problems:`n      " + ($cardProblems -join "`n      ")) }
 if ($cardIds.Count) { Write-Ok "$($cardIds.Count) card(s), all bilingual, $($profIds.Count) with a profile row" }
