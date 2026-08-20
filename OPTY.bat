@@ -2605,7 +2605,8 @@ call :mopt 1 "Network"           "Reseau"            "Ethernet and Wi-Fi, per-ad
 call :mopt 2 "Display & GPU"      "Affichage & GPU"   "MPO, HAGS, overlays, shader caches" "MPO, HAGS, overlays, caches de shaders"
 call :mopt 3 "System & gaming"    "Systeme & jeu"     "registry, power plan, mouse" "registre, plan d alimentation, souris"
 call :mopt 4 "Privacy & debloat"  "Vie privee"        "Recall, Copilot, ads, telemetry" "Recall, Copilot, pub, telemetrie"
-call :mopt 5 "Re-enable updates" "Reactiver les MAJ" "Office / Chrome / Windows Update" "Office / Chrome / Windows Update"
+call :mopt 5 "Services"          "Services"          "start types - 15 repaired, 3 asked" "types de demarrage - 15 repares, 3 poses"
+call :mopt 6 "Re-enable updates" "Reactiver les MAJ" "Office / Chrome / Windows Update" "Office / Chrome / Windows Update"
 echo(
 call :mopt P "Apply one profile to everything" "Appliquer un profil a tout" "the two-minute path" "le chemin en deux minutes"
 call :mopt L "Language: %UILANG%" "Langue : %UILANG%" "switch FR / EN" "basculer FR / EN"
@@ -2619,7 +2620,8 @@ if "%choice%"=="1" goto mnetwork
 if "%choice%"=="2" goto setup_gpu
 if "%choice%"=="3" goto setup_system
 if "%choice%"=="4" goto setup_privacy
-if "%choice%"=="5" goto mreenable
+if "%choice%"=="5" goto setup_services
+if "%choice%"=="6" goto mreenable
 if /i "%choice%"=="P" goto setup_profile
 if /i "%choice%"=="L" goto setup_lang
 if "%choice%"=="0" goto menu
@@ -2856,6 +2858,95 @@ goto mnetwork
 call :L "%cErr%" "No adapter selected yet - use option 1 or 3 first."
 pause
 goto mnetwork
+
+:asksvc
+:: %~1 card id  %~2 recommended  %~3 service  %~4 label
+:: Asks once, then writes the profile's start type through :svcset, which
+:: reads the current value first so the log can tell a repair from a no-op.
+:: The Start number :svcset compares against is derived here rather than
+:: carried in the card, because the card holds the sc keyword a human reads
+:: and the registry holds a number: auto and delayed-auto are both Start=2,
+:: which no card should have to know.
+call :ask "%~1" "%~2"
+if "%ANSWER%"=="SKIP" ( call :L "%cInfo%" "  skipped  %~4" & goto :eof )
+call :profval "%~1" "%ANSWER%"
+if not defined PROFVAL ( call :L "%cErr%" "  no profile value for %~1" & goto :eof )
+if /i "%PROFVAL%"=="SKIP" ( call :L "%cInfo%" "  left alone  %~4" & goto :eof )
+set "SVEXP="
+if /i "%PROFVAL%"=="auto"         set "SVEXP=2"
+if /i "%PROFVAL%"=="delayed-auto" set "SVEXP=2"
+if /i "%PROFVAL%"=="demand"       set "SVEXP=3"
+if /i "%PROFVAL%"=="disabled"     set "SVEXP=4"
+if not defined SVEXP ( call :L "%cErr%" "  %~4 : unknown start type %PROFVAL%" & goto :eof )
+call :svcset "%~3" %PROFVAL% %SVEXP% "%~4"
+goto :eof
+
+:setup_services
+:: Service start types.
+::
+:: Of the eighteen service cards, only THREE carry different values across
+:: profiles - WSearch, the Print Spooler, and the update stack. The other
+:: fifteen hold one value in all five columns, which is the answer rather
+:: than a gap: those services have one correct start type and no use case
+:: changes it. So fifteen are re-asserted as repairs and three are asked.
+:: Asking eighteen questions where fifteen have a single possible answer is
+:: noise dressed up as choice.
+::
+:: The three that vary are precisely the ones this file got wrong twice: it
+:: degraded WSearch and the Spooler on folklore, then forced them back on
+:: mine. Tested live, Manual on both breaks nothing on a machine with no
+:: printer, and search runs anyway because something demand-starts it.
+echo.                                                           >> %logs%
+echo ====================== :SETUP_SERVICES ==================== >> %logs%
+echo %date% %time% : Entered :setup_services label                >> %logs%
+cls
+call :banner "SERVICES"
+echo(
+call :ti "Fifteen of these have one correct start type and are simply repaired." "Quinze d entre eux n ont qu un seul type de demarrage correct : ils sont repares."
+call :ti "Three genuinely depend on how you use the machine, and only those are" "Trois dependent vraiment de votre usage, et ce sont les seuls a etre poses"
+call :ti "asked. A start type is never forced over a deliberate choice." "en question. Un type de demarrage n est jamais impose sur un choix delibere."
+echo(
+if not defined AUTOPROFILE pause
+
+:: --- the fifteen with a single correct answer, re-asserted, never asked
+call :L "%cStep%" "Re-asserting the shipped start types"
+call :svcset "SysMain" auto 2 "SysMain (prefetch)"
+call :svcset "DPS" auto 2 "DPS (diagnostics)"
+call :svcset "StorSvc" delayed-auto 2 "StorSvc (Storage Sense)"
+call :svcset "Themes" auto 2 "Themes (visual styles)"
+call :svcset "AudioEndpointBuilder" auto 2 "Audio endpoints"
+call :svcset "Audiosrv" auto 2 "Windows Audio"
+call :svcset "ShellHWDetection" auto 2 "ShellHWDetection (AutoPlay)"
+call :svcset "WerSvc" demand 3 "WerSvc (error reporting)"
+call :svcset "TabletInputService" demand 3 "TabletInputService"
+call :svcset "defragsvc" demand 3 "Optimize Drives"
+call :svcset "VSS" demand 3 "Volume Shadow Copy"
+call :svcset "swprv" demand 3 "Shadow Copy provider"
+call :svcset "vds" demand 3 "Virtual Disk"
+call :svcset "SecurityHealthService" demand 3 "Windows Security health"
+call :svcset "RemoteRegistry" disabled 4 "RemoteRegistry (off by default)"
+sc start SysMain >nul 2>&1
+
+:: --- the three that genuinely depend on the machine
+echo(
+call :L "%cStep%" "The three that depend on how you use this PC"
+call :asksvc "svc.wsearch" 5 "WSearch" "Windows Search indexing"
+call :asksvc "svc.spooler" 5 "Spooler" "Print Spooler"
+
+:: --- the update stack is a stop/start, not a start type, so it is asked
+:: --- but applied by hand.
+call :ask "svc.stop.update.stack" 5
+if "%ANSWER%"=="SKIP" goto sv_done
+call :profval "svc.stop.update.stack" "%ANSWER%"
+if /i not "%PROFVAL%"=="STOP" goto sv_done
+call :L "%cInfo%" "  stopping the update stack so its cache can be cleared"
+net stop wuauserv >nul 2>&1
+net stop bits     >nul 2>&1
+:sv_done
+
+call :L "%cOK%" "Services section done."
+if not defined AUTOPROFILE pause
+goto msetup
 
 :setup_privacy
 :: Privacy and debloat, driven entirely by the card tables.
