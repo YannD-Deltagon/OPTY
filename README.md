@@ -1,130 +1,147 @@
 # ⚡ OPTY — Windows Optimizer & Cleaner
 
-> A single, self-contained `.bat` with a clear colored menu to **clean**, **optimize** and **fix** Windows 10/11 — no install, no dependencies, pure CMD.
+> A single self-contained `.bat` that **cleans**, **configures** and **repairs** Windows 10/11.
+> No install, no dependencies, pure CMD — and it explains every single thing it does before doing it.
 >
-> 🧠 *Based on 7 years of IT experience and 2 years of laziness typing the same commands.*
+> 🇫🇷 🇬🇧 **Fully bilingual.** The language is detected from your Windows profile and can be switched at any time.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick start
 
-1. Download [`OPTY.bat`](https://github.com/YannD-Deltagon/OPTY/blob/master/OPTY.bat) (no other file needed)
+1. Download [`OPTY.bat`](https://github.com/YannD-Deltagon/OPTY/blob/master/OPTY.bat) — nothing else is needed
 2. **Right-click → Run as administrator**
-3. Follow the on-screen menu (use the numpad)
+3. Follow the menu
 
-⚡ **Fast full cleanup + reboot:** press `1` `Enter`, then `3r` `Enter`
-*(Auto Full optimization, then reboot)*
+⚡ **Fast full cleanup + reboot:** `1` `Enter`, then `3r` `Enter`
 
-> ✅ An Internet connection is recommended (for the auto-update check) but **not required** — OPTY falls back to *local mode* if GitHub is unreachable.
-
----
-
-## 📌 What it does
-
-OPTY groups dozens of maintenance commands behind a readable menu, with **three levels of automation** so you stay in control.
-
-### 🎯 Highlights (v05.0)
-- 🛟 **Automatic System Restore Point** before any change (the 2026 safety standard — System Protection is enabled on `C:` if needed)
-- 🧹 Deep cleanup: temp, caches (GPU/shader, browsers + service-worker, apps), **game launchers** (Steam shadercache, Ubisoft, EA/Origin, Epic), **Adobe media cache**, DaVinci, Windows Update cache, Delivery Optimization, dumps, logs, INetCache, thumbnails, `Windows.old`, Recycle Bin…
-- 🐳 **WSL / Docker disk compaction** — cleanly stops Docker Desktop & WSL, then shrinks the virtual disks (`docker_data.vhdx` + every distro `ext4.vhdx`) to reclaim space
-- 🛠️ Repair tools: `DISM` (with `AnalyzeComponentStore`), `SFC`, `CHKDSK` (online `/scan` by default, full `/f /r` on demand)
-- 🧰 Enables **Storage Sense** for ongoing automatic maintenance (the native 2026 complement to manual cleanup)
-- 🌐 Network: DNS flush, Winsock/IP reset (manual mode only) + **TCP good-default tuning** (autotuning normal / RSS on / heuristics off)
-- 💾 Storage: drive **optimization** (`defrag` / SSD TRIM)
-- ⚙️ Service & registry tweaks, **Ultimate Performance** power plan, mouse anti-lag
-- 🎮 Optional **Gaming / Performance profile**: game priority (MMCSS), Game Mode, VBS/Memory Integrity off, power-throttling off, network latency (Nagle/throttling), SSD TRIM, USB-suspend off, background apps + telemetry off, telemetry scheduled-tasks off
-- 🖥️ Separate **Display tweaks** menu (opt-in) to toggle **MPO** and **HAGS** on/off individually — these can *fix or cause* flicker/stutter, so they're kept out of the auto profile (⚠️ MPO-off is a known cause of **multi-monitor black flicker** on mixed-refresh / VRR setups)
-- 🛡️ Optional **2026 debloat**: disable Windows **Recall** & **Copilot**, block sponsored apps (Consumer Features), disable **Widgets** & Task View, and turn off **advertising ID / suggested content / Spotlight tips / silent app installs** — all reversible via **Restore ALL profile defaults**
-- 🔐 **Re-assert good Windows defaults** (safety net): turns **Firewall**, **Defender real-time** and **UAC** back ON, plus SSD TRIM / SysMain / Prefetch / system-managed pagefile — undoes damage left by shady "optimizers"
-- ♻️ Re-enable helpers (Office / Chrome / Windows Update behind corporate GPO)
-- 📊 **Disk-space-freed report** (before / after) at the end of every run
-- 🌐 **Network adapters report** (menu `4`): every adapter's tunable settings with **current value / factory default / accepted values / min-max-step**, power-saving & wake keywords (EEE, Green Ethernet, ULP, `ReduceSpeedOnPowerDown`…), offloads, bindings, TCP globals and a raw registry dump — written to `C:\OPTY_by-YannD\netinfo_<date>.txt`, plus a `netprops_<date>.json` holding each driver's own limits (so a future tuning module reads them instead of hardcoding values that differ per chipset)
-- 🎨 **Live colored output** (ANSI/VT) + **complete timestamped logs** for every action
-
-### 🖥️ Compatibility
-- Windows **10** / **11** (x64)
-- Requires **administrator** rights (the script checks and exits otherwise)
+> An internet connection is recommended for the update check but not required.
 
 ---
 
-## 🧭 Main menu
+## 🧭 What is actually in here
 
-Organised by category, so nothing destructive hides two levels down.
+Two menus do the work. Everything else is reporting, repair or undo.
 
-| Key | Category | What it does |
-|-----|----------|--------------|
-| `1` | **Clean & Optimize** | Manual / Auto Lite / Auto Full (mode selector below) |
-| `2` | **Repair Windows** | Guided DISM → SFC → Windows Update → disk |
-| `3` | **Network** | Diagnose / Full report / Apply profile / Restore |
-| `4` | **System & Gaming** | Registry profile, services + power plan, mouse |
-| `5` | **Display & GPU** | MPO / HAGS — opt-in, with the real flicker guidance |
-| `6` | **Debloat 2026** | Recall, Copilot, ads, widgets, telemetry |
-| `7` | **Restore defaults** | Re-assert good defaults / undo every profile |
-| `8` | **Re-enable updates** | Office / Chrome / Windows Update behind GPO |
-| `9` | **Clean OPTY files** | Logs and reports in `C:\OPTY_by-YannD` |
+| Key | Menu | When you use it |
+|-----|------|-----------------|
+| `1` | **CLEAN** | Regularly. Deletes only what regenerates on its own. |
+| `2` | **SETUP** | Once, on a new PC. Registry, services, power, network. |
+| `3` | Reports | Network report, diagnose, open the log folder |
+| `4` | Restore | Undo everything OPTY changed, re-assert Windows defaults |
+| `5` | Repair Windows | Guided DISM, SFC, disk check |
+| `6` | Maintenance | Driver store, prune OPTY's own files |
 | `0` | Exit | |
 
-### 🌐 Network (menu `3`)
+---
 
-One profile — **no Gaming/Streaming/Torrent split**. Game traffic is small UDP that never touches LSO, RSC or jumbo frames, and streaming and torrenting want the same offloads on and the same buffers raised; a profile switcher would be theatre.
+## 📇 Every setting is explained before it is applied
 
-- Every keyword is written as **`REG_SZ`**. NDIS keywords are strings — a `REG_DWORD` write is *silently ignored* by the driver, which is how most `.bat` "network tweaks" do nothing at all.
-- Values are **clamped to your driver's own max** and rounded to its step, both read from `Ndi\Params` at runtime; keywords your driver doesn't expose are skipped. Nothing is hardcoded per chipset.
-- **Restore** writes back each keyword's own `Ndi\Params\<kw>\default`.
-- `pnputil /restart-device` applies changes without a reboot (link drops 2–4 s).
-- **Diagnose** lists only what differs from the driver defaults.
+This is the part that makes OPTY different from a list of `reg add` lines.
 
-### 🔁 The 3 optimization modes (menu `1`)
+**225 settings** each carry a card, in French and English, that tells you:
+
+- **what the setting is** — not the marketing name, the mechanism
+- **what changing it actually does** — and what *each possible value* does, one by one
+- **the gain** — and where there is none, the card says *"no measurable gain"* rather than inventing one
+- **the cost** — what breaks, what slows down, what you lose permanently
+- **the Windows default** — including when that default is *the value not existing at all*
+- **what is not verified** — 132 of the 225 cards carry an explicit "unverified" note
+
+Press `?` on any question for the long version: the reasoning behind the profile table, known bugs, and the exact registry path or command it will run.
+
+### The 5 profiles
+
+Every question in the whole script uses the same five answers, so one digit means the same intent everywhere:
+
+| | Profile | Intent |
+|---|---------|--------|
+| `1` | **GAMING** | Maximum performance, minimum latency. Desktop, mains power. |
+| `2` | **SERVER** | Torrent, Plex, game servers. Throughput over interactivity. |
+| `3` | **OFFICE** | Quiet, low power draw, everything works. |
+| `4` | **LAPTOP** | Battery first. On-battery caps are **respected**, never lifted. |
+| `5` | **WINDOWS** | The shipped default — including deleting a value Windows ships absent. |
+
+Press `P` in the SETUP menu to answer every question with one profile in about two minutes. Anything that can lose data still stops and asks.
+
+> **Four identical columns is a normal answer.** Roughly half the cards recommend the same value for all four real profiles, because the setting genuinely does not vary by use case. Inventing a difference to fill the table would be worse than admitting there is none.
+
+### Once you answer, the value is written
+
+Even if it already looks correct. On a fresh or foreign machine the write is what makes it true. The log still distinguishes `SET`, `FIXED` and `written (was already correct)`, so you can tell a repair from a no-op.
+
+---
+
+## 🧹 CLEAN — three modes
 
 | Mode | Behaviour |
 |------|-----------|
-| **1 — Manual** | Asks before each step (DNS, DISM, SFC, Windows Update, Cleanmgr, delete, defrag, CHKDSK…). Full control. |
-| **2 — Auto (lite)** | Quick pass: Windows Update + cleanup, then the shutdown prompt. |
-| **3 — Auto (full)** | The works: services, DNS + TCP, DISM, SFC, Windows Update, **cleanup + WSL/Docker compaction**, defrag, then disk report. |
+| **1 — Manual** | Asks before each step and **explains it fully**, including whether the same step also runs unattended in the auto modes. |
+| **2 — Auto lite** | Quick regular pass: Windows Update, then the file cleanup. |
+| **3 — Auto full** | Everything: apps stopped, DNS, DISM, SFC, Windows Update, cleanup, WSL/Docker compaction, defrag. |
 
-**Suffixes** — add a letter after the mode number to chain a power action:
-- `3r` → Auto Full **+ reboot**
-- `3s` → Auto Full **+ shutdown**
-- `2r`, `2s` → same for Auto lite
+**Suffixes:** `3r` = Auto full + reboot · `3s` = + shutdown · same for `2r` / `2s`.
 
----
+What runs in which mode is declared **once**, as data, and the release build fails if the code and that declaration ever disagree:
 
-## 📊 Reporting & logs
+```
+Auto lite            Windows Update, file cleanup
+Auto full            the above + stop apps, DNS, DISM, SFC, WSL/Docker, defrag
+Manual only          CHKDSK
+```
 
-- **Session header** at startup: OS build, machine, user, CPU, and **free space per drive**.
-- Every action is written to a timestamped log file next to the script: `logs_<date>_<time>.txt` (the 15 most recent are kept, older ones auto-pruned).
-- At the end of a run, a colored panel shows **free space before / after** and the amount **freed** (MB and ~GB).
-- Exit codes of the heavy operations (DISM, SFC, CHKDSK, DEFRAG) are logged.
+### What gets deleted
 
-> 🎨 Colors use ANSI/VT sequences (best in **Windows Terminal**, the default on Windows 11). OPTY enables VT automatically.
+The rule is **regeneration time, not file type**: anything that comes back on its own in well under 30 minutes and loses no user data.
 
----
+Temp files, GPU and shader caches, browser caches (**never** cookies, history, saved logins or bookmarks), game-launcher caches, Windows Update cache, Delivery Optimization, crash dumps, logs, thumbnails, `Windows.old`, upgrade rollback folders, Recycle Bin.
 
-## ⚠️ Good to know (this is an aggressive optimizer)
-
-Some steps are intentionally thorough. In particular:
-
-- **Closes apps**: Docker Desktop, Edge/Chrome, and the Microsoft Store window are closed during cleanup.
-- **`Windows.old`** is deleted → you lose the ability to roll back to the previous Windows build.
-- **Restore points**: old shadow copies are trimmed (**the most recent one is kept**).
-- **`DISM /StartComponentCleanup /ResetBase`** → installed updates can no longer be uninstalled.
-- **`CHKDSK /f /r`** may schedule a scan on the next reboot.
-- WSL/Docker compaction stops Docker — it is **not** restarted automatically.
-
-When in doubt, run **Mode 1 (Manual)** first: it asks before each step and ends with the disk-space report.
-
-> 🛟 A **System Restore Point** is created automatically before any of the above runs (menu `1`/`2`/`3`), so you can roll back from *Settings → System → Recovery → Open System Restore*.
+Development caches are **in scope** — npm, pip, Gradle, Cargo and friends refetch. A cache big enough that refetching is measured in hours gets its size reported before it goes.
 
 ---
 
-## 🔄 Self-update
+## 🛡️ What this tool refuses to do
 
-On launch OPTY copies itself to `C:\OPTY_by-YannD\` and checks GitHub for a newer release. Hidden menu input:
-- `.` → force the update check
+Written down because most of these were mistakes it *used to* make:
+
+- **Never deletes configuration, saved logins, cookies, history or entitlements.** The release build refuses to publish if any delete targets a folder known to hold them.
+- **Never touches a cloud mount.** Google Drive reports itself to Windows as a fixed disk, byte for byte identically to `C:`. Deleting there propagates to every device syncing that account, so drives without a real local volume signature are skipped and the skip is logged with its reason.
+- **Never claims a success it did not achieve.** A delete that could not happen, a registry write the driver ignored, a scheduled task that does not exist on this build — each is reported as what it was.
+- **Never forces a preference.** A setting is either a *repair* (a shipped default something else broke, applied automatically) or a *preference* (real trade-offs, always asked).
+
+---
+
+## 🔧 Reliability
+
+- **CRLF self-heal.** GitHub's release asset is served with LF line endings while the raw file is CRLF. CMD computes `call`/`goto :eof` return addresses as byte offsets assuming CRLF, so an LF copy drifts into the wrong section partway through a long run. OPTY detects this at startup and repairs itself before doing anything.
+- **Automatic restore point** before any change.
+- **Complete timestamped logs**, the 5 most recent kept.
+- **Disk-space report** — free space before and after every run.
+- **14 integrity gates** on the release build: CRLF, no stray control bytes, every `goto` and `call` resolves, no card missing a translation, no profile column that cannot be written, no card asked twice, no user-data deletion, no code reading a subroutine's output from inside its own parenthesised block.
+
+Every one of those gates exists because the bug it catches was found in shipped code.
+
+---
+
+## ⚠️ Good to know
+
+- **Closes apps** during cleanup: Docker Desktop, browsers, the Store window.
+- **`Windows.old` and the upgrade staging folders are deleted** — you lose the ability to roll back a Windows upgrade.
+- **`DISM /StartComponentCleanup /ResetBase`** — installed updates can no longer be uninstalled.
+- **`CHKDSK /f /r`** may schedule a check on the next reboot.
+- WSL/Docker compaction stops Docker and does **not** restart it.
+
+Run **Mode 1 (Manual)** first if in doubt: it asks before each step and tells you exactly what that step does.
+
+---
+
+## 🖥️ Compatibility
+
+Windows **10** / **11** (x64), administrator rights required.
 
 ---
 
 ## 🙏 Credits
 
 Made by **[@YannD-Deltagon](https://github.com/YannD-Deltagon)**.
-Use at your own risk — review the script before running it on a machine you care about.
+Use at your own risk — read the script before running it on a machine you care about.
