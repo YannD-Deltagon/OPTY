@@ -349,7 +349,10 @@ $askCount = @{}
 $n = 0
 foreach ($line in $codeLines) {
     $n++
-    if ($line -match '(?i)call\s+:ask(reg)?\s+"([a-z0-9_.]+)"') {
+    # asknic must be in here too. When it was added the gate kept reporting the
+    # old count and quietly stopped covering ten cards - a gate with a blind
+    # spot is worse than none, because it still prints OK.
+    if ($line -match '(?i)call\s+:ask(reg|nic)?\s+"([a-z0-9_.]+)"') {
         $id = $matches[2]
         if (-not $askCount.ContainsKey($id)) { $askCount[$id] = @() }
         $askCount[$id] += $n

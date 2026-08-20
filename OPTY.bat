@@ -2778,6 +2778,85 @@ call :L "%cOK%" "System and gaming section done."
 if not defined AUTOPROFILE pause
 goto msetup
 
+:asknic
+:: %~1 card id  %~2 recommended answer  %~3 NDIS keyword  %~4 label
+:: Requires NICKEY to already point at the adapter class key.
+::
+:: Why this is not :askreg:
+::   :askreg writes REG_DWORD. NDIS keywords are REG_SZ, and a DWORD written
+::   to one is accepted by the registry and silently ignored by the driver.
+::   :askreg maps DELETE to :killkey. These cards use NICDEFAULT to mean the
+::   opposite - write back Ndi\Params\<kw>\default - and about thirty other
+::   cards rely on DELETE removing a value, so the literal could not be
+::   reused without breaking them.
+if not defined NICKEY (
+    call :L "%cErr%" "  no adapter selected - %~4 skipped"
+    goto :eof
+)
+:: A keyword this driver does not expose is not a question worth asking. The
+:: Ethernet and Wi-Fi keyword sets are disjoint, so on the wrong adapter this
+:: would otherwise render a full card for a setting that cannot be written.
+reg query "%NICKEY%\Ndi\Params\%~3" >nul 2>&1 || (
+    call :L "%cInfo%" "  absent   %~4 (this adapter does not expose %~3)"
+    goto :eof
+)
+call :ask "%~1" "%~2"
+if "%ANSWER%"=="SKIP" ( call :L "%cInfo%" "  skipped  %~4" & goto :eof )
+call :profval "%~1" "%ANSWER%"
+if not defined PROFVAL ( call :L "%cErr%" "  no profile value for %~1 answer %ANSWER%" & goto :eof )
+if /i "%PROFVAL%"=="SKIP"       ( call :L "%cInfo%" "  left alone  %~4" & goto :eof )
+if /i "%PROFVAL%"=="NICDEFAULT" ( call :nicdefault "%NICKEY%" "%~3" & goto :eof )
+call :nicset "%NICKEY%" "%~3" "%PROFVAL%"
+goto :eof
+
+:setup_wifi
+:: The Wi-Fi questions. Reachable only when the selected adapter actually is
+:: a Wi-Fi card - tested by a keyword only Wi-Fi drivers publish, not by the
+:: adapter description, which is a localised marketing string.
+echo.                                                           >> %logs%
+echo ====================== :SETUP_WIFI ======================== >> %logs%
+echo %date% %time% : Entered :setup_wifi label                    >> %logs%
+if not defined NICKEY goto swf_noadapter
+reg query "%NICKEY%\Ndi\Params\RoamAggressiveness" >nul 2>&1 || goto swf_notwifi
+cls
+call :banner "WI-FI ADAPTER"
+echo(
+call :ti "These keywords exist only on Wi-Fi cards. The Ethernet profile never" "Ces mots-cles n existent que sur les cartes Wi-Fi. Le profil Ethernet n en"
+call :ti "touched a single one of them, which is why choosing Wi-Fi there wrote" "touchait aucun, et c est pourquoi choisir le Wi-Fi la-bas n ecrivait rien"
+call :ti "nothing at all and still reported success." "tout en annoncant une reussite."
+echo(
+if not defined AUTOPROFILE pause
+set "NICWROTE=0" & set "NICSKIP=0"
+call :asknic "net.wifi.roamaggr"   1 "RoamAggressiveness"       "Roaming aggressiveness"
+call :asknic "net.wifi.roamband"   1 "RoamingPreferredBandType" "Preferred band"
+call :asknic "net.wifi.mimops"     1 "MIMOPowerSaveMode"        "MIMO power save"
+call :asknic "net.wifi.uapsd"      1 "uAPSDSupport"             "WMM power save (U-APSD)"
+call :asknic "net.wifi.tputboost"  1 "ThroughputBoosterEnabled" "Throughput booster"
+call :asknic "net.wifi.pktcoal"    1 "*PacketCoalescing"        "Packet coalescing"
+call :asknic "net.wifi.sleepdisc"  1 "*DeviceSleepOnDisconnect" "Radio sleep when disconnected"
+call :asknic "net.wifi.chwidth24"  1 "ChannelWidth24"           "Channel width 2.4 GHz"
+call :asknic "net.wifi.chwidth52"  1 "ChannelWidth52"           "Channel width 5 GHz"
+call :asknic "net.wifi.chwidth6"   1 "ChannelWidth6"            "Channel width 6 GHz"
+echo(
+if %NICWROTE% GTR 0 (
+    call :L "%cOK%" "  %NICWROTE% keyword(s) written, %NICSKIP% refused or absent"
+    call :L "%cWarn%" "  The adapter must be restarted before these take effect."
+    call :nicrestart
+) else (
+    call :L "%cInfo%" "  nothing was written - every value was already correct or skipped"
+)
+if not defined AUTOPROFILE pause
+goto mnetwork
+:swf_notwifi
+call :L "%cWarn%" "The selected adapter is not a Wi-Fi card - it does not publish"
+call :L "%cWarn%" "RoamAggressiveness. Use option 3 for an Ethernet adapter."
+pause
+goto mnetwork
+:swf_noadapter
+call :L "%cErr%" "No adapter selected yet - use option 1 or 3 first."
+pause
+goto mnetwork
+
 :setup_privacy
 :: Privacy and debloat, driven entirely by the card tables.
 ::
@@ -2989,6 +3068,8 @@ echo(     %cVal%2.%cR%  Full report     %cInfo%every setting + limits -^> %OPTY_
 echo(     %cVal%3.%cR%  Apply profile   %cInfo%one sane profile, clamped to YOUR driver limits%cR%
 echo(     %cVal%4.%cR%  Restore         %cInfo%back to the driver's own factory defaults%cR%
 echo(
+echo(     %cVal%5.%cR%  Wi-Fi settings  %cInfo%roaming, power save, band and channel width%cR%
+echo(
 echo(     %cVal%0.%cR%  Menu
 echo(
 call :rule
@@ -2999,6 +3080,7 @@ if "%choice%"=="1" goto net_diag
 if "%choice%"=="2" goto netinfo_report
 if "%choice%"=="3" (call :restore_point & goto net_apply)
 if "%choice%"=="4" (call :restore_point & goto net_restore)
+if "%choice%"=="5" (call :restore_point & goto setup_wifi)
 if "%choice%"=="0" goto msetup
 color 0C
 echo This is not a valid action
